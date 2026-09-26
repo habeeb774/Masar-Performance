@@ -47,7 +47,13 @@ export function StatCard({
   footer?: React.ReactNode;
 }) {
   const body = (
-    <Card className={cn("h-full gap-0 py-4 transition-colors", href && "hover:border-primary/40 hover:bg-accent/30")}>
+    <Card
+      className={cn(
+        "h-full gap-0 py-4",
+        href &&
+          "transition-[transform,box-shadow,background-color,border-color] duration-200 [transition-timing-function:var(--ease-soft)] hover:-translate-y-0.5 hover:border-primary/40 hover:bg-accent/30 hover:shadow-[var(--shadow-raised-hover)] active:translate-y-0 active:shadow-[var(--shadow-pressed)]",
+      )}
+    >
       <CardContent className="flex items-start justify-between gap-3 px-4">
         <div className="min-w-0">
           <p className="text-xs font-medium text-muted-foreground">{label}</p>

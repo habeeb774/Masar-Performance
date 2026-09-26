@@ -58,6 +58,16 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+  --ease-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-press: cubic-bezier(0.4, 0, 0.2, 1);
+  --shadow-raised: var(--surface-shadow-raised);
+  --shadow-raised-hover: var(--surface-shadow-raised-hover);
+  --shadow-pressed: var(--surface-shadow-pressed);
+  --shadow-inset: var(--surface-shadow-inset);
+  --shadow-inset-focus: var(--surface-shadow-inset-focus);
+  --shadow-float: var(--surface-shadow-float);
+  --animate-shimmer: shimmer 1.8s ease-in-out infinite;
+  --animate-in-page: enter-page 0.4s var(--ease-soft) both;
 }
 
 :root {
@@ -107,6 +117,13 @@
   --pending-soft: oklch(0.95 0.03 295);
   --blocked: oklch(0.5 0.02 255);
   --blocked-soft: oklch(0.94 0.005 255);
+  /* soft neumorphism: a warm-lit top-left, cool-shadowed bottom-right on the light surface */
+  --surface-shadow-raised: 0 1px 2px oklch(0.2 0.02 255 / 6%), 0 1px 1px oklch(1 0 0 / 70%) inset, 0 -1px 0 oklch(0.2 0.02 255 / 4%) inset;
+  --surface-shadow-raised-hover: 0 6px 16px -6px oklch(0.35 0.08 255 / 16%), 0 2px 4px -1px oklch(0.2 0.02 255 / 8%), 0 1px 1px oklch(1 0 0 / 70%) inset;
+  --surface-shadow-pressed: 0 1px 1px oklch(0.2 0.02 255 / 10%) inset, 0 1px 0 oklch(1 0 0 / 40%);
+  --surface-shadow-inset: inset 0 1px 2px oklch(0.2 0.03 255 / 8%), inset 0 1px 0 oklch(0.2 0.03 255 / 3%);
+  --surface-shadow-inset-focus: inset 0 1px 2px oklch(0.2 0.03 255 / 6%), 0 0 0 3px oklch(0.6 0.1 250 / 30%);
+  --surface-shadow-float: 0 12px 32px -8px oklch(0.2 0.03 255 / 14%), 0 4px 10px -4px oklch(0.2 0.03 255 / 8%);
 }
 
 .dark {
@@ -153,6 +170,12 @@
   --pending-soft: oklch(0.3 0.06 295);
   --blocked: oklch(0.7 0.015 255);
   --blocked-soft: oklch(0.28 0.01 255);
+  --surface-shadow-raised: 0 1px 2px oklch(0 0 0 / 30%), 0 1px 0 oklch(1 0 0 / 6%) inset;
+  --surface-shadow-raised-hover: 0 8px 20px -6px oklch(0 0 0 / 45%), 0 2px 6px -2px oklch(0 0 0 / 30%), 0 1px 0 oklch(1 0 0 / 8%) inset;
+  --surface-shadow-pressed: 0 1px 2px oklch(0 0 0 / 35%) inset;
+  --surface-shadow-inset: inset 0 1px 3px oklch(0 0 0 / 35%), inset 0 1px 0 oklch(0 0 0 / 20%);
+  --surface-shadow-inset-focus: inset 0 1px 3px oklch(0 0 0 / 30%), 0 0 0 3px oklch(0.66 0.12 245 / 35%);
+  --surface-shadow-float: 0 16px 40px -10px oklch(0 0 0 / 55%), 0 6px 14px -6px oklch(0 0 0 / 40%);
 }
 
 @layer base {
@@ -167,7 +190,30 @@
   }
   html {
     @apply font-sans;
+    scroll-behavior: smooth;
   }
+  ::selection {
+    background: color-mix(in oklch, var(--primary) 25%, transparent);
+  }
+  /* respect reduced-motion for every custom animation added below */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@keyframes enter-page {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 @media print {
