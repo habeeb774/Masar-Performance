@@ -204,27 +204,12 @@ async function loadContext(employeeId: string, year: number, month: number): Pro
   };
 }
 
-/**
- * (Re)calculate the monthly review. Manual overrides and manager adjustments
- * are preserved so recalculation never silently discards human decisions.
- */
-export async function calculateReview(user: AuthUser | null, employeeId: string, year: number, month: number) {
-  if (user) assertEmployeeAccess(user, employeeId);
-  const employee = await db.employee.findUniqueOrThrow({ where: { id: employeeId } });
-  const existing = await db.performanceReview.findUnique({
-    where: { employeeId_year_month: { employeeId, year, month } },
-    include: { results: true },
-  });
-  if (existing && ["APPROVED", "ACKNOWLEDGED"].includes(existing.status)) throw new UserError("التقييم معتمد ولا يمكن إعادة حسابه");
+type PrevResult = { templateId: string; isOverridden: boolean; overrideReason: string | null; score: Prisma.Decimal };
 
-  const planRow = await db.monthlyPlan.findUnique({ where: { employeeId_year_month: { employeeId, year, month } }, select: { id: true } });
-  if (planRow) await recomputePlan(planRow.id);
-  const ctx = await loadContext(employeeId, year, month);
-  const kpis = await kpisForJobTitle(employee.jobTitleId);
-  if (kpis.length === 0) throw new UserError("لا توجد مؤشرات أداء مرتبطة بوظيفة هذا الموظف — أضفها من إعدادات مؤشرات الأداء");
-
-  const prevByTemplate = new Map((existing?.results ?? []).map((r) => [r.templateId, r]));
-  const results = kpis.map((k) => {
+/** Evaluate every KPI for a month from already-loaded data — no writes. */
+function evaluateKpis<P extends PrevResult>(kpis: Awaited<ReturnType<typeof kpisForJobTitle>>, ctx: EvalContext, prevResults: P[]) {
+  const prevByTemplate = new Map(prevResults.map((r) => [r.templateId, r]));
+  return kpis.map((k) => {
     const t = k.template;
     const cfg = methodConfigSchema.safeParse(t.methodConfig ?? {});
     const def: KpiDefinition = {
@@ -252,8 +237,89 @@ export async function calculateReview(user: AuthUser | null, employeeId: string,
       vars: measured.vars,
       manualScore,
     });
-    return { def, evaluation, details: measured.details, prev };
+    return { def, evaluation, details: measured.details, prev, sourceType: t.sourceType };
   });
+}
+
+/**
+ * The month's KPI results for export: the stored review when one exists,
+ * otherwise a read-only preview from current data (nothing is written).
+ */
+export async function reviewForExport(employeeId: string, year: number, month: number) {
+  const employee = await db.employee.findUniqueOrThrow({ where: { id: employeeId } });
+  const review = await db.performanceReview.findUnique({
+    where: { employeeId_year_month: { employeeId, year, month } },
+    include: { results: { include: { template: { select: { sourceType: true } } }, orderBy: { createdAt: "asc" } } },
+  });
+  const ctx = await loadContext(employeeId, year, month);
+  if (review && review.results.length > 0) {
+    return {
+      preview: false,
+      status: review.status,
+      adjustment: num(review.managerAdjustment),
+      adjustmentReason: review.adjustmentReason,
+      managerNotes: review.managerNotes,
+      results: review.results.map((r) => ({
+        name: r.name,
+        category: r.category,
+        sourceType: r.template.sourceType,
+        unit: r.unit,
+        target: num(r.target),
+        achieved: num(r.achieved),
+        achievementRate: num(r.achievementRate),
+        weight: num(r.weight),
+        isOverridden: r.isOverridden,
+        overrideReason: r.overrideReason,
+        details: r.details,
+      })),
+      ctx,
+    };
+  }
+  const kpis = await kpisForJobTitle(employee.jobTitleId);
+  const evaluated = evaluateKpis(kpis, ctx, []);
+  return {
+    preview: true,
+    status: null,
+    adjustment: 0,
+    adjustmentReason: null,
+    managerNotes: null,
+    results: evaluated.map((x) => ({
+      name: x.def.name,
+      category: x.def.category,
+      sourceType: x.sourceType,
+      unit: x.def.unit,
+      target: x.evaluation.target,
+      achieved: x.evaluation.achieved,
+      achievementRate: x.evaluation.achievementRate,
+      weight: x.def.weight,
+      isOverridden: false,
+      overrideReason: null,
+      details: x.details as unknown,
+    })),
+    ctx,
+  };
+}
+
+/**
+ * (Re)calculate the monthly review. Manual overrides and manager adjustments
+ * are preserved so recalculation never silently discards human decisions.
+ */
+export async function calculateReview(user: AuthUser | null, employeeId: string, year: number, month: number) {
+  if (user) assertEmployeeAccess(user, employeeId);
+  const employee = await db.employee.findUniqueOrThrow({ where: { id: employeeId } });
+  const existing = await db.performanceReview.findUnique({
+    where: { employeeId_year_month: { employeeId, year, month } },
+    include: { results: true },
+  });
+  if (existing && ["APPROVED", "ACKNOWLEDGED"].includes(existing.status)) throw new UserError("التقييم معتمد ولا يمكن إعادة حسابه");
+
+  const planRow = await db.monthlyPlan.findUnique({ where: { employeeId_year_month: { employeeId, year, month } }, select: { id: true } });
+  if (planRow) await recomputePlan(planRow.id);
+  const ctx = await loadContext(employeeId, year, month);
+  const kpis = await kpisForJobTitle(employee.jobTitleId);
+  if (kpis.length === 0) throw new UserError("لا توجد مؤشرات أداء مرتبطة بوظيفة هذا الموظف — أضفها من إعدادات مؤشرات الأداء");
+
+  const results = evaluateKpis(kpis, ctx, existing?.results ?? []);
 
   const totals = aggregateScores(
     results.map((r) => ({ category: r.def.category, weight: r.def.weight, achievementRate: r.evaluation.achievementRate, weightedScore: r.evaluation.weightedScore })),

@@ -6,6 +6,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { ActionButton } from "@/components/shared/action-button";
 import { KeyValue, PageHeader } from "@/components/shared/page";
+import { ExportExcelButton } from "@/features/performance/export-excel-button";
+import { exportFileName } from "@/lib/performance-export";
 import { EnumBadge } from "@/components/shared/status-badge";
 import type { IdParams } from "@/lib/params";
 import { canAccessEmployee, hasPermission, PERMISSIONS } from "@/lib/permissions";
@@ -57,6 +59,13 @@ export default async function ReviewDetailPage({ params }: { params: IdParams })
                   <UserRound /> ملف الموظف
                 </Link>
               </Button>
+            )}
+            {isManager && (
+              <ExportExcelButton
+                href={`/api/export/performance?employee=${employee.id}&year=${review.year}&month=${review.month}`}
+                label="تصدير Excel للموارد البشرية"
+                fallbackName={exportFileName(employee.fullName, review.year, review.month)}
+              />
             )}
             {canEdit && <CalculateReviewButton employeeId={employee.id} year={review.year} month={review.month} hasReview />}
             {canApprove && (
