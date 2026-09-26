@@ -61,7 +61,7 @@ export function StatCard({
           {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
         </div>
         {Icon && (
-          <span className={cn("grid size-9 shrink-0 place-items-center rounded-lg ring-1 ring-inset", toneClasses[tone])}>
+          <span className={cn("grid size-9 shrink-0 place-items-center rounded-lg shadow-[var(--shadow-raised)] ring-1 ring-inset", toneClasses[tone])}>
             <Icon className="size-4.5" />
           </span>
         )}
@@ -93,7 +93,7 @@ export function EmptyState({
 }) {
   return (
     <div className={cn("flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed px-6 py-10 text-center", className)}>
-      <span className="grid size-11 place-items-center rounded-full bg-muted text-muted-foreground">
+      <span className="grid size-11 place-items-center rounded-full bg-muted text-muted-foreground shadow-[var(--shadow-inset)]">
         <Icon className="size-5" />
       </span>
       <p className="text-sm font-semibold">{title}</p>
