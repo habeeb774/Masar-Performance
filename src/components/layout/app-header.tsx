@@ -1,5 +1,6 @@
 "use client";
 
+import { useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useTheme } from "next-themes";
 import { Bell, KeyRound, LogOut, Monitor, Moon, Sun, User } from "lucide-react";
@@ -34,6 +35,13 @@ export function AppHeader({
   unread: number;
 }) {
   const { setTheme, theme } = useTheme();
+  // the theme is only known on the client (localStorage) — render a neutral icon until hydrated
+  const mounted = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  );
+  const themeIcon = !mounted ? <Monitor /> : theme === "dark" ? <Moon /> : theme === "light" ? <Sun /> : <Monitor />;
   return (
     <header className="no-print sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2 border-b bg-background/85 px-3 backdrop-blur md:px-5">
       <SidebarTrigger className="-ms-1" />
@@ -42,7 +50,7 @@ export function AppHeader({
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant="ghost" size="icon" aria-label="المظهر">
-            {theme === "dark" ? <Moon /> : theme === "light" ? <Sun /> : <Monitor />}
+            {themeIcon}
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">

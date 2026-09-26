@@ -199,8 +199,8 @@ export async function recomputePlan(planId: string, cache = new ItemCache()) {
     }
   }
 
-  // chunk writes to keep transactions small
-  for (let i = 0; i < writes.length; i += 50) await db.$transaction(writes.slice(i, i + 50));
+  // recompute writes are idempotent derived values — run them concurrently (bounded by the pool)
+  for (let i = 0; i < writes.length; i += 8) await Promise.all(writes.slice(i, i + 8));
 }
 
 /** Plans that are currently being executed (current + previous month). */

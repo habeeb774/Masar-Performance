@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
 import { BarChart3, CheckCircle2, RefreshCw, Target } from "lucide-react";
 import { LoginForm } from "./login-form";
+import type { SearchParams } from "@/lib/params";
 
 export const metadata: Metadata = { title: "تسجيل الدخول" };
 
-export default async function LoginPage({ searchParams }: PageProps<"/login">) {
+export default async function LoginPage({ searchParams }: { searchParams: SearchParams }) {
   const { next } = await searchParams;
   return (
     <div className="grid min-h-screen lg:grid-cols-2">

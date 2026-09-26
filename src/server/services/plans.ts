@@ -64,15 +64,17 @@ export async function createMonthlyPlan(user: AuthUser, input: z.infer<typeof cr
   });
   if (exists) throw new UserError(`توجد خطة لهذا الموظف في ${monthLabel(input.year, input.month)}`);
 
-  const template = input.templateId
-    ? await db.goalTemplate.findUnique({ where: { id: input.templateId }, include: { items: { orderBy: { sortOrder: "asc" } } } })
-    : employee.jobTitleId
-      ? await db.goalTemplate.findFirst({
-          where: { jobTitleId: employee.jobTitleId, isActive: true },
-          include: { items: { orderBy: { sortOrder: "asc" } } },
-          orderBy: { updatedAt: "desc" },
-        })
-      : null;
+  const template = !input.useTemplate
+    ? null
+    : input.templateId
+      ? await db.goalTemplate.findUnique({ where: { id: input.templateId }, include: { items: { orderBy: { sortOrder: "asc" } } } })
+      : employee.jobTitleId
+        ? await db.goalTemplate.findFirst({
+            where: { jobTitleId: employee.jobTitleId, isActive: true },
+            include: { items: { orderBy: { sortOrder: "asc" } } },
+            orderBy: { updatedAt: "desc" },
+          })
+        : null;
 
   const start = fromDateKey(monthStart(input.year, input.month));
   const end = fromDateKey(monthEnd(input.year, input.month));
@@ -148,6 +150,10 @@ export async function updateGoal(user: AuthUser, goalId: string, input: GoalInpu
 export async function deleteGoal(user: AuthUser, goalId: string) {
   const goal = await db.monthlyGoal.findUniqueOrThrow({ where: { id: goalId }, include: { plan: true } });
   assertCanEditGoals(user, goal.plan);
+  // once a plan is approved its weeks/tasks are already generated from this goal — cancel it instead of deleting
+  if (!["DRAFT", "SUBMITTED"].includes(goal.plan.status)) {
+    throw new UserError("لا يمكن حذف هدف بعد اعتماد الخطة — استخدم إلغاء الهدف بدلًا من ذلك");
+  }
   await db.monthlyGoal.delete({ where: { id: goalId } });
   await audit({ user, action: "goal.delete", entityType: "MonthlyGoal", entityId: goalId, before: goal });
 }
@@ -163,6 +169,7 @@ export async function cancelGoal(user: AuthUser, goalId: string, reason: string)
 export async function submitPlan(user: AuthUser, planId: string) {
   const plan = await getPlanOrThrow(planId);
   assertEmployeeAccess(user, plan.employeeId);
+  if (plan.employeeId !== user.employeeId && !canManagePlans(user)) throw new UserError("يرسل الخطة صاحبها أو المدير فقط");
   if (plan.status !== "DRAFT") throw new UserError("الخطة ليست مسودة");
   const goals = await db.monthlyGoal.count({ where: { planId } });
   if (goals === 0) throw new UserError("أضف هدفًا واحدًا على الأقل قبل الإرسال");
@@ -218,9 +225,19 @@ export async function returnPlan(user: AuthUser, planId: string, notes: string) 
   });
 }
 
+/** Manual transitions only make sense once a plan has been approved. */
+const ALLOWED_STATUS_TRANSITIONS: Record<"IN_PROGRESS" | "COMPLETED" | "ARCHIVED", string[]> = {
+  IN_PROGRESS: ["APPROVED"],
+  COMPLETED: ["APPROVED", "IN_PROGRESS"],
+  ARCHIVED: ["APPROVED", "IN_PROGRESS", "COMPLETED"],
+};
+
 export async function setPlanStatus(user: AuthUser, planId: string, status: "IN_PROGRESS" | "COMPLETED" | "ARCHIVED") {
   const plan = await getPlanOrThrow(planId);
   assertEmployeeAccess(user, plan.employeeId);
+  if (!ALLOWED_STATUS_TRANSITIONS[status].includes(plan.status)) {
+    throw new UserError(`لا يمكن نقل الخطة من حالتها الحالية إلى ${status}`);
+  }
   await db.monthlyPlan.update({ where: { id: planId }, data: { status } });
   await audit({ user, action: "plan.status", entityType: "MonthlyPlan", entityId: planId, before: { status: plan.status }, after: { status } });
 }
@@ -371,7 +388,7 @@ export async function approveWeeklyVariance(user: AuthUser, planId: string) {
 /** Suggested daily split for each weekly goal of a week. */
 export async function suggestDailySplit(weeklyPlanId: string) {
   const company = await getCompany();
-  const week = await db.weeklyPlan.findUniqueOrThrow({ where: { id: weeklyPlanId }, include: { goals: true } });
+  const week = await db.weeklyPlan.findUniqueOrThrow({ where: { id: weeklyPlanId }, include: { goals: { include: { monthlyGoal: true } } } });
   const days: string[] = [];
   for (let d = toDateKey(week.startDate); d <= toDateKey(week.endDate); d = toDateKey(new Date(fromDateKey(d).getTime() + 86_400_000))) {
     if (company.workDays.includes(fromDateKey(d).getUTCDay())) days.push(d);
@@ -380,7 +397,11 @@ export async function suggestDailySplit(weeklyPlanId: string) {
     days,
     suggestions: Object.fromEntries(
       week.goals.map((g) => {
-        const split = suggestDailyTargets(num(g.targetValue), days.length);
+        // percentage / boolean goals are not quantities to sum — repeat the same target every day
+        const split =
+          g.monthlyGoal.goalType === "PERCENTAGE" || g.monthlyGoal.goalType === "BOOLEAN"
+            ? days.map(() => num(g.targetValue))
+            : suggestDailyTargets(num(g.targetValue), days.length);
         return [g.id, Object.fromEntries(days.map((d, i) => [d, split[i] ?? 0]))];
       }),
     ),
@@ -404,7 +425,8 @@ export async function saveDailyDistribution(user: AuthUser, input: z.infer<typeo
     if (!row) continue;
     const entries = Object.entries(row).filter(([d]) => d >= startKey && d <= endKey);
     const check = checkDistribution(entries.map(([, v]) => v), num(wg.targetValue));
-    if (!check.ok && wg.monthlyGoal.goalType !== "PERCENTAGE") warnings.push(`${wg.monthlyGoal.name}: الفرق ${check.diff}`);
+    const sumless = wg.monthlyGoal.goalType === "PERCENTAGE" || wg.monthlyGoal.goalType === "BOOLEAN";
+    if (!check.ok && !sumless) warnings.push(`${wg.monthlyGoal.name}: الفرق ${check.diff}`);
     const existing = new Map(
       wg.dailyTasks.filter((t) => t.source === "DISTRIBUTED").map((t) => [toDateKey(t.date), t]),
     );

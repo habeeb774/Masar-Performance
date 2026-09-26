@@ -161,6 +161,8 @@ export const createPlanSchema = z.object({
   year: z.coerce.number().int().min(2020).max(2100),
   month: z.coerce.number().int().min(1).max(12),
   templateId: optionalId,
+  /** false = start a blank plan even when the job title has an active template */
+  useTemplate: z.boolean().default(true),
 });
 
 export const weeklyDistributionSchema = z.object({

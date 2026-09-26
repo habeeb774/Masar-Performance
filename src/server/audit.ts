@@ -133,4 +133,6 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   "notion.mapping.update": "تعديل ربط حقول Notion",
   "notion.status_mapping.update": "تعديل ربط حالات Notion",
   "notion.sync": "تشغيل مزامنة Notion",
+  "attachment.upload": "رفع مرفق",
+  "attachment.delete": "حذف مرفق",
 };

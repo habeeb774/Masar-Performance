@@ -42,3 +42,6 @@ yarn-error.log*
 next-env.d.ts
 /src/generated
 CREDENTIALS.local.md
+
+# local Claude Code state
+.claude/

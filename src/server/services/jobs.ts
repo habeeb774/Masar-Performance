@@ -10,7 +10,7 @@ import { recomputeAllActive, recomputeForDataSource } from "./progress";
 import { PERMISSIONS } from "@/lib/permissions";
 
 /** Notify owners when items were sent back for revision during a sync. */
-async function notifyRevisions(itemIds: string[]) {
+export async function notifyRevisions(itemIds: string[]) {
   if (itemIds.length === 0) return;
   const items = await db.notionSyncedItem.findMany({
     where: { id: { in: itemIds } },

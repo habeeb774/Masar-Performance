@@ -8,9 +8,24 @@ function createClient() {
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) throw new Error("DATABASE_URL is not set");
   const adapter = new PrismaPg({ connectionString, max: 10 });
-  return new PrismaClient({ adapter });
+  // serverless Postgres adds network latency per statement — allow realistic transaction durations
+  return new PrismaClient({ adapter, transactionOptions: { maxWait: 10_000, timeout: 30_000 } });
 }
 
-export const db = globalForPrisma.prisma ?? createClient();
+function client(): PrismaClient {
+  globalForPrisma.prisma ??= createClient();
+  return globalForPrisma.prisma;
+}
 
-if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = db;
+/**
+ * Lazily-initialized Prisma client. Importing this module never touches the
+ * environment, so `next build` can import route modules without DATABASE_URL;
+ * a missing URL surfaces on the first query instead.
+ */
+export const db = new Proxy({} as PrismaClient, {
+  get(_target, prop) {
+    const c = client();
+    const value = Reflect.get(c, prop, c);
+    return typeof value === "function" ? value.bind(c) : value;
+  },
+});

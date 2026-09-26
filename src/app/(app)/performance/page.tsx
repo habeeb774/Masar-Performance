@@ -1,0 +1,171 @@
+import type { Metadata } from "next";
+import Link from "next/link";
+import { AlarmClock, ArrowLeft, ClipboardList, Gauge, ShieldCheck, Sparkles, Users } from "lucide-react";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { EmptyState, PageHeader, StatCard } from "@/components/shared/page";
+import { MonthPicker } from "@/components/shared/url-filters";
+import { GroupedBarChart, PercentBars, StageStatusChart, TrendChart } from "@/components/charts/charts";
+import type { SearchParams } from "@/lib/params";
+import { int } from "@/lib/params";
+import { PERMISSIONS } from "@/lib/permissions";
+import { monthLabel } from "@/lib/dates";
+import { formatNumber, formatPct } from "@/lib/num";
+import { requirePermission } from "@/server/auth/session";
+import { currentMonth, getPerformanceAnalytics } from "@/server/queries/performance";
+
+export const metadata: Metadata = { title: "تحليلات الأداء" };
+
+function ChartCard({ title, description, children, className }: { title: string; description?: string; children: React.ReactNode; className?: string }) {
+  return (
+    <Card className={className}>
+      <CardHeader>
+        <CardTitle className="text-base">{title}</CardTitle>
+        {description && <CardDescription>{description}</CardDescription>}
+      </CardHeader>
+      <CardContent>{children}</CardContent>
+    </Card>
+  );
+}
+
+export default async function PerformanceAnalyticsPage({ searchParams }: { searchParams: SearchParams }) {
+  const user = await requirePermission(PERMISSIONS.PERFORMANCE_REVIEW);
+  const sp = await searchParams;
+  const now = await currentMonth();
+  const year = int(sp.year, now.year, 2020, 2100);
+  const month = int(sp.month, now.month, 1, 12);
+  const data = await getPerformanceAnalytics(user, year, month);
+  const { stats } = data;
+  const emp = data.employees;
+  const maxDelayed = Math.max(5, ...emp.map((e) => e.delayed));
+  const maxRevision = Math.max(20, ...emp.map((e) => e.revisionRate ?? 0));
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        title="تحليلات الأداء"
+        description={`مؤشرات إنتاجية وجودة الفريق لشهر ${monthLabel(year, month)} — محسوبة من الخطط والمهام وبيانات Notion`}
+        actions={
+          <>
+            <MonthPicker year={year} month={month} />
+            <Button variant="outline" asChild>
+              <Link href={`/performance/reviews?year=${year}&month=${month}`}>
+                التقييمات الشهرية <ArrowLeft />
+              </Link>
+            </Button>
+          </>
+        }
+      />
+
+      {emp.length === 0 ? (
+        <EmptyState icon={Users} title="لا يوجد موظفون في نطاقك" description="أضف الموظفين وحدد مسمياتهم الوظيفية لعرض التحليلات." />
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+            <StatCard label="الموظفون" value={formatNumber(stats.employees)} icon={Users} hint={`${stats.withPlan} لديهم خطة لهذا الشهر`} />
+            <StatCard label="متوسط الإنتاجية" value={formatPct(stats.avgProductivity)} icon={Gauge} tone="info" />
+            <StatCard label="متوسط الجودة" value={formatPct(stats.avgQuality)} icon={ShieldCheck} tone="success" />
+            <StatCard label="متوسط النتيجة النهائية" value={stats.avgFinal === null ? "—" : formatNumber(stats.avgFinal, 1)} icon={Sparkles} tone="primary" hint={`${stats.reviews} تقييم محسوب`} href={`/performance/reviews?year=${year}&month=${month}`} />
+            <StatCard label="المهام المتأخرة" value={formatNumber(stats.delayed)} icon={AlarmClock} tone={stats.delayed ? "danger" : "neutral"} />
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <ChartCard title="اتجاه الإنجاز الشهري" description="متوسط إنجاز الخطط والجودة والنتيجة النهائية لآخر 6 أشهر">
+              <TrendChart
+                data={data.trend}
+                series={[
+                  { key: "achievement", label: "الإنجاز" },
+                  { key: "quality", label: "الجودة" },
+                  { key: "score", label: "النتيجة النهائية" },
+                ]}
+              />
+            </ChartCard>
+            <ChartCard title="الإنتاجية مقابل الجودة" description="التقدم الموزون للأهداف ودرجة الجودة (أو نسبة الاعتماد) لكل موظف">
+              <GroupedBarChart
+                data={emp.map((e) => ({ name: e.name, productivity: e.productivity, quality: e.quality }))}
+                series={[
+                  { key: "productivity", label: "الإنتاجية %" },
+                  { key: "quality", label: "الجودة %" },
+                ]}
+              />
+            </ChartCard>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <ChartCard title="إنجاز الأهداف" description="متوسط نسبة إنجاز كل هدف عبر الفريق لهذا الشهر">
+              <PercentBars data={data.goalCompletion} />
+            </ChartCard>
+            <ChartCard title="أداء الموظفين" description="النتيجة الآلية والنهائية من تقييم الشهر">
+              <GroupedBarChart
+                data={emp.filter((e) => e.finalScore !== null).map((e) => ({ name: e.name, autoScore: e.autoScore, finalScore: e.finalScore }))}
+                series={[
+                  { key: "autoScore", label: "النتيجة الآلية" },
+                  { key: "finalScore", label: "النتيجة النهائية" },
+                ]}
+              />
+            </ChartCard>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <ChartCard title="المهام المتأخرة" description="المهام اليومية والتكليفات المتأخرة لكل موظف خلال الشهر">
+              <GroupedBarChart data={emp.map((e) => ({ name: e.name, delayed: e.delayed }))} series={[{ key: "delayed", label: "مهام متأخرة" }]} max={maxDelayed} />
+            </ChartCard>
+            <ChartCard title="نسبة إعادة العمل" description="العناصر التي أعيدت للتحسين ÷ إجمالي ما تم العمل عليه (من Notion)">
+              <GroupedBarChart
+                data={emp.filter((e) => e.revisionRate !== null).map((e) => ({ name: e.name, revisionRate: e.revisionRate }))}
+                series={[{ key: "revisionRate", label: "نسبة إعادة العمل %" }]}
+                max={Math.ceil(maxRevision)}
+              />
+            </ChartCard>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <ChartCard title="حالات سير العمل في Notion" description="الحالة الحالية للعناصر المتزامنة حسب المرحلة">
+              <StageStatusChart data={data.stageRows} />
+            </ChartCard>
+            <ChartCard
+              title="التقدم الأسبوعي"
+              description={data.weeklySeries.length === 1 && data.weeklySeries[0].key === "avg" ? "متوسط التقدم الموزون للفريق في كل أسبوع من الشهر" : "التقدم الموزون لكل موظف في كل أسبوع من الشهر"}
+            >
+              <TrendChart data={data.weekly} series={data.weeklySeries} />
+            </ChartCard>
+          </div>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <ClipboardList className="size-4 text-muted-foreground" /> ملخص الموظفين
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {emp.map((e) => (
+                  <Link key={e.id} href={`/employees/${e.id}`} className="rounded-lg border p-3 text-sm hover:bg-muted/50">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-medium">{e.name}</span>
+                      <span className="text-xs text-muted-foreground">{e.jobTitle}</span>
+                    </div>
+                    <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+                      <div>
+                        <p className="text-muted-foreground">الإنتاجية</p>
+                        <p className="font-semibold tabular-nums">{formatPct(e.productivity)}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">الجودة</p>
+                        <p className="font-semibold tabular-nums">{formatPct(e.quality)}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">النهائية</p>
+                        <p className="font-semibold tabular-nums">{e.finalScore === null ? "—" : formatNumber(e.finalScore, 1)}</p>
+                      </div>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </>
+      )}
+    </div>
+  );
+}
