@@ -10,9 +10,11 @@ import {
   dailyDistributionSchema,
   idSchema,
   monthlyGoalSchema,
+  teamPlanSchema,
   weeklyDistributionSchema,
 } from "@/lib/validation";
 import * as plans from "@/server/services/plans";
+import * as teamPlan from "@/server/services/team-plan";
 
 const refresh = () => {
   revalidatePath("/", "layout");
@@ -130,4 +132,20 @@ export async function ensureWeeksAction(planId: string) {
     await plans.ensureWeeklyPlans(idSchema.parse(planId));
     refresh();
   }, "تم تحديث أسابيع الخطة");
+}
+
+export async function teamPlanDraftAction(employeeId: string, year: number, month: number) {
+  return runAction(async () => {
+    const user = await actionPermission(PERMISSIONS.PLANS_MANAGE);
+    return teamPlan.teamPlanDraft(user, idSchema.parse(employeeId), z.number().int().parse(year), z.number().int().min(1).max(12).parse(month));
+  });
+}
+
+export async function createTeamPlanAction(input: z.input<typeof teamPlanSchema>) {
+  return runAction(async () => {
+    const user = await actionPermission(PERMISSIONS.PLANS_MANAGE);
+    const result = await teamPlan.createTeamPlan(user, teamPlanSchema.parse(input));
+    refresh();
+    return result;
+  }, "تم إعداد الخطة");
 }

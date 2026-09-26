@@ -6,7 +6,7 @@ import { audit } from "@/server/audit";
 import { UserError } from "@/server/action";
 import { assertEmployeeAccess, type AuthUser } from "@/server/auth/session";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
-import { fromDateKey, getMonthWeeks, monthEnd, monthLabel, monthStart, toDateKey } from "@/lib/dates";
+import { fromDateKey, getMonthWeeks, monthEnd, monthLabel, monthStart, toDateKey, todayKey } from "@/lib/dates";
 import { checkDistribution, suggestDailyTargets, suggestWeeklyTargets } from "@/lib/distribution";
 import { num } from "@/lib/num";
 import type { createPlanSchema, dailyDistributionSchema, monthlyGoalSchema, weeklyDistributionSchema } from "@/lib/validation";
@@ -202,11 +202,12 @@ export async function approvePlan(user: AuthUser, planId: string, notes?: string
   });
   await audit({ user, action: "plan.approve", entityType: "MonthlyPlan", entityId: planId, reason: notes });
   await ensureWeeklyPlans(planId);
+  await autoDistributePlan(planId, user.id);
   await recomputePlan(planId);
   await notifyUsers([plan.employee.userId], {
     type: "PLAN_APPROVED",
     title: `تم اعتماد خطة ${monthLabel(plan.year, plan.month)}`,
-    body: "يمكنك الآن توزيع أهداف الشهر على الأسابيع",
+    body: "تم توزيع الأهداف على الأسابيع والأيام — ستجد مهامك في «مهامي»",
     link: "/my-plan",
   });
 }
@@ -289,6 +290,56 @@ export async function ensureWeeklyPlans(planId: string) {
       if (rows.length) await tx.weeklyGoal.createMany({ data: rows });
     }
   });
+}
+
+/**
+ * After approval: activate the suggested weekly split and turn it into daily
+ * tasks from today on, so nobody has to "save the distribution" by hand.
+ * Weeks or goals that already have a saved distribution are left untouched.
+ */
+export async function autoDistributePlan(planId: string, userId: string) {
+  const company = await getCompany();
+  const today = todayKey(company.timezone);
+  const weeks = await db.weeklyPlan.findMany({
+    where: { monthlyPlanId: planId },
+    include: { goals: { include: { monthlyGoal: true, dailyTasks: { where: { source: "DISTRIBUTED" }, select: { id: true } } } } },
+  });
+  const ops: Prisma.PrismaPromise<unknown>[] = [];
+  for (const week of weeks) {
+    if (week.status === "DRAFT") ops.push(db.weeklyPlan.update({ where: { id: week.id }, data: { status: "ACTIVE" } }));
+    if (week.status === "CLOSED" || toDateKey(week.endDate) < today) continue;
+    const days: string[] = [];
+    for (let d = toDateKey(week.startDate); d <= toDateKey(week.endDate); d = toDateKey(new Date(fromDateKey(d).getTime() + 86_400_000))) {
+      if (d >= today && company.workDays.includes(fromDateKey(d).getUTCDay())) days.push(d);
+    }
+    if (days.length === 0) continue;
+    for (const wg of week.goals) {
+      if (wg.dailyTasks.length > 0 || wg.monthlyGoal.status === "CANCELLED") continue;
+      const target = num(wg.targetValue);
+      if (target <= 0) continue;
+      const repeat = wg.monthlyGoal.goalType === "PERCENTAGE" || wg.monthlyGoal.goalType === "BOOLEAN";
+      const split = repeat ? days.map(() => target) : suggestDailyTargets(target, days.length);
+      days.forEach((day, i) => {
+        if (!(split[i] > 0)) return;
+        ops.push(
+          db.dailyTask.create({
+            data: {
+              employeeId: week.employeeId,
+              weeklyGoalId: wg.id,
+              monthlyGoalId: wg.monthlyGoalId,
+              title: wg.monthlyGoal.name,
+              date: fromDateKey(day),
+              target: split[i],
+              source: "DISTRIBUTED",
+              priority: wg.monthlyGoal.priority,
+              createdById: userId,
+            },
+          }),
+        );
+      });
+    }
+  }
+  if (ops.length) await db.$transaction(ops);
 }
 
 async function assertCanDistribute(user: AuthUser, employeeId: string) {

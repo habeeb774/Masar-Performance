@@ -175,6 +175,24 @@ export const createPlanSchema = z.object({
   useTemplate: z.boolean().default(true),
 });
 
+/** Quick team plan: just goal names and targets; everything else is inferred. */
+export const teamPlanSchema = z.object({
+  employeeId: idSchema,
+  year: z.coerce.number().int().min(2020).max(2100),
+  month: z.coerce.number().int().min(1).max(12),
+  goals: z
+    .array(
+      z.object({
+        name: nameSchema,
+        target: z.coerce.number().positive("المستهدف يجب أن يكون أكبر من صفر").max(1_000_000_000),
+        unit: z.string().trim().min(1, msg.required).max(40),
+        sourceId: z.string().max(60).nullable(),
+      }),
+    )
+    .min(1, "أضف هدفًا واحدًا على الأقل")
+    .max(30),
+});
+
 export const weeklyDistributionSchema = z.object({
   planId: idSchema,
   /** monthlyGoalId → weekIndex → target */
