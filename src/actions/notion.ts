@@ -13,7 +13,8 @@ import { fieldMappingsSchema, idSchema, notionConnectionSchema, notionDataSource
 import { notionFilterRuleSchema } from "@/lib/notion/filter-rule";
 import { matchPreset } from "@/lib/notion/presets";
 import { computeBreakdown } from "@/lib/notion/progress";
-import { getNotionClient, notionErrorMessage, probeToken } from "@/server/notion/client";
+import { getNotionClient, isUnauthorized, notionErrorMessage, probeToken } from "@/server/notion/client";
+import { refreshOAuthToken } from "@/server/notion/oauth";
 import { fetchDataSourceSchema, readSchemaCache, refreshSchemaCache, resolveNotionTarget } from "@/server/notion/schema";
 import { rebuildStages, syncDataSource } from "@/server/notion/sync";
 import { loadEvalItems, recomputeForDataSource } from "@/server/services/progress";
@@ -33,6 +34,10 @@ export async function saveConnectionAction(id: string | null, input: z.input<typ
       try {
         probe = await probeToken(data.token);
       } catch (e) {
+        // the OAuth "client secret" also starts with secret_ but is not an API token
+        if (isUnauthorized(e) && data.token.startsWith("secret_")) {
+          throw new UserError("رفض Notion هذا الرمز. إن كان «Client Secret» من ربط OAuth فهو ليس رمز وصول — استخدم زر «ربط عبر Notion (OAuth)» بدلًا من لصقه.");
+        }
         throw new UserError(notionErrorMessage(e));
       }
       tokenFields = {
@@ -63,10 +68,16 @@ export async function saveConnectionAction(id: string | null, input: z.input<typ
 export async function testConnectionAction(id: string) {
   return runAction(async () => {
     await actionPermission(PERMISSIONS.NOTION_MANAGE);
+    const probe = async () => (await getNotionClient(idSchema.parse(id))).users.me({});
     try {
-      const client = await getNotionClient(idSchema.parse(id));
-      const me = await client.users.me({});
-      await db.notionConnection.update({ where: { id }, data: { status: "CONNECTED", lastTestedAt: new Date(), lastError: null, botName: me.name ?? null } });
+      try {
+        await probe();
+      } catch (e) {
+        // expired OAuth access token → renew with the refresh token and retry once
+        if (!isUnauthorized(e) || !(await refreshOAuthToken(id).catch(() => null))) throw e;
+        await probe();
+      }
+      await db.notionConnection.update({ where: { id }, data: { status: "CONNECTED", lastTestedAt: new Date(), lastError: null } });
     } catch (e) {
       const message = notionErrorMessage(e);
       await db.notionConnection.update({ where: { id }, data: { status: "FAILED", lastTestedAt: new Date(), lastError: message } });

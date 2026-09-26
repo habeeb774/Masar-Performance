@@ -4,7 +4,8 @@ import type { NotionSystemStatus, SyncTrigger } from "@/generated/prisma/enums";
 import { db } from "@/server/db";
 import { normalizeProperties } from "@/lib/notion/properties";
 import { mapNotionItem, rawTitle, type FieldMappingConfig } from "@/lib/notion/item-mapper";
-import { getNotionClient, isFullPage, notionErrorMessage, type NotionPage } from "./client";
+import { getNotionClient, isFullPage, isUnauthorized, notionErrorMessage, type NotionPage } from "./client";
+import { refreshOAuthToken } from "./oauth";
 import { fromDateKey } from "@/lib/dates";
 
 const PAGE_SIZE = 100;
@@ -164,7 +165,7 @@ async function processPages(
 export async function syncDataSource(
   dataSourceId: string,
   trigger: SyncTrigger,
-  opts: { triggeredById?: string | null; retryOfId?: string | null } = {},
+  opts: { triggeredById?: string | null; retryOfId?: string | null; afterRefresh?: boolean } = {},
 ): Promise<SyncResult> {
   const ds = await db.notionDataSource.findUniqueOrThrow({ where: { id: dataSourceId } });
   const full = trigger === "FULL_RESYNC";
@@ -252,14 +253,28 @@ export async function syncDataSource(
   } catch (e) {
     result.status = "FAILED";
     result.errors.push({ message: notionErrorMessage(e) });
+    // an expired OAuth access token can be renewed with the stored refresh token — retry once
+    if (isUnauthorized(e) && !opts.afterRefresh) {
+      const refreshed = await refreshOAuthToken(ds.connectionId).catch(() => null);
+      if (refreshed) {
+        result.errors.push({ message: "تم تجديد رمز OAuth تلقائيًا وإعادة المزامنة" });
+        await finishLog(log.id, result, maxEdited);
+        return syncDataSource(dataSourceId, trigger, { ...opts, retryOfId: log.id, afterRefresh: true });
+      }
+    }
   }
 
+  await finishLog(log.id, result, maxEdited);
+  return result;
+}
+
+async function finishLog(logId: string, result: SyncResult, cursorTo: Date | null) {
   await db.notionSyncLog.update({
-    where: { id: log.id },
+    where: { id: logId },
     data: {
       status: result.status,
       endTime: new Date(),
-      cursorTo: maxEdited,
+      cursorTo,
       recordsScanned: result.scanned,
       recordsCreated: result.created,
       recordsUpdated: result.updated,
@@ -268,7 +283,6 @@ export async function syncDataSource(
       errors: result.errors.slice(0, 50) as Prisma.InputJsonValue,
     },
   });
-  return result;
 }
 
 /**

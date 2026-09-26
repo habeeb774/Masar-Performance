@@ -29,10 +29,26 @@ npm run dev                 # http://localhost:3000
 | `APP_URL` | رابط التطبيق |
 | `NOTION_TOKEN` | اختياري للـ seed — إن وُجد يُنشأ اتصال Notion وقاعدة المنتجات مع الربط المقترح |
 | `DATABASE_URL_TEST` | فرع Neon معزول لاختبارات التكامل |
+| `NOTION_OAUTH_CLIENT_ID` / `NOTION_OAUTH_CLIENT_SECRET` | اختياري — لتفعيل الربط عبر OAuth |
+| `NOTION_OAUTH_REDIRECT_URI` | اختياري — إن اختلف عن `APP_URL/api/notion/oauth/callback` |
 
 يطبع الـ seed كلمات مرور الحسابات الأولى مرة واحدة (غيّرها بعد أول دخول من صفحة الحساب).
 
 ## تفعيل تكامل Notion
+
+طريقتان — اختر واحدة:
+
+### أ) OAuth (لا يحتاج صلاحية مالك مساحة العمل)
+
+1. في Notion: ربط جديد ← OAuth، وضع «عنوان URI لإعادة التوجيه»: `<APP_URL>/api/notion/oauth/callback`
+   (للإنتاج: `https://masar-performance-habrrbs-projects.vercel.app/api/notion/oauth/callback`).
+2. انسخ Client ID وClient Secret إلى متغيرات البيئة `NOTION_OAUTH_CLIENT_ID` و`NOTION_OAUTH_CLIENT_SECRET` (Vercel ← Environment Variables) ثم أعد النشر.
+3. في النظام: Notion ← الاتصالات ← «ربط عبر Notion (OAuth)» ← وافق واختر قاعدة المنتجات في شاشة Notion.
+4. أكمل من الخطوة 4 في الطريقة (ب).
+
+> «Client Secret» ليس رمز وصول — لا تلصقه في خانة الرمز الداخلي.
+
+### ب) رمز تكامل داخلي (يتطلب مالك مساحة العمل)
 
 1. أنشئ Internal Integration من <https://www.notion.so/my-integrations> وانسخ الرمز (`ntn_…`).
 2. افتح قاعدة "قاعدة بيانات إضافة المنتجات للمتجر" في Notion ← ⋯ ← **Connections** ← أضف التكامل.

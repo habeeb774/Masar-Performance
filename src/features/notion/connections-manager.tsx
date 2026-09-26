@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Eye, EyeOff, Pencil, Plug, Plus, ShieldCheck, Trash2, Zap } from "lucide-react";
+import { CheckCircle2, Copy, Eye, EyeOff, KeyRound, LogIn, Pencil, Plug, Plus, ShieldCheck, Trash2, TriangleAlert, Zap } from "lucide-react";
+import { toast } from "sonner";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -26,6 +28,8 @@ export interface ConnectionRow {
   tokenHint: string;
   workspaceName: string | null;
   botName: string | null;
+  authType: "INTERNAL" | "OAUTH";
+  ownerEmail: string | null;
   status: "UNTESTED" | "CONNECTED" | "FAILED";
   lastTestedAt: string | null;
   lastError: string | null;
@@ -34,6 +38,57 @@ export interface ConnectionRow {
 }
 
 const TOKEN_RE = /^(secret_|ntn_)[A-Za-z0-9]{20,}$/;
+const OAUTH_START = "/api/notion/oauth/start";
+
+export interface OAuthState {
+  enabled: boolean;
+  redirectUri: string;
+  result: { ok: boolean; message: string } | null;
+}
+
+/** Full-page navigation: the start route redirects to Notion's consent screen. */
+function OAuthButton({ size = "default" }: { size?: "default" | "sm" }) {
+  return (
+    <Button size={size} asChild>
+      <a href={OAUTH_START}>
+        <LogIn /> ربط عبر Notion (OAuth)
+      </a>
+    </Button>
+  );
+}
+
+function OAuthSetupCard({ redirectUri }: { redirectUri: string }) {
+  return (
+    <div className="mb-4 rounded-xl border border-info/30 bg-info-soft/40 p-4 text-sm">
+      <p className="mb-2 font-semibold">لتفعيل الربط عبر OAuth</p>
+      <ol className="list-decimal space-y-1.5 ps-5 text-muted-foreground">
+        <li>
+          في إعدادات ربط OAuth داخل Notion، ضع «عنوان URI لإعادة التوجيه» مطابقًا تمامًا:
+          <span className="mt-1 flex items-center gap-2">
+            <code dir="ltr" className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs break-all text-foreground">
+              {redirectUri}
+            </code>
+            <Button
+              size="icon-xs"
+              variant="ghost"
+              aria-label="نسخ العنوان"
+              onClick={() => navigator.clipboard.writeText(redirectUri).then(() => toast.success("تم نسخ العنوان"))}
+            >
+              <Copy />
+            </Button>
+          </span>
+        </li>
+        <li>
+          أضف في Vercel ← Settings ← Environment Variables المتغيرين
+          <code dir="ltr" className="mx-1 font-mono text-xs">NOTION_OAUTH_CLIENT_ID</code>و
+          <code dir="ltr" className="mx-1 font-mono text-xs">NOTION_OAUTH_CLIENT_SECRET</code>
+          من صفحة الربط في Notion، ثم أعد النشر.
+        </li>
+        <li>سيظهر هنا زر «ربط عبر Notion (OAuth)».</li>
+      </ol>
+    </div>
+  );
+}
 
 function ConnectionDialog({ open, onOpenChange, connection }: { open: boolean; onOpenChange: (v: boolean) => void; connection: ConnectionRow | null }) {
   const router = useRouter();
@@ -82,6 +137,12 @@ function ConnectionDialog({ open, onOpenChange, connection }: { open: boolean; o
             <Input id="conn-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={200} aria-invalid={!!errors.name} />
             {errors.name && <p className="text-xs text-destructive">{errors.name}</p>}
           </div>
+          {connection?.authType === "OAUTH" ? (
+            <p className="rounded-lg bg-muted p-3 text-xs text-muted-foreground">
+              هذا الاتصال مربوط عبر OAuth{connection.ownerEmail ? ` بحساب ${connection.ownerEmail}` : ""}. لتجديد الصلاحيات أو اختيار صفحات أخرى أعد الربط من زر
+              «ربط عبر Notion (OAuth)» — سيُحدَّث هذا الاتصال نفسه.
+            </p>
+          ) : (
           <div className="space-y-2">
             <Label htmlFor="conn-token">رمز التكامل الداخلي (Internal Integration Secret)</Label>
             <div className="relative">
@@ -114,6 +175,7 @@ function ConnectionDialog({ open, onOpenChange, connection }: { open: boolean; o
               </p>
             )}
           </div>
+          )}
           <div className="flex items-center justify-between rounded-lg border px-3 py-2.5">
             <div>
               <Label htmlFor="conn-active">الاتصال نشط</Label>
@@ -136,15 +198,23 @@ function ConnectionDialog({ open, onOpenChange, connection }: { open: boolean; o
   );
 }
 
-export function ConnectionsManager({ connections }: { connections: ConnectionRow[] }) {
+export function ConnectionsManager({ connections, oauth }: { connections: ConnectionRow[]; oauth: OAuthState }) {
   const [dialog, setDialog] = useState<{ open: boolean; connection: ConnectionRow | null; key: number }>({ open: false, connection: null, key: 0 });
   const openDialog = (connection: ConnectionRow | null) => setDialog((d) => ({ open: true, connection, key: d.key + 1 }));
 
   return (
     <>
-      <div className="mb-4 flex justify-end">
-        <Button onClick={() => openDialog(null)}>
-          <Plus /> إضافة اتصال
+      {oauth.result && (
+        <Alert variant={oauth.result.ok ? "default" : "destructive"} className="mb-4">
+          {oauth.result.ok ? <CheckCircle2 className="text-success" /> : <TriangleAlert />}
+          <AlertDescription>{oauth.result.message}</AlertDescription>
+        </Alert>
+      )}
+      {!oauth.enabled && <OAuthSetupCard redirectUri={oauth.redirectUri} />}
+      <div className="mb-4 flex flex-wrap justify-end gap-2">
+        {oauth.enabled && <OAuthButton />}
+        <Button variant={oauth.enabled ? "outline" : "default"} onClick={() => openDialog(null)}>
+          <KeyRound /> لصق رمز داخلي
         </Button>
       </div>
 
@@ -154,11 +224,15 @@ export function ConnectionsManager({ connections }: { connections: ConnectionRow
             className="lg:col-span-2"
             icon={Plug}
             title="لا يوجد اتصال Notion بعد"
-            description="أضف رمز التكامل الداخلي ليتمكن النظام من قراءة قاعدة «إضافة المنتجات للمتجر»."
+            description="اربط Notion عبر OAuth أو بلصق رمز تكامل داخلي ليتمكن النظام من قراءة قاعدة «إضافة المنتجات للمتجر»."
             action={
-              <Button size="sm" onClick={() => openDialog(null)}>
-                <Plus /> إضافة اتصال
-              </Button>
+              oauth.enabled ? (
+                <OAuthButton size="sm" />
+              ) : (
+                <Button size="sm" onClick={() => openDialog(null)}>
+                  <Plus /> إضافة اتصال
+                </Button>
+              )
             }
           />
           <div className="rounded-xl border bg-card p-5 lg:col-span-3">
@@ -185,8 +259,15 @@ export function ConnectionsManager({ connections }: { connections: ConnectionRow
               {connections.map((c) => (
                 <TableRow key={c.id}>
                   <TableCell>
-                    <p className="font-medium">{c.name}</p>
-                    <p className="text-xs text-muted-foreground">{c.dataSourcesCount} قاعدة بيانات</p>
+                    <div className="flex items-center gap-2">
+                      <p className="font-medium">{c.name}</p>
+                      <StatusBadge tone={c.authType === "OAUTH" ? "info" : "neutral"} dot={false}>
+                        {c.authType === "OAUTH" ? "OAuth" : "رمز داخلي"}
+                      </StatusBadge>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {c.dataSourcesCount} قاعدة بيانات{c.ownerEmail ? ` · ${c.ownerEmail}` : ""}
+                    </p>
                   </TableCell>
                   <TableCell className="text-sm">
                     <p>{c.botName ?? "—"}</p>

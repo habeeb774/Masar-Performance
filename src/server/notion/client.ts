@@ -40,6 +40,10 @@ export function parseNotionId(input: string): string | null {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
+export function isUnauthorized(e: unknown): boolean {
+  return !!e && typeof e === "object" && "code" in e && (e as { code: unknown }).code === "unauthorized";
+}
+
 export function notionErrorMessage(e: unknown): string {
   if (e && typeof e === "object" && "code" in e) {
     const code = String((e as { code: unknown }).code);

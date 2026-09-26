@@ -14,7 +14,10 @@ export function proxy(request: NextRequest) {
   const hasSession = request.cookies.has(SESSION_COOKIE);
 
   if (!isPublic && !hasSession) {
-    if (pathname.startsWith("/api/")) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    // browser-navigated API routes (OAuth) go to the login page; other APIs get JSON
+    if (pathname.startsWith("/api/") && !pathname.startsWith("/api/notion/oauth/")) {
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    }
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.search = pathname !== "/" ? `?next=${encodeURIComponent(pathname + search)}` : "";

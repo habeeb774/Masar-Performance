@@ -173,6 +173,11 @@ enum NotionConnectionStatus {
   FAILED
 }
 
+enum NotionAuthType {
+  INTERNAL // pasted internal integration secret
+  OAUTH // public integration authorized through the OAuth consent flow
+}
+
 enum SyncTrigger {
   MANUAL
   SCHEDULED
@@ -801,10 +806,15 @@ model PerformanceRatingBand {
 model NotionConnection {
   id             String                 @id @default(cuid())
   name           String
+  authType       NotionAuthType         @default(INTERNAL)
   tokenEncrypted String // AES-256-GCM (iv:tag:ciphertext, base64)
   tokenHint      String // last 4 chars only
+  refreshTokenEncrypted String? // OAuth only, AES-256-GCM
+  notionBotId    String? // OAuth bot id — re-authorizing the same workspace updates this row
+  workspaceId    String?
   workspaceName  String?
   botName        String?
+  ownerEmail     String? // Notion user who granted OAuth access
   status         NotionConnectionStatus @default(UNTESTED)
   lastTestedAt   DateTime?
   lastError      String?
