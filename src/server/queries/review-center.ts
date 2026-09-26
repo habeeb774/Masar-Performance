@@ -5,6 +5,8 @@ import type { AuthUser } from "@/server/auth/session";
 import { employeeIdScope, employeeWhere } from "@/server/auth/session";
 import { toDateKey } from "@/lib/dates";
 import { num } from "@/lib/num";
+import { ensureDueReports } from "@/server/services/reports";
+import { contentProgress } from "./reports";
 
 export const REVIEW_TABS = ["weekly", "monthly", "plans", "pending", "images", "content", "revision"] as const;
 export type ReviewTab = (typeof REVIEW_TABS)[number];
@@ -17,7 +19,12 @@ const CONTENT_STAGES = ["content", "description"];
 /** Notion item scope: items owned by visible employees, plus unattributed items. */
 function itemScope(user: AuthUser): Prisma.NotionSyncedItemWhereInput {
   const scope = employeeIdScope(user);
-  return scope === "ALL" ? { isArchived: false } : { isArchived: false, OR: [{ employeeId: null }, { employeeId: { in: scope } }] };
+  return scope === "ALL"
+    ? { isArchived: false }
+    : {
+        isArchived: false,
+        OR: [{ employeeId: null }, { employeeId: { in: scope } }],
+      };
 }
 
 function stageWhere(user: AuthUser, tab: "pending" | "images" | "content" | "revision"): Prisma.NotionItemStageWhereInput {
@@ -26,33 +33,77 @@ function stageWhere(user: AuthUser, tab: "pending" | "images" | "content" | "rev
     case "pending":
       return { systemStatus: "PENDING_APPROVAL", item };
     case "images":
-      return { systemStatus: "PENDING_APPROVAL", stageKey: { in: IMAGE_STAGES }, item };
+      return {
+        systemStatus: "PENDING_APPROVAL",
+        stageKey: { in: IMAGE_STAGES },
+        item,
+      };
     case "content":
-      return { systemStatus: "PENDING_APPROVAL", stageKey: { in: CONTENT_STAGES }, item };
+      return {
+        systemStatus: "PENDING_APPROVAL",
+        stageKey: { in: CONTENT_STAGES },
+        item,
+      };
     case "revision":
       return { systemStatus: "NEEDS_REVISION", item };
   }
 }
 
+/** Make sure every ended week / due month of the team has its draft report (bounded, idempotent). */
+export function ensureTeamReports(user: AuthUser) {
+  return ensureDueReports({
+    employeeIds: employeeIdScope(user),
+    notify: true,
+    limit: 20,
+  });
+}
+
 export async function getReviewCenterCounts(user: AuthUser) {
   const scope = employeeWhere(user);
   const [weekly, monthly, plans, variance, pending, images, content, revision] = await Promise.all([
-    db.weeklyReport.count({ where: { ...scope, status: { in: ["SUBMITTED", "REVIEWED"] } } }),
-    db.monthlyReport.count({ where: { ...scope, status: { in: ["SUBMITTED", "REVIEWED"] } } }),
+    db.weeklyReport.count({
+      where: { ...scope, status: { in: ["SUBMITTED", "REVIEWED"] } },
+    }),
+    db.monthlyReport.count({
+      where: { ...scope, status: { in: ["SUBMITTED", "REVIEWED"] } },
+    }),
     db.monthlyPlan.count({ where: { ...scope, status: "SUBMITTED" } }),
-    db.weeklyPlan.groupBy({ by: ["monthlyPlanId"], where: { ...scope, status: "PENDING_APPROVAL" } }),
+    db.weeklyPlan.groupBy({
+      by: ["monthlyPlanId"],
+      where: { ...scope, status: "PENDING_APPROVAL" },
+    }),
     db.notionItemStage.count({ where: stageWhere(user, "pending") }),
     db.notionItemStage.count({ where: stageWhere(user, "images") }),
     db.notionItemStage.count({ where: stageWhere(user, "content") }),
     db.notionItemStage.count({ where: stageWhere(user, "revision") }),
   ]);
-  return { weekly, monthly, plans: plans + variance.length, pending, images, content, revision } satisfies Record<ReviewTab, number>;
+  return {
+    weekly,
+    monthly,
+    plans: plans + variance.length,
+    pending,
+    images,
+    content,
+    revision,
+  } satisfies Record<ReviewTab, number>;
 }
 
 export async function getWeeklyReportsQueue(user: AuthUser) {
   const rows = await db.weeklyReport.findMany({
-    where: { ...employeeWhere(user), status: { in: ["SUBMITTED", "REVIEWED"] } },
-    include: { employee: { select: { id: true, fullName: true, jobTitle: { select: { name: true } } } }, weeklyPlan: { select: { weekIndex: true } } },
+    where: {
+      ...employeeWhere(user),
+      status: { in: ["SUBMITTED", "REVIEWED"] },
+    },
+    include: {
+      employee: {
+        select: {
+          id: true,
+          fullName: true,
+          jobTitle: { select: { name: true } },
+        },
+      },
+      weeklyPlan: { select: { weekIndex: true } },
+    },
     orderBy: [{ status: "asc" }, { submittedAt: "asc" }],
     take: 200,
   });
@@ -66,14 +117,27 @@ export async function getWeeklyReportsQueue(user: AuthUser) {
     weekEnd: toDateKey(r.weekEnd),
     status: r.status,
     submittedAt: r.submittedAt,
+    progress: contentProgress(r.content),
     hasBlockers: !!r.blockers,
+    commented: r.status === "REVIEWED" && !!r.managerComment,
   }));
 }
 
 export async function getMonthlyReportsQueue(user: AuthUser) {
   const rows = await db.monthlyReport.findMany({
-    where: { ...employeeWhere(user), status: { in: ["SUBMITTED", "REVIEWED"] } },
-    include: { employee: { select: { id: true, fullName: true, jobTitle: { select: { name: true } } } } },
+    where: {
+      ...employeeWhere(user),
+      status: { in: ["SUBMITTED", "REVIEWED"] },
+    },
+    include: {
+      employee: {
+        select: {
+          id: true,
+          fullName: true,
+          jobTitle: { select: { name: true } },
+        },
+      },
+    },
     orderBy: [{ status: "asc" }, { submittedAt: "asc" }],
     take: 200,
   });
@@ -86,6 +150,8 @@ export async function getMonthlyReportsQueue(user: AuthUser) {
     month: r.month,
     status: r.status,
     submittedAt: r.submittedAt,
+    progress: contentProgress(r.content),
+    commented: r.status === "REVIEWED" && !!r.managerNotes,
   }));
 }
 
@@ -95,7 +161,13 @@ export async function getPlansQueue(user: AuthUser) {
     db.monthlyPlan.findMany({
       where: { ...scope, status: "SUBMITTED" },
       include: {
-        employee: { select: { id: true, fullName: true, jobTitle: { select: { name: true } } } },
+        employee: {
+          select: {
+            id: true,
+            fullName: true,
+            jobTitle: { select: { name: true } },
+          },
+        },
         goals: { select: { weight: true, status: true } },
       },
       orderBy: { submittedAt: "asc" },
@@ -113,7 +185,16 @@ export async function getPlansQueue(user: AuthUser) {
   ]);
   const variance = new Map<
     string,
-    { planId: string; employeeId: string; employee: string; year: number; month: number; weeks: number[]; note: string | null; updatedAt: Date }
+    {
+      planId: string;
+      employeeId: string;
+      employee: string;
+      year: number;
+      month: number;
+      weeks: number[];
+      note: string | null;
+      updatedAt: Date;
+    }
   >();
   for (const w of weeks) {
     const cur = variance.get(w.monthlyPlanId) ?? {
@@ -174,8 +255,18 @@ export async function getNotionQueue(user: AuthUser, tab: "pending" | "images" |
   ]);
   const mappings = rows.length
     ? await db.notionFieldMapping.findMany({
-        where: { role: "STATUS", dataSourceId: { in: [...new Set(rows.map((r) => r.item.dataSourceId))] } },
-        select: { dataSourceId: true, stageKey: true, label: true, ownerEmployee: { select: { fullName: true } } },
+        where: {
+          role: "STATUS",
+          dataSourceId: {
+            in: [...new Set(rows.map((r) => r.item.dataSourceId))],
+          },
+        },
+        select: {
+          dataSourceId: true,
+          stageKey: true,
+          label: true,
+          ownerEmployee: { select: { fullName: true } },
+        },
       })
     : [];
   const mappingOf = (dataSourceId: string, stageKey: string) => mappings.find((m) => m.dataSourceId === dataSourceId && m.stageKey === stageKey);
@@ -203,5 +294,10 @@ export async function getNotionQueue(user: AuthUser, tab: "pending" | "images" |
     g.items.push(it);
     groups.set(it.stageLabel, g);
   }
-  return { total, page, pageSize: NOTION_PAGE_SIZE, groups: [...groups.values()] };
+  return {
+    total,
+    page,
+    pageSize: NOTION_PAGE_SIZE,
+    groups: [...groups.values()],
+  };
 }

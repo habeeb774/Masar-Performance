@@ -60,7 +60,7 @@ export default async function MyTasksPage({ searchParams }: { searchParams: Sear
     <>
       <PageHeader
         title="مهامي"
-        description="مهامك اليومية الموزعة من الخطة، والمهام اليدوية، والتكليفات المستجدة من المدير."
+        description="ما عليك إنجازه اليوم والأيام القادمة."
         actions={<ManualTaskDialog today={data.today} goals={data.goals} />}
       />
 

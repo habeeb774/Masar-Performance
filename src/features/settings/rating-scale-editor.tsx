@@ -139,7 +139,7 @@ export function RatingScaleEditor({
   const err = (i: number, field: string) => errors[`bands.${i}.${field}`];
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_20rem]">
+    <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_20rem]">
       <Card>
         <CardHeader>
           <CardTitle className="text-base">فئات التقدير</CardTitle>
@@ -233,7 +233,7 @@ export function RatingScaleEditor({
             </ul>
           )}
         </CardContent>
-        <CardFooter className="justify-end gap-2 border-t">
+        <CardFooter className="flex-wrap justify-end gap-2 border-t">
           <Button
             variant="outline"
             disabled={pending}

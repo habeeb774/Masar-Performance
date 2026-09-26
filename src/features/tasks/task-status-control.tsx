@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CalendarClock, CheckCircle2, MoreHorizontal, Play } from "lucide-react";
+import { CalendarClock, CheckCircle2, MessageSquarePlus, MessageSquareText, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,9 +17,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Spinner } from "@/components/ui/spinner";
+import { StatusBadge } from "@/components/shared/status-badge";
 import { useServerAction } from "@/hooks/use-server-action";
 import { updateAdHocProgressAction, updateTaskProgressAction } from "@/actions/tasks";
-import { TASK_STATUS_LABELS, TASK_STATUSES, type TaskStatusKey } from "@/lib/labels";
+import { TASK_STATUS_LABELS, TASK_STATUSES, type PriorityKey, type TaskStatusKey, type Tone } from "@/lib/labels";
+import { cn } from "@/lib/utils";
 
 export interface TaskControlData {
   id: string;
@@ -35,10 +37,45 @@ export interface TaskControlData {
   notionDriven?: boolean;
 }
 
-/**
- * Quick completion button + a dialog to update status, progress, notes and
- * delay reason. Works for daily tasks and ad-hoc assignments.
- */
+const STATUS_MARKERS: Partial<Record<TaskStatusKey, { label: string; tone: Tone }>> = {
+  IN_PROGRESS: { label: "قيد العمل", tone: "info" },
+  COMPLETED: { label: "تم", tone: "success" },
+  PARTIAL: { label: "جزئي", tone: "warning" },
+  DELAYED: { label: "متأخر", tone: "danger" },
+  BLOCKED: { label: "معلق", tone: "blocked" },
+  CANCELLED: { label: "ملغاة", tone: "blocked" },
+};
+
+/** Status word shown only when it differs from the default «لم تبدأ». */
+export function TaskStatusMarker({ status, overdue, className }: { status: TaskStatusKey; overdue?: boolean; className?: string }) {
+  const marker = overdue && status !== "COMPLETED" && status !== "CANCELLED" ? STATUS_MARKERS.DELAYED : STATUS_MARKERS[status];
+  if (!marker) return null;
+  return (
+    <StatusBadge tone={marker.tone} className={className}>
+      {marker.label}
+    </StatusBadge>
+  );
+}
+
+/** Priority mark shown only for high / urgent tasks. */
+export function TaskPriorityMark({ priority }: { priority: PriorityKey }) {
+  if (priority === "URGENT") {
+    return (
+      <StatusBadge tone="danger" dot={false} className="px-1.5 py-0 text-[11px]">
+        عاجل
+      </StatusBadge>
+    );
+  }
+  if (priority === "HIGH") {
+    return (
+      <span className="inline-flex size-2 shrink-0 rounded-full bg-warning" title="أولوية عالية">
+        <span className="sr-only">أولوية عالية</span>
+      </span>
+    );
+  }
+  return null;
+}
+
 export interface PostponeHandlers {
   onTomorrow: () => void;
   onNextWeek: () => void;
@@ -80,10 +117,11 @@ export function TaskStatusControl({
     });
 
   const done = task.status === "COMPLETED";
+  const NoteIcon = task.notes ? MessageSquareText : MessageSquarePlus;
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex shrink-0 flex-nowrap items-center gap-0.5">
       {task.kind === "daily" && !done && !compact && (
-        <Button size="icon-sm" variant="ghost" asChild aria-label="بدء العمل — وضع التركيز">
+        <Button size="icon-sm" variant="ghost" asChild aria-label="بدء العمل — وضع التركيز" title="بدء">
           <Link href={`/focus/${task.id}`}>
             <Play />
           </Link>
@@ -95,6 +133,7 @@ export function TaskStatusControl({
           variant="ghost"
           className="text-success hover:bg-success-soft hover:text-success"
           aria-label="تعليم كمكتملة"
+          title="إكمال"
           disabled={pending}
           onClick={() =>
             run(task.id, {
@@ -109,13 +148,20 @@ export function TaskStatusControl({
           {pending ? <Spinner /> : <CheckCircle2 />}
         </Button>
       )}
-      <Button size="icon-sm" variant="ghost" aria-label="تحديث المهمة" onClick={() => setOpen(true)}>
-        <MoreHorizontal />
+      <Button
+        size="icon-sm"
+        variant="ghost"
+        className={cn(task.notes && "text-primary")}
+        aria-label={task.notes ? "الملاحظة وتحديث التقدم" : "إضافة ملاحظة أو تحديث التقدم"}
+        title={task.notes ? "الملاحظة وتحديث التقدم" : "إضافة ملاحظة"}
+        onClick={() => setOpen(true)}
+      >
+        <NoteIcon />
       </Button>
       {postpone && !done && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button size="icon-sm" variant="ghost" aria-label="تأجيل المهمة" disabled={postpone.pending}>
+            <Button size="icon-sm" variant="ghost" aria-label="تأجيل المهمة" title="تأجيل" disabled={postpone.pending}>
               <CalendarClock />
             </Button>
           </DropdownMenuTrigger>
@@ -166,8 +212,8 @@ export function TaskStatusControl({
               </div>
             )}
             <div className="space-y-2">
-              <Label>ملاحظة</Label>
-              <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={2000} />
+              <Label htmlFor={`task-note-${task.id}`}>ملاحظة</Label>
+              <Textarea id={`task-note-${task.id}`} rows={2} placeholder="اكتب ملاحظة قصيرة…" value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={2000} />
             </div>
             {(status === "DELAYED" || status === "PARTIAL" || status === "BLOCKED" || task.delayReason) && (
               <div className="space-y-2">

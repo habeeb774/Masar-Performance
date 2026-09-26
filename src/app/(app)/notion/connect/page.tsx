@@ -38,6 +38,7 @@ export default async function NotionConnectPage({ searchParams }: { searchParams
         employees={employees}
         advanced={advanced}
         canSync={hasPermission(user, PERMISSIONS.NOTION_SYNC)}
+        autoStart={result === "success"}
       />
     </>
   );

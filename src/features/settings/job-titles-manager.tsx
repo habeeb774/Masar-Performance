@@ -160,9 +160,39 @@ export function JobTitlesManager({ rows, departments }: { rows: JobTitleRow[]; d
           }
         />
       ) : (
-        <div className="overflow-x-auto">
-          <DataTable columns={columns} data={rows} rowClassName={(r) => (r.isActive ? undefined : "opacity-60")} />
-        </div>
+        <DataTable
+          columns={columns}
+          data={rows}
+          rowClassName={(r) => (r.isActive ? undefined : "opacity-60")}
+          mobileCard={(r) => (
+            <div className="space-y-2">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="font-medium">{r.name}</p>
+                  <p className="text-xs text-muted-foreground">{r.departmentName ?? "بدون إدارة"}</p>
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  {!r.isActive && <StatusBadge tone="blocked">غير نشط</StatusBadge>}
+                  <Button size="icon-sm" variant="ghost" aria-label={`تعديل ${r.name}`} onClick={() => setEditing(r)}>
+                    <Pencil />
+                  </Button>
+                </div>
+              </div>
+              {r.description && <p className="line-clamp-2 text-xs text-muted-foreground">{r.description}</p>}
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                <span>
+                  الموظفون: <CountLink href={`/employees?jobTitleId=${r.id}`} value={r.employees} label="عرض الموظفين" />
+                </span>
+                <span>
+                  قوالب الأهداف: <CountLink href={`/goals?jobTitleId=${r.id}`} value={r.goalTemplates} label="قوالب الأهداف" />
+                </span>
+                <span>
+                  المؤشرات: <CountLink href={`/performance/kpis?jobTitleId=${r.id}`} value={r.kpis} label="مؤشرات الأداء" />
+                </span>
+              </div>
+            </div>
+          )}
+        />
       )}
       {editing && (
         <JobTitleDialog key={editing === "new" ? "new" : editing.id} row={editing === "new" ? null : editing} departments={departments} onClose={() => setEditing(null)} />
@@ -193,7 +223,7 @@ function JobTitleDialog({ row, departments, onClose }: { row: JobTitleRow | null
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{row ? `تعديل «${row.name}»` : "مسمى وظيفي جديد"}</DialogTitle>
           <DialogDescription>بعد الحفظ اربط المسمى بقالب أهداف ومؤشرات أداء.</DialogDescription>

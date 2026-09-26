@@ -40,7 +40,7 @@ import {
   type NotionFailure,
 } from "@/actions/notion-connect";
 import { syncNowAction } from "@/actions/notion";
-import { normalizeLabel, unresolvedCount } from "@/lib/notion/auto-map";
+import { normalizeLabel, pickDatabase, unresolvedCount } from "@/lib/notion/auto-map";
 import { formatDateTimeAr } from "@/lib/dates";
 import { formatNumber } from "@/lib/num";
 import { cn } from "@/lib/utils";
@@ -226,7 +226,7 @@ function ConnectionHeader({
   );
 }
 
-function DatabaseList({ connectionId, onPick }: { connectionId: string; onPick: (db: DatabaseListItem) => void }) {
+function DatabaseList({ connectionId, onPick, onLoaded }: { connectionId: string; onPick: (db: DatabaseListItem) => void; onLoaded?: (dbs: DatabaseListItem[]) => void }) {
   const list = useServerAction(listNotionDatabasesAction, { silent: true });
   const [state, setState] = useState<{ forId: string; databases: DatabaseListItem[] | null; failure: NotionFailure | null } | null>(null);
   const [query, setQuery] = useState("");
@@ -236,6 +236,7 @@ function DatabaseList({ connectionId, onPick }: { connectionId: string; onPick: 
       if (!r.ok || !r.data) return setState({ forId: connectionId, databases: null, failure: { kind: "temporary", message: r.ok ? "" : r.error } });
       if (r.data.failure) return setState({ forId: connectionId, databases: null, failure: r.data.failure });
       setState({ forId: connectionId, databases: r.data.databases, failure: null });
+      onLoaded?.(r.data.databases);
     });
 
   useEffect(() => {
@@ -439,6 +440,7 @@ export function ConnectWizard({
   employees,
   advanced,
   canSync,
+  autoStart = false,
 }: {
   connections: ConnectionInfo[];
   initialConnectionId: string | null;
@@ -447,6 +449,8 @@ export function ConnectWizard({
   employees: Option[];
   advanced: boolean;
   canSync: boolean;
+  /** right after authorization: choose the database and start syncing without asking when unambiguous */
+  autoStart?: boolean;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -464,6 +468,8 @@ export function ConnectWizard({
   const [showTech, setShowTech] = useState(false);
   const [sync, setSync] = useState<SyncState | null>(null);
   const analyze = useServerAction(analyzeNotionDatabaseAction, { silent: true });
+  const [auto, setAuto] = useState(autoStart);
+  const [autoPicked, setAutoPicked] = useState(false);
 
   // kept in state: dropping ?oauth= from the URL below re-renders this page without it
   const [notice] = useState(oauthResult);
@@ -483,8 +489,14 @@ export function ConnectWizard({
       const bs = reviewed.map(initialBucket);
       setFields(reviewed);
       setBuckets(bs);
+      const clear = unresolvedCount(reviewed) === 0;
+      if (clear && auto) {
+        setAuto(false);
+        void confirm({ db, fields: reviewed, name: db.name });
+        return;
+      }
       // nothing ambiguous → skip the review; suggestions stay reachable via «مراجعة التفاصيل»
-      setStep(unresolvedCount(reviewed) === 0 ? "quick" : "review");
+      setStep(clear ? "quick" : "review");
     });
   };
 
@@ -493,6 +505,16 @@ export function ConnectWizard({
     setName(db.name);
     setStep("review");
     runAnalysis(db);
+  };
+
+  const onDatabasesLoaded = (dbs: DatabaseListItem[]) => {
+    if (!auto) return;
+    // a reconnect resumes existing databases — only a first connection picks one automatically
+    if (dbs.some((d) => d.addedId)) return setAuto(false);
+    const choice = pickDatabase(dbs);
+    if (!choice) return setAuto(false);
+    setAutoPicked(true);
+    pick(choice);
   };
 
   const runSync = async (dataSourceId: string) => {
@@ -515,18 +537,20 @@ export function ConnectWizard({
     setSync({ phase: "done", ...totals, partial: true, dataSourceId });
   };
 
-  const confirm = async () => {
-    if (!connectionId || !picked) return;
+  const confirm = async (explicit?: { db: DatabaseListItem; fields: ReviewField[]; name: string }) => {
+    const db = explicit?.db ?? picked;
+    const useFields = explicit?.fields ?? fields;
+    if (!connectionId || !db) return;
     setStep("sync");
     setSync({ phase: "saving" });
     try {
       const r = await confirmNotionDatabaseAction({
         connectionId,
-        notionDataSourceId: picked.id,
-        notionDatabaseId: picked.databaseId,
-        name: name.trim() || picked.name,
+        notionDataSourceId: db.id,
+        notionDatabaseId: db.databaseId,
+        name: (explicit?.name ?? name).trim() || db.name,
         defaultEmployeeId,
-        fields: fields.map((f) => ({
+        fields: useFields.map((f) => ({
           property: f.property,
           propertyType: f.propertyType,
           role: f.role,
@@ -546,6 +570,8 @@ export function ConnectWizard({
   };
 
   const reset = () => {
+    setAuto(false);
+    setAutoPicked(false);
     setPicked(null);
     setFields([]);
     setSync(null);
@@ -575,18 +601,33 @@ export function ConnectWizard({
 
       <Stepper step={step} />
 
+      {autoPicked && picked && step !== "select" && (
+        <p className="flex flex-wrap items-center gap-x-2 text-sm text-muted-foreground">
+          اخترنا «{picked.name}» تلقائيًا لأنها الأنسب.
+          <button type="button" onClick={reset} className="font-medium text-primary hover:underline">
+            اختيار قاعدة أخرى
+          </button>
+        </p>
+      )}
+
       {step === "connect" && <ConnectStep oauthEnabled={oauthEnabled} advanced={advanced} />}
+
+      {step !== "connect" && connection && (
+        <ConnectionHeader connections={connections} connection={connection} onSwitch={(id) => {
+          reset();
+          setConnectionId(id);
+        }} />
+      )}
 
       {step === "select" && connection && (
         <div className="space-y-4">
-          <ConnectionHeader connections={connections} connection={connection} onSwitch={setConnectionId} />
           <Card>
             <CardHeader>
               <CardTitle className="text-base">اختر قاعدة البيانات</CardTitle>
               <CardDescription>هذه القواعد التي سمحت لمسار الأداء بقراءتها في Notion.</CardDescription>
             </CardHeader>
             <CardContent>
-              <DatabaseList connectionId={connection.id} onPick={pick} />
+              <DatabaseList connectionId={connection.id} onPick={pick} onLoaded={onDatabasesLoaded} />
             </CardContent>
           </Card>
         </div>
@@ -646,7 +687,7 @@ export function ConnectWizard({
               <Button variant="outline" onClick={reset}>
                 <ArrowRight /> اختيار قاعدة أخرى
               </Button>
-              <Button onClick={confirm} disabled={analyze.pending || !!analysisFailure || fields.length === 0 || unresolved > 0}>
+              <Button onClick={() => confirm()} disabled={analyze.pending || !!analysisFailure || fields.length === 0 || unresolved > 0}>
                 {unresolved > 0 ? `بقي ${formatNumber(unresolved)} قرار` : "بدء المزامنة"} <ArrowLeft />
               </Button>
             </div>
@@ -684,7 +725,7 @@ export function ConnectWizard({
               <Button variant="ghost" onClick={() => setStep("review")}>
                 مراجعة التفاصيل
               </Button>
-              <Button size="lg" onClick={confirm}>
+              <Button size="lg" onClick={() => confirm()}>
                 بدء المزامنة <ArrowLeft />
               </Button>
             </div>

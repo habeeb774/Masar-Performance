@@ -4,10 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Check, Minus, X } from "lucide-react";
 import { DataTable } from "@/components/shared/data-table";
-import { NotionSyncedTag } from "@/components/shared/page";
-import { EnumBadge, StatusBadge } from "@/components/shared/status-badge";
 import { ProgressBar } from "@/components/shared/progress-bar";
 import { SearchInput, SelectFilter, useUrlParams } from "@/components/shared/url-filters";
 import { FilterDrawer, type FilterChipDef } from "@/components/shared/filter-drawer";
@@ -25,19 +22,29 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { TaskStatusControl } from "@/features/tasks/task-status-control";
+import { TaskPriorityMark, TaskStatusControl, TaskStatusMarker } from "@/features/tasks/task-status-control";
 import { useServerAction } from "@/hooks/use-server-action";
 import type { ActionResult } from "@/server/action";
 import { bulkMarkCompletedAction, bulkSetDeadlineAction, bulkSetPriorityAction, type BulkResult } from "@/actions/tasks";
 import { formatDateAr } from "@/lib/dates";
 import { formatNumber } from "@/lib/num";
-import { PRIORITIES, PRIORITY_LABELS, TASK_SOURCE_LABELS, TASK_STATUS_LABELS, TASK_STATUSES, type PriorityKey } from "@/lib/labels";
+import { PRIORITIES, PRIORITY_LABELS, TASK_STATUS_LABELS, TASK_STATUSES, type PriorityKey } from "@/lib/labels";
 import { cn } from "@/lib/utils";
 import type { AdHocTaskRow, DailyTaskRow, EmployeeOption } from "@/server/queries/tasks";
+import { TaskDetailSheet } from "./task-detail-sheet";
 import { TaskRowMenu } from "./task-row-menu";
 
-function YesNo({ value }: { value: boolean }) {
-  return value ? <Check className="size-4 text-success" aria-label="نعم" /> : <X className="size-4 text-muted-foreground" aria-label="لا" />;
+function TaskTitleCell({ task, currentUserId }: { task: DailyTaskRow | AdHocTaskRow; currentUserId: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(true)} className="flex max-w-72 min-w-40 items-center gap-1.5 rounded-md text-start outline-none hover:text-primary focus-visible:ring-2 focus-visible:ring-ring">
+        <TaskPriorityMark priority={task.priority} />
+        <span className="truncate font-medium">{task.title}</span>
+      </button>
+      <TaskDetailSheet task={task} open={open} onOpenChange={setOpen} currentUserId={currentUserId} canManage />
+    </>
+  );
 }
 
 export function AdHocTable({
@@ -53,58 +60,21 @@ export function AdHocTable({
 }) {
   const columns: ColumnDef<AdHocTaskRow, unknown>[] = [
     { accessorKey: "employeeName", header: "الموظف", enableSorting: true, cell: ({ row }) => <span className="font-medium whitespace-nowrap">{row.original.employeeName}</span> },
+    { accessorKey: "title", header: "التكليف", cell: ({ row }) => <TaskTitleCell task={row.original} currentUserId={currentUserId} /> },
     {
-      accessorKey: "title",
-      header: "التكليف",
-      cell: ({ row }) => (
-        <div className="max-w-64 min-w-40">
-          <p className="truncate font-medium">{row.original.title}</p>
-          {row.original.assignedByName && <p className="truncate text-xs text-muted-foreground">من: {row.original.assignedByName}</p>}
-        </div>
-      ),
-    },
-    {
-      accessorKey: "assignedDate",
-      header: "التكليف / التسليم",
+      accessorKey: "dueDate",
+      header: "الموعد / التقدم",
       enableSorting: true,
       cell: ({ row }) => (
-        <div className="text-xs whitespace-nowrap">
-          <p>{formatDateAr(row.original.assignedDate)}</p>
-          <p className={cn("text-muted-foreground", row.original.overdue && "font-semibold text-danger")}>
-            {row.original.dueDate ? `← ${formatDateAr(row.original.dueDate)}` : "بدون موعد"}
+        <div className="w-36 text-xs">
+          <p className={cn("whitespace-nowrap text-muted-foreground", row.original.overdue && "font-semibold text-danger")}>
+            {row.original.dueDate ? (row.original.dueDate === today ? "اليوم" : formatDateAr(row.original.dueDate)) : "بدون موعد"}
           </p>
+          <ProgressBar value={row.original.progress} size="sm" showLabel className="mt-1" />
         </div>
       ),
     },
-    { accessorKey: "priority", header: "الأولوية", cell: ({ row }) => <EnumBadge map={PRIORITY_LABELS} value={row.original.priority} /> },
-    {
-      accessorKey: "status",
-      header: "الحالة",
-      cell: ({ row }) => (
-        <div className="flex flex-col items-start gap-1">
-          <EnumBadge map={TASK_STATUS_LABELS} value={row.original.status} />
-          {row.original.overdue && row.original.status !== "DELAYED" && <StatusBadge tone="danger">متأخر</StatusBadge>}
-        </div>
-      ),
-    },
-    {
-      id: "eval",
-      header: "في التقييم / الوزن",
-      cell: ({ row }) => (
-        <span className="inline-flex items-center gap-1.5 text-xs">
-          <YesNo value={row.original.includeInEvaluation} />
-          {row.original.includeInEvaluation ? `${formatNumber(row.original.weight)}%` : ""}
-        </span>
-      ),
-    },
-    { accessorKey: "isOutOfPlan", header: "خارج الخطة", cell: ({ row }) => <YesNo value={row.original.isOutOfPlan} /> },
-    {
-      accessorKey: "compensatesGoalName",
-      header: "يعوض هدفًا",
-      cell: ({ row }) =>
-        row.original.compensatesGoalName ? <span className="block max-w-40 truncate text-xs">{row.original.compensatesGoalName}</span> : <Minus className="size-4 text-muted-foreground" />,
-    },
-    { accessorKey: "progress", header: "التقدم", enableSorting: true, cell: ({ row }) => <ProgressBar value={row.original.progress} size="sm" showLabel className="w-32" /> },
+    { accessorKey: "status", header: "الحالة", cell: ({ row }) => <TaskStatusMarker status={row.original.status} overdue={row.original.overdue} /> },
     {
       id: "actions",
       header: "",
@@ -167,68 +137,28 @@ export function DailyTasksTable({ rows, today, currentUserId }: { rows: DailyTas
       cell: ({ row }) => <Checkbox checked={selected.has(row.original.id)} onCheckedChange={() => toggleOne(row.original.id)} aria-label={`تحديد ${row.original.title}`} />,
     },
     { accessorKey: "employeeName", header: "الموظف", enableSorting: true, cell: ({ row }) => <span className="font-medium whitespace-nowrap">{row.original.employeeName}</span> },
+    { accessorKey: "title", header: "المهمة", cell: ({ row }) => <TaskTitleCell task={row.original} currentUserId={currentUserId} /> },
     {
       accessorKey: "date",
-      header: "التاريخ",
+      header: "الموعد / التقدم",
       enableSorting: true,
-      cell: ({ row }) => (
-        <div className="text-xs whitespace-nowrap">
-          <p>{row.original.date === today ? "اليوم" : formatDateAr(row.original.date)}</p>
-          {row.original.deadline && <p className={cn("text-muted-foreground", row.original.overdue && "font-semibold text-danger")}>الموعد {formatDateAr(row.original.deadline)}</p>}
-        </div>
-      ),
-    },
-    {
-      accessorKey: "title",
-      header: "المهمة",
-      cell: ({ row }) => (
-        <div className="max-w-72 min-w-44">
-          <p className="truncate font-medium">{row.original.title}</p>
-          <div className="mt-0.5 flex flex-wrap items-center gap-1">
-            <StatusBadge tone="neutral" dot={false}>
-              {TASK_SOURCE_LABELS[row.original.source]}
-            </StatusBadge>
-            {row.original.notionDriven && <NotionSyncedTag />}
-          </div>
-        </div>
-      ),
-    },
-    {
-      id: "progress",
-      header: "المنجز / المستهدف",
       cell: ({ row }) => {
         const t = row.original;
-        const pct = t.target > 0 ? (t.achieved / t.target) * 100 : t.progress;
         return (
-          <div className="w-36">
-            <ProgressBar value={pct} size="sm" />
-            <p className="mt-0.5 text-[11px] text-muted-foreground tabular-nums">
-              {t.target > 0 ? `${formatNumber(t.achieved)} / ${formatNumber(t.target)} ${t.unit ?? ""}` : `${t.progress}%`}
+          <div className="w-36 text-xs">
+            <p className={cn("whitespace-nowrap text-muted-foreground", t.overdue && "font-semibold text-danger")}>
+              {t.deadline && t.overdue ? `الموعد ${formatDateAr(t.deadline)}` : t.date === today ? "اليوم" : formatDateAr(t.date)}
             </p>
+            {t.target > 0 && (
+              <p className="mt-0.5 tabular-nums">
+                {formatNumber(t.achieved)} / {formatNumber(t.target)} {t.unit ?? ""}
+              </p>
+            )}
           </div>
         );
       },
     },
-    { accessorKey: "priority", header: "الأولوية", cell: ({ row }) => <EnumBadge map={PRIORITY_LABELS} value={row.original.priority} /> },
-    {
-      accessorKey: "status",
-      header: "الحالة",
-      cell: ({ row }) => (
-        <div className="flex flex-col items-start gap-1">
-          <EnumBadge map={TASK_STATUS_LABELS} value={row.original.status} />
-          {row.original.overdue && row.original.status !== "DELAYED" && <StatusBadge tone="danger">متأخرة</StatusBadge>}
-        </div>
-      ),
-    },
-    {
-      accessorKey: "notes",
-      header: "ملاحظات",
-      cell: ({ row }) => (
-        <p className="line-clamp-2 max-w-48 text-xs text-muted-foreground">
-          {row.original.delayReason ? `السبب: ${row.original.delayReason}` : (row.original.notes ?? "—")}
-        </p>
-      ),
-    },
+    { accessorKey: "status", header: "الحالة", cell: ({ row }) => <TaskStatusMarker status={row.original.status} overdue={row.original.overdue} /> },
     {
       id: "actions",
       header: "",

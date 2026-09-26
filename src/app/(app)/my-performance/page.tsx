@@ -1,32 +1,52 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Award, CheckCircle2, ListChecks, ThumbsUp, TrendingUp, UserX } from "lucide-react";
+import { Award, CheckCircle2, ChevronDown, ListChecks, ThumbsUp, TrendingUp, UserX } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ActionButton } from "@/components/shared/action-button";
 import { EmptyState, PageHeader } from "@/components/shared/page";
-import { EnumBadge } from "@/components/shared/status-badge";
+import { ProgressBar } from "@/components/shared/progress-bar";
 import type { SearchParams } from "@/lib/params";
 import { int } from "@/lib/params";
 import { PERMISSIONS } from "@/lib/permissions";
-import { REVIEW_STATUS_LABELS } from "@/lib/labels";
 import { formatDateTimeAr, monthLabel } from "@/lib/dates";
-import { requirePermission } from "@/server/auth/session";
-import { getLatestApprovedReviewId, getPerformanceHistory, getReviewDetail } from "@/server/queries/performance";
+import { formatNumber, formatPct } from "@/lib/num";
+import { aggregateScores } from "@/lib/kpi/engine";
+import { cn } from "@/lib/utils";
+import { can, requirePermission } from "@/server/auth/session";
+import { getLatestApprovedReviewId, getPerformanceHistory, getReviewDetail, type KpiResultRow } from "@/server/queries/performance";
 import { acknowledgeReviewAction } from "@/actions/performance";
 import { PerformanceHistory } from "@/features/performance/performance-history";
 import { KpiResultsTable } from "@/features/performance/kpi-results-table";
 import { ReviewScoreSummary } from "@/features/performance/review-summary";
+import { RatingBadge, ratingTone, scoreTextClass } from "@/features/performance/rating-badge";
 
 export const metadata: Metadata = { title: "أدائي" };
+
+function commitmentScore(results: KpiResultRow[]): number | null {
+  const list = results.filter((r) => r.category === "COMMITMENT").map((r) => ({ ...r, category: "PRODUCTIVITY" as const }));
+  return aggregateScores(list).productivityScore;
+}
 
 export default async function MyPerformancePage({ searchParams }: { searchParams: SearchParams }) {
   const user = await requirePermission(PERMISSIONS.PERFORMANCE_VIEW_OWN);
   if (!user.employeeId) {
+    const canManageEmployees = can(user, PERMISSIONS.EMPLOYEES_MANAGE);
     return (
       <>
         <PageHeader title="أدائي" />
-        <EmptyState icon={UserX} title="حسابك غير مرتبط بملف موظف" description="اطلب من مدير النظام ربط حسابك بملف موظف لعرض تقييماتك." />
+        <EmptyState
+          icon={UserX}
+          title="حسابك غير مرتبط بملف موظف"
+          description={canManageEmployees ? "اربط حسابك بملف موظف من صفحة الموظفين ليظهر أداؤك هنا." : "اطلب من مدير النظام ربط حسابك بملف موظف ليظهر أداؤك هنا."}
+          action={
+            canManageEmployees ? (
+              <Button size="sm" asChild>
+                <Link href="/employees">الموظفون</Link>
+              </Button>
+            ) : undefined
+          }
+        />
       </>
     );
   }
@@ -36,44 +56,78 @@ export default async function MyPerformancePage({ searchParams }: { searchParams
   const latest = latestId ? await getReviewDetail(latestId) : null;
   const review = latest?.review;
 
+  if (!latest || !review) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="أدائي" />
+        <EmptyState
+          icon={Award}
+          title="لم يُعتمد تقييمك بعد"
+          description="تظهر نسبك هنا بعد أن يعتمد مديرك تقييم الشهر. حتى ذلك الحين، تابع أهدافك وأنجزها من «خطتي»."
+          action={
+            <Button size="sm" asChild>
+              <Link href="/my-plan">افتح خطتي</Link>
+            </Button>
+          }
+        />
+        {history.length > 0 && (
+          <PerformanceHistory rows={history} range={range} basePath="/my-performance" reviewHref={(id) => `/performance/reviews/${id}`} />
+        )}
+      </div>
+    );
+  }
+
+  const tone = ratingTone(review.ratingColor);
+  const scores = [
+    { label: "الإنتاجية", hint: "كم أنجزت من أهدافك", value: review.productivityScore },
+    { label: "الجودة", hint: "جودة ما سلّمته", value: review.qualityScore },
+    { label: "الالتزام", hint: "التزامك بالمواعيد", value: commitmentScore(latest.results) },
+  ];
+
   return (
     <div className="space-y-6">
-      <PageHeader title="أدائي" description="تقييماتك الشهرية المعتمدة وسجل إنجازك" />
+      <PageHeader
+        title={`أداؤك — ${monthLabel(review.year, review.month)}`}
+        actions={
+          review.status === "APPROVED" ? (
+            <ActionButton action={acknowledgeReviewAction.bind(null, review.id)} confirm={{ title: "تأكيد الاطلاع على التقييم؟", description: "سيُسجل أنك اطلعت على تقييم هذا الشهر ونتيجته.", confirmLabel: "اطلعت" }}>
+              <CheckCircle2 /> اطلعت على التقييم
+            </ActionButton>
+          ) : undefined
+        }
+      >
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+          <span>
+            النتيجة العامة <span className={cn("font-bold tabular-nums", scoreTextClass[tone])}>{formatNumber(review.finalScore, 0)}</span> من 100
+          </span>
+          <RatingBadge label={review.ratingLabel} color={review.ratingColor} />
+        </div>
+      </PageHeader>
 
-      {!latest || !review ? (
-        <EmptyState icon={Award} title="لا يوجد تقييم معتمد بعد" description="يظهر تقييمك هنا بعد أن يعتمده مديرك. يمكنك متابعة إنجازك الحالي من «خطتي»." action={<Button size="sm" asChild><Link href="/my-plan">خطتي</Link></Button>} />
-      ) : (
-        <>
-          <Card>
-            <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
-              <div>
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <Award className="size-4 text-primary" /> آخر تقييم معتمد — {monthLabel(review.year, review.month)}
-                </CardTitle>
-                <CardDescription className="mt-1 flex flex-wrap items-center gap-2">
-                  <EnumBadge map={REVIEW_STATUS_LABELS} value={review.status} />
-                  <span>اعتمد في {formatDateTimeAr(review.approvedAt)}{review.approvedBy ? ` بواسطة ${review.approvedBy}` : ""}</span>
-                  {review.acknowledgedAt && <span>· اطلعت عليه في {formatDateTimeAr(review.acknowledgedAt)}</span>}
-                </CardDescription>
-              </div>
-              {review.status === "APPROVED" && (
-                <ActionButton action={acknowledgeReviewAction.bind(null, review.id)} confirm={{ title: "تأكيد الاطلاع على التقييم؟", description: "سيُسجل أنك اطلعت على تقييم هذا الشهر ونتيجته.",confirmLabel: "اطلعت" }}>
-                  <CheckCircle2 /> اطلعت على التقييم
-                </ActionButton>
-              )}
-            </CardHeader>
+      <div className="grid gap-4 sm:grid-cols-3">
+        {scores.map((s) => (
+          <Card key={s.label} className="gap-0 py-5">
+            <CardContent className="space-y-3 px-5">
+              <p className="text-sm font-medium text-muted-foreground">{s.label}</p>
+              <p className="text-4xl font-extrabold tabular-nums">{formatPct(s.value, 0)}</p>
+              <ProgressBar value={s.value ?? 0} />
+              <p className="text-xs text-muted-foreground">{s.value === null ? "لا يوجد ما يُقاس هذا الشهر" : s.hint}</p>
+            </CardContent>
           </Card>
+        ))}
+      </div>
 
-          <ReviewScoreSummary
-            autoScore={review.autoScore}
-            adjustment={review.managerAdjustment}
-            adjustmentReason={review.adjustmentReason}
-            finalScore={review.finalScore}
-            productivityScore={review.productivityScore}
-            qualityScore={review.qualityScore}
-            ratingLabel={review.ratingLabel}
-            ratingColor={review.ratingColor}
-          />
+      <details className="group rounded-xl border bg-card">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-2 p-4 text-sm font-semibold">
+          تفاصيل إضافية
+          <ChevronDown className="size-4 text-muted-foreground transition-transform group-open:rotate-180" />
+        </summary>
+        <div className="space-y-5 border-t p-4">
+          <p className="text-xs text-muted-foreground">
+            اعتمد في {formatDateTimeAr(review.approvedAt)}
+            {review.approvedBy ? ` بواسطة ${review.approvedBy}` : ""}
+            {review.acknowledgedAt ? ` · اطلعت عليه في ${formatDateTimeAr(review.acknowledgedAt)}` : ""}
+          </p>
 
           <div className="grid gap-4 lg:grid-cols-3">
             {[
@@ -94,6 +148,17 @@ export default async function MyPerformancePage({ searchParams }: { searchParams
             ))}
           </div>
 
+          <ReviewScoreSummary
+            autoScore={review.autoScore}
+            adjustment={review.managerAdjustment}
+            adjustmentReason={review.adjustmentReason}
+            finalScore={review.finalScore}
+            productivityScore={review.productivityScore}
+            qualityScore={review.qualityScore}
+            ratingLabel={review.ratingLabel}
+            ratingColor={review.ratingColor}
+          />
+
           <Card>
             <CardHeader>
               <CardTitle className="text-base">تفصيل مؤشرات الأداء</CardTitle>
@@ -103,10 +168,10 @@ export default async function MyPerformancePage({ searchParams }: { searchParams
               <KpiResultsTable results={latest.results} canEdit={false} />
             </CardContent>
           </Card>
-        </>
-      )}
 
-      <PerformanceHistory rows={history} range={range} basePath="/my-performance" reviewHref={(id) => `/performance/reviews/${id}`} />
+          <PerformanceHistory rows={history} range={range} basePath="/my-performance" reviewHref={(id) => `/performance/reviews/${id}`} />
+        </div>
+      </details>
     </div>
   );
 }

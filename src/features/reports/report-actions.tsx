@@ -37,17 +37,7 @@ interface NoteField {
 }
 
 /** Owner panel (DRAFT / RETURNED): notes, refresh numbers, submit to manager. */
-export function ReportOwnerPanel({
-  kind,
-  reportId,
-  notes,
-  returned,
-}: {
-  kind: Kind;
-  reportId: string;
-  notes: NoteField[];
-  returned: boolean;
-}) {
+export function ReportOwnerPanel({ kind, reportId, notes, returned }: { kind: Kind; reportId: string; notes: NoteField[]; returned: boolean }) {
   const router = useRouter();
   const [values, setValues] = useState<Record<string, string>>(() => Object.fromEntries(notes.map((n) => [n.key, n.value ?? ""])));
   const [dirty, setDirty] = useState(false);
@@ -65,7 +55,9 @@ export function ReportOwnerPanel({
       <CardHeader>
         <CardTitle className="text-base">ملاحظاتي على التقرير</CardTitle>
         <CardDescription>
-          {returned ? "أعاد المدير التقرير — راجع الملاحظات وعدّل ثم أعد الإرسال." : "أضف ملاحظاتك ثم أرسل التقرير للمدير. الأرقام تُحدَّث تلقائيًا قبل الإرسال."}
+          {returned
+            ? "أعاد المدير التقرير — راجع ملاحظته وعدّل ثم أعد الإرسال."
+            : "أُعدّ هذا التقرير تلقائيًا من بيانات النظام. راجعه، أضف ملاحظة إن أردت، ثم أرسله. الأرقام تُحدَّث تلقائيًا قبل الإرسال."}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -92,10 +84,11 @@ export function ReportOwnerPanel({
             {save.pending ? <Spinner /> : <Save />} حفظ الملاحظات
           </Button>
           <ActionButton
-            variant="outline"
+            variant="ghost"
             action={() => (kind === "weekly" ? refreshWeeklyReportAction(reportId) : refreshMonthlyReportAction(reportId))}
+            title="يعيد حساب الأرقام من بيانات النظام مع الإبقاء على ملاحظاتك"
           >
-            <RefreshCw /> تحديث الأرقام
+            <RefreshCw /> إعادة التوليد
           </ActionButton>
           <ActionButton
             action={async () => {
@@ -134,7 +127,10 @@ export function ReportReviewPanel({ kind, reportId, existingComment }: { kind: K
   });
   const decide = (d: Decision) => {
     setDecision(d);
-    void run(reportId, { decision: d, comment: comment.trim() || null }).finally(() => setDecision(null));
+    void run(reportId, {
+      decision: d,
+      comment: comment.trim() || null,
+    }).finally(() => setDecision(null));
   };
   const returnInvalid = comment.trim().length < 3;
   return (
@@ -149,7 +145,14 @@ export function ReportReviewPanel({ kind, reportId, existingComment }: { kind: K
       <CardContent className="space-y-3">
         <div className="space-y-1.5">
           <Label htmlFor="review-comment">{kind === "weekly" ? "تعليق المدير" : "ملاحظات المدير"}</Label>
-          <Textarea id="review-comment" rows={3} maxLength={5000} value={comment} onChange={(e) => setComment(e.target.value)} placeholder="اكتب تعليقك أو سبب الإعادة…" />
+          <Textarea
+            id="review-comment"
+            rows={3}
+            maxLength={5000}
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            placeholder="اكتب تعليقك أو سبب الإعادة…"
+          />
         </div>
         <div className="flex flex-wrap gap-2">
           <Button onClick={() => decide("APPROVE")} disabled={pending} className="bg-success text-white hover:bg-success/90">
@@ -158,7 +161,12 @@ export function ReportReviewPanel({ kind, reportId, existingComment }: { kind: K
           <Button variant="outline" onClick={() => decide("REVIEWED")} disabled={pending}>
             {pending && decision === "REVIEWED" ? <Spinner /> : <Eye />} تمت المراجعة
           </Button>
-          <Button variant="destructive" onClick={() => decide("RETURN")} disabled={pending || returnInvalid} title={returnInvalid ? "اكتب سبب الإعادة أولًا" : undefined}>
+          <Button
+            variant="destructive"
+            onClick={() => decide("RETURN")}
+            disabled={pending || returnInvalid}
+            title={returnInvalid ? "اكتب سبب الإعادة أولًا" : undefined}
+          >
             {pending && decision === "RETURN" ? <Spinner /> : <Undo2 />} إعادة للموظف
           </Button>
         </div>
@@ -172,7 +180,9 @@ export function ReportReviewPanel({ kind, reportId, existingComment }: { kind: K
 export function ManagerNotesEditor({ reportId, value }: { reportId: string; value: string | null }) {
   const router = useRouter();
   const [text, setText] = useState(value ?? "");
-  const { run, pending } = useServerAction(saveMonthlyNotesAction, { onSuccess: () => router.refresh() });
+  const { run, pending } = useServerAction(saveMonthlyNotesAction, {
+    onSuccess: () => router.refresh(),
+  });
   const dirty = text !== (value ?? "");
   return (
     <Card className="no-print">

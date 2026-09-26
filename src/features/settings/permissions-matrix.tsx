@@ -30,6 +30,8 @@ export function PermissionsMatrix({ roles, missing }: { roles: MatrixRole[]; mis
   const [state, setState] = useState(() => new Map(roles.map((r) => [r.id, new Set(r.permissions)])));
   const [savingId, setSavingId] = useState<string | "all" | null>(null);
   const [pending, start] = useTransition();
+  const [mobileRoleId, setMobileRoleId] = useState(() => roles[0]?.id ?? null);
+  const mobileRole = roles.find((r) => r.id === mobileRoleId) ?? roles[0];
 
   const dirty = roles.filter((r) => !sameSet(state.get(r.id) ?? new Set(), initial.get(r.id) ?? new Set()));
   const dirtyIds = new Set(dirty.map((r) => r.id));
@@ -93,7 +95,83 @@ export function PermissionsMatrix({ roles, missing }: { roles: MatrixRole[]; mis
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-xl border bg-card">
+      {mobileRole && (
+        <div className="space-y-3 md:hidden">
+          <div className="-mx-3 overflow-x-auto px-3" role="tablist" aria-label="اختر الدور">
+            <div className="flex w-max gap-1.5 pb-1">
+              {roles.map((r) => {
+                const active = r.id === mobileRole.id;
+                return (
+                  <button
+                    key={r.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    onClick={() => setMobileRoleId(r.id)}
+                    className={cn(
+                      "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm whitespace-nowrap transition-colors",
+                      active ? "border-primary/40 bg-primary/10 font-semibold text-primary" : "text-muted-foreground hover:bg-muted",
+                    )}
+                  >
+                    {r.name}
+                    {dirtyIds.has(r.id) && <span className="size-1.5 rounded-full bg-warning" aria-label="تغييرات غير محفوظة" />}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between gap-2 rounded-xl border bg-card p-3">
+            <div className="min-w-0">
+              <p className="font-semibold">{mobileRole.name}</p>
+              <p className="text-xs text-muted-foreground">
+                {mobileRole.users} مستخدم · {state.get(mobileRole.id)?.size ?? 0} صلاحية
+                {state.get(mobileRole.id)?.has(PERMISSIONS.SYSTEM_ADMIN) && <span className="text-warning"> · صلاحيات كاملة</span>}
+              </p>
+            </div>
+            <Button
+              size="sm"
+              variant={dirtyIds.has(mobileRole.id) ? "default" : "outline"}
+              disabled={!dirtyIds.has(mobileRole.id) || pending}
+              onClick={() => save([mobileRole], mobileRole.id)}
+            >
+              {savingId === mobileRole.id ? <Spinner /> : <Save />} حفظ
+            </Button>
+          </div>
+
+          {groups.map((g) => (
+            <fieldset key={g.group} className="rounded-xl border bg-card">
+              <legend className="sr-only">{g.group}</legend>
+              <p className="border-b bg-muted/40 px-3 py-2 text-xs font-bold text-muted-foreground">{g.group}</p>
+              <div className="divide-y">
+                {g.items.map((it) => {
+                  const set = state.get(mobileRole.id) ?? new Set<string>();
+                  const checked = set.has(it.key);
+                  const changed = checked !== (initial.get(mobileRole.id)?.has(it.key) ?? false);
+                  const locked = isLockedPermission(mobileRole.key, it.key);
+                  const implied = !checked && set.has(PERMISSIONS.SYSTEM_ADMIN);
+                  return (
+                    <label key={it.key} className={cn("flex cursor-pointer items-start gap-3 px-3 py-2.5 text-sm", changed && "bg-warning-soft", locked && "cursor-not-allowed")}>
+                      <Checkbox
+                        className="mt-0.5"
+                        checked={checked}
+                        disabled={locked || pending || missing.includes(it.key)}
+                        onCheckedChange={(v) => toggle(mobileRole, it.key, v === true)}
+                      />
+                      <span className="min-w-0">
+                        <span className="block">{it.name}</span>
+                        {implied && <span className="block text-[11px] text-success">مشمولة عبر إدارة النظام</span>}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </fieldset>
+          ))}
+        </div>
+      )}
+
+      <div className="hidden overflow-x-auto rounded-xl border bg-card md:block">
         <Table>
           <TableHeader className="bg-muted/40">
             <TableRow className="hover:bg-transparent">

@@ -3,7 +3,7 @@ import type { Prisma } from "@/generated/prisma/client";
 import { db } from "@/server/db";
 import { employeeWhere, type AuthUser } from "@/server/auth/session";
 import { getCompany } from "@/server/services/company";
-import { formatDateAr, fromDateKey, monthLabel, toDateKey, todayKey } from "@/lib/dates";
+import { formatDateAr, fromDateKey, monthEnd as monthEndKey, monthLabel, toDateKey, todayKey } from "@/lib/dates";
 import type { ReportStatusKey } from "@/lib/labels";
 import type { MonthlyReportContent, WeeklyReportContent } from "@/lib/report-types";
 
@@ -45,7 +45,10 @@ export async function listWeeklyReports(user: AuthUser, f: ReportListFilters, ow
   if (f.status) and.push({ status: f.status as ReportStatusKey });
   if (f.employeeId) and.push({ employeeId: f.employeeId });
   const ym = parseMonth(f.month);
-  if (ym) and.push({ weeklyPlan: { monthlyPlan: { year: ym.year, month: ym.month } } });
+  if (ym)
+    and.push({
+      weeklyPlan: { monthlyPlan: { year: ym.year, month: ym.month } },
+    });
   const where: Prisma.WeeklyReportWhereInput = { AND: and };
   const [rows, total] = await Promise.all([
     db.weeklyReport.findMany({
@@ -59,7 +62,12 @@ export async function listWeeklyReports(user: AuthUser, f: ReportListFilters, ow
         submittedAt: true,
         reviewedAt: true,
         employee: { select: { fullName: true } },
-        weeklyPlan: { select: { weekIndex: true, monthlyPlan: { select: { year: true, month: true } } } },
+        weeklyPlan: {
+          select: {
+            weekIndex: true,
+            monthlyPlan: { select: { year: true, month: true } },
+          },
+        },
       },
       orderBy: [{ weekStart: "desc" }, { createdAt: "desc" }],
       skip: f.skip,
@@ -141,7 +149,10 @@ export async function recentMonthOptions(count = 12) {
   let month = +today.slice(5, 7);
   const out: { value: string; label: string }[] = [];
   for (let i = 0; i < count; i++) {
-    out.push({ value: `${year}-${String(month).padStart(2, "0")}`, label: monthLabel(year, month) });
+    out.push({
+      value: `${year}-${String(month).padStart(2, "0")}`,
+      label: monthLabel(year, month),
+    });
     month -= 1;
     if (month === 0) {
       month = 12;
@@ -207,14 +218,21 @@ function normalizeMonthly(raw: unknown): MonthlyReportContent {
 
 async function reviewerName(userId: string | null) {
   if (!userId) return null;
-  const u = await db.user.findUnique({ where: { id: userId }, select: { name: true, employee: { select: { fullName: true } } } });
+  const u = await db.user.findUnique({
+    where: { id: userId },
+    select: { name: true, employee: { select: { fullName: true } } },
+  });
   return u ? (u.employee?.fullName ?? u.name) : null;
 }
 
 export async function getWeeklyReport(id: string) {
   const r = await db.weeklyReport.findUnique({
     where: { id },
-    include: { employee: { select: { fullName: true, jobTitle: { select: { name: true } } } } },
+    include: {
+      employee: {
+        select: { fullName: true, jobTitle: { select: { name: true } } },
+      },
+    },
   });
   if (!r) return null;
   return {
@@ -243,7 +261,11 @@ export async function getWeeklyReport(id: string) {
 export async function getMonthlyReport(id: string) {
   const r = await db.monthlyReport.findUnique({
     where: { id },
-    include: { employee: { select: { fullName: true, jobTitle: { select: { name: true } } } } },
+    include: {
+      employee: {
+        select: { fullName: true, jobTitle: { select: { name: true } } },
+      },
+    },
   });
   if (!r) return null;
   return {
@@ -274,6 +296,92 @@ export type MonthlyReportDetail = NonNullable<Awaited<ReturnType<typeof getMonth
 //  /my-reports
 // ---------------------------------------------------------------------------
 
+export interface MyPendingReport {
+  kind: "weekly" | "monthly";
+  id: string;
+  href: string;
+  title: string;
+  period: string;
+  status: ReportStatusKey;
+  progress: number | null;
+  managerComment: string | null;
+}
+
+/** Own reports waiting for the employee (auto-generated drafts and returned ones), returned first, then newest. */
+export async function getMyPendingReports(employeeId: string): Promise<MyPendingReport[]> {
+  const status = { in: ["DRAFT", "RETURNED"] as ReportStatusKey[] };
+  const [weekly, monthly] = await Promise.all([
+    db.weeklyReport.findMany({
+      where: { employeeId, status },
+      select: {
+        id: true,
+        status: true,
+        content: true,
+        weekStart: true,
+        weekEnd: true,
+        managerComment: true,
+        weeklyPlan: {
+          select: {
+            weekIndex: true,
+            monthlyPlan: { select: { year: true, month: true } },
+          },
+        },
+      },
+      orderBy: { weekStart: "desc" },
+      take: 12,
+    }),
+    db.monthlyReport.findMany({
+      where: { employeeId, status },
+      select: {
+        id: true,
+        status: true,
+        content: true,
+        year: true,
+        month: true,
+        managerNotes: true,
+      },
+      orderBy: [{ year: "desc" }, { month: "desc" }],
+      take: 6,
+    }),
+  ]);
+  const items = [
+    ...weekly.map((r) => ({
+      sort: toDateKey(r.weekEnd),
+      item: {
+        kind: "weekly" as const,
+        id: r.id,
+        href: `/reports/weekly/${r.id}`,
+        title: `تقرير الأسبوع ${r.weeklyPlan.weekIndex} — ${monthLabel(r.weeklyPlan.monthlyPlan.year, r.weeklyPlan.monthlyPlan.month)}`,
+        period: `${formatDateAr(r.weekStart)} – ${formatDateAr(r.weekEnd)}`,
+        status: r.status,
+        progress: contentProgress(r.content),
+        managerComment: r.status === "RETURNED" ? r.managerComment : null,
+      },
+    })),
+    ...monthly.map((r) => ({
+      sort: monthEndKey(r.year, r.month),
+      item: {
+        kind: "monthly" as const,
+        id: r.id,
+        href: `/reports/monthly/${r.id}`,
+        title: `التقرير الشهري — ${monthLabel(r.year, r.month)}`,
+        period: monthLabel(r.year, r.month),
+        status: r.status,
+        progress: contentProgress(r.content),
+        managerComment: r.status === "RETURNED" ? r.managerNotes : null,
+      },
+    })),
+  ];
+  items.sort((a, b) => {
+    const ra = a.item.status === "RETURNED" ? 1 : 0;
+    const rb = b.item.status === "RETURNED" ? 1 : 0;
+    if (ra !== rb) return rb - ra;
+    if (a.sort !== b.sort) return a.sort < b.sort ? 1 : -1;
+    return a.item.kind === "monthly" ? -1 : 1;
+  });
+  return items.map((i) => i.item);
+}
+
 export async function getMyReportContext(user: AuthUser, year: number, month: number) {
   const employeeId = user.employeeId!;
   const company = await getCompany();
@@ -281,8 +389,18 @@ export async function getMyReportContext(user: AuthUser, year: number, month: nu
   const todayDate = fromDateKey(today);
   const [currentWeek, plan] = await Promise.all([
     db.weeklyPlan.findFirst({
-      where: { employeeId, startDate: { lte: todayDate }, endDate: { gte: todayDate } },
-      select: { id: true, weekIndex: true, startDate: true, endDate: true, report: { select: { id: true, status: true } } },
+      where: {
+        employeeId,
+        startDate: { lte: todayDate },
+        endDate: { gte: todayDate },
+      },
+      select: {
+        id: true,
+        weekIndex: true,
+        startDate: true,
+        endDate: true,
+        report: { select: { id: true, status: true } },
+      },
     }),
     db.monthlyPlan.findUnique({
       where: { employeeId_year_month: { employeeId, year, month } },
@@ -291,7 +409,13 @@ export async function getMyReportContext(user: AuthUser, year: number, month: nu
         status: true,
         report: { select: { id: true, status: true } },
         weeklyPlans: {
-          select: { id: true, weekIndex: true, startDate: true, endDate: true, report: { select: { id: true, status: true } } },
+          select: {
+            id: true,
+            weekIndex: true,
+            startDate: true,
+            endDate: true,
+            report: { select: { id: true, status: true } },
+          },
           orderBy: { weekIndex: "asc" },
         },
       },

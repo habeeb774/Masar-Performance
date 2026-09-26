@@ -12,8 +12,8 @@ export default async function SettingsLayout({ children }: { children: React.Rea
     ...sections.map((s) => ({ href: s.href, label: s.label, icon: s.icon })),
   ];
   return (
-    <div className="grid gap-4 lg:grid-cols-[13rem_minmax(0,1fr)] lg:gap-8">
-      <aside className="lg:sticky lg:top-20 lg:self-start">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[13rem_minmax(0,1fr)] lg:gap-8">
+      <aside className="min-w-0 lg:sticky lg:top-20 lg:self-start">
         <p className="mb-2 hidden px-3 text-xs font-semibold text-muted-foreground lg:block">الإعدادات</p>
         <SettingsNav items={items} />
       </aside>

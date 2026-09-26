@@ -14,7 +14,9 @@ const refresh = () => revalidatePath("/", "layout");
 export async function generateWeeklyReportAction(weeklyPlanId: string) {
   return runAction(async () => {
     const user = await actionUser();
-    const week = await db.weeklyPlan.findUniqueOrThrow({ where: { id: idSchema.parse(weeklyPlanId) } });
+    const week = await db.weeklyPlan.findUniqueOrThrow({
+      where: { id: idSchema.parse(weeklyPlanId) },
+    });
     assertEmployeeAccess(user, week.employeeId);
     const report = await reports.generateWeeklyReport(week.id);
     refresh();
@@ -25,7 +27,9 @@ export async function generateWeeklyReportAction(weeklyPlanId: string) {
 export async function refreshWeeklyReportAction(reportId: string) {
   return runAction(async () => {
     const user = await actionUser();
-    const report = await db.weeklyReport.findUniqueOrThrow({ where: { id: idSchema.parse(reportId) } });
+    const report = await db.weeklyReport.findUniqueOrThrow({
+      where: { id: idSchema.parse(reportId) },
+    });
     assertEmployeeAccess(user, report.employeeId);
     if (!["DRAFT", "RETURNED"].includes(report.status)) throw new UserError("لا يمكن تحديث تقرير مرسل");
     await reports.generateWeeklyReport(report.weeklyPlanId);
@@ -59,10 +63,23 @@ export async function reviewWeeklyReportAction(reportId: string, input: z.input<
   }, "تم حفظ قرار المراجعة");
 }
 
+const commentSchema = z.string().trim().min(3, "اكتب الملاحظة").max(5000);
+
+/** Inline «ملاحظة» from the review queue: saves the manager comment and marks the report reviewed. */
+export async function commentWeeklyReportAction(reportId: string, comment?: string) {
+  return runAction(async () => {
+    const user = await actionPermission(PERMISSIONS.REPORTS_REVIEW);
+    await reports.reviewWeeklyReport(user, idSchema.parse(reportId), "REVIEWED", commentSchema.parse(comment ?? ""));
+    refresh();
+  }, "تم حفظ الملاحظة وإبلاغ الموظف");
+}
+
 export async function generateMonthlyReportAction(planId: string) {
   return runAction(async () => {
     const user = await actionUser();
-    const plan = await db.monthlyPlan.findUniqueOrThrow({ where: { id: idSchema.parse(planId) } });
+    const plan = await db.monthlyPlan.findUniqueOrThrow({
+      where: { id: idSchema.parse(planId) },
+    });
     assertEmployeeAccess(user, plan.employeeId);
     const report = await reports.generateMonthlyReport(plan.id);
     refresh();
@@ -73,7 +90,9 @@ export async function generateMonthlyReportAction(planId: string) {
 export async function refreshMonthlyReportAction(reportId: string) {
   return runAction(async () => {
     const user = await actionUser();
-    const report = await db.monthlyReport.findUniqueOrThrow({ where: { id: idSchema.parse(reportId) } });
+    const report = await db.monthlyReport.findUniqueOrThrow({
+      where: { id: idSchema.parse(reportId) },
+    });
     assertEmployeeAccess(user, report.employeeId);
     if (!["DRAFT", "RETURNED"].includes(report.status)) throw new UserError("لا يمكن تحديث تقرير مرسل");
     await reports.generateMonthlyReport(report.monthlyPlanId);
@@ -112,4 +131,12 @@ export async function reviewMonthlyReportAction(reportId: string, input: z.input
     await reports.reviewMonthlyReport(user, idSchema.parse(reportId), data.decision, data.comment);
     refresh();
   }, "تم حفظ قرار المراجعة");
+}
+
+export async function commentMonthlyReportAction(reportId: string, comment?: string) {
+  return runAction(async () => {
+    const user = await actionPermission(PERMISSIONS.REPORTS_REVIEW);
+    await reports.reviewMonthlyReport(user, idSchema.parse(reportId), "REVIEWED", commentSchema.parse(comment ?? ""));
+    refresh();
+  }, "تم حفظ الملاحظة وإبلاغ الموظف");
 }

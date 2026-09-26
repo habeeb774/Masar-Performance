@@ -57,7 +57,7 @@ export function CompanyForm({ initial }: { initial: Output }) {
 
   return (
     <form onSubmit={onSubmit} noValidate>
-      <div className="grid gap-4 xl:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <Card>
           <CardHeader>
             <CardTitle className="text-base">الهوية</CardTitle>
@@ -185,7 +185,7 @@ export function CompanyForm({ initial }: { initial: Output }) {
               <FieldError errors={[errors.weeklyReportDueDays]} />
             </Field>
           </CardContent>
-          <CardFooter className="justify-end gap-2 border-t">
+          <CardFooter className="flex-wrap justify-end gap-2 border-t">
             <Button type="button" variant="outline" disabled={pending || !form.formState.isDirty} onClick={() => form.reset(initial)}>
               تراجع
             </Button>

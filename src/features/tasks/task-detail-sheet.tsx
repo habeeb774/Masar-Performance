@@ -51,6 +51,7 @@ export function TaskDetailSheet({
             </KeyValue>
             {task.kind === "daily" ? (
               <>
+                <KeyValue label="المصدر">{TASK_SOURCE_LABELS[task.source]}</KeyValue>
                 <KeyValue label="التاريخ">{formatDateAr(task.date)}</KeyValue>
                 <KeyValue label="الموعد النهائي">{formatDateAr(task.deadline)}</KeyValue>
                 {task.goalName && <KeyValue label="الهدف المرتبط">{task.goalName}</KeyValue>}

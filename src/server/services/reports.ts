@@ -10,17 +10,11 @@ import { isOverdue } from "@/lib/goal-status";
 import { formatPct, num, round2 } from "@/lib/num";
 import type { ProgressBreakdown } from "@/lib/notion/progress";
 import { GOAL_STATUS_LABELS, NOTION_STATUS_LABELS, TASK_STATUS_LABELS } from "@/lib/labels";
-import type {
-  MonthlyReportContent,
-  ReportGoalLine,
-  ReportTaskLine,
-  ReportTotals,
-  StageSummaryLine,
-  WeeklyReportContent,
-} from "@/lib/report-types";
+import type { MonthlyReportContent, ReportGoalLine, ReportTaskLine, ReportTotals, StageSummaryLine, WeeklyReportContent } from "@/lib/report-types";
 import { getCompanyFresh } from "./company";
 import { managerUserIdsFor, notifyUsers } from "./notifications";
 import { recomputePlan } from "./progress";
+import { dueMonths, monthsNeedingReport, REPORTABLE_PLAN_STATUSES, weeklyWindow, weeksNeedingReport } from "./reports-schedule";
 
 const asBreakdown = (v: unknown) => (v && typeof v === "object" ? (v as ProgressBreakdown) : null);
 
@@ -108,13 +102,19 @@ export async function buildWeeklyContent(weeklyPlanId: string): Promise<WeeklyRe
     include: {
       monthlyPlan: true,
       employee: { include: { jobTitle: true } },
-      goals: { include: { monthlyGoal: true }, orderBy: { monthlyGoal: { sortOrder: "asc" } } },
+      goals: {
+        include: { monthlyGoal: true },
+        orderBy: { monthlyGoal: { sortOrder: "asc" } },
+      },
     },
   });
   const start = week.startDate;
   const end = week.endDate;
   const [tasks, adHoc] = await Promise.all([
-    db.dailyTask.findMany({ where: { employeeId: week.employeeId, date: { gte: start, lte: end } }, orderBy: { date: "asc" } }),
+    db.dailyTask.findMany({
+      where: { employeeId: week.employeeId, date: { gte: start, lte: end } },
+      orderBy: { date: "asc" },
+    }),
     db.adHocTask.findMany({
       where: {
         employeeId: week.employeeId,
@@ -141,8 +141,12 @@ export async function buildWeeklyContent(weeklyPlanId: string): Promise<WeeklyRe
 
   const manualTasks = tasks.filter((t) => t.source === "MANUAL").map((t) => taskLine(t));
   const delayedTasks = [
-    ...tasks.filter((t) => t.status === "DELAYED" || isOverdue(t.status, t.deadline ? toDateKey(t.deadline) : null, today)).map((t) => taskLine(t)),
-    ...adHoc.filter((t) => isOverdue(t.status, t.dueDate ? toDateKey(t.dueDate) : null, today)).map((t) => taskLine(t, "AD_HOC_TASK")),
+    ...tasks
+      .filter((t) => t.status === "DELAYED" || t.status === "BLOCKED" || isOverdue(t.status, t.deadline ? toDateKey(t.deadline) : null, today))
+      .map((t) => taskLine(t)),
+    ...adHoc
+      .filter((t) => t.status === "BLOCKED" || isOverdue(t.status, t.dueDate ? toDateKey(t.dueDate) : null, today))
+      .map((t) => taskLine(t, "AD_HOC_TASK")),
   ];
   const adHocTasks = adHoc.map((t) => taskLine(t, "AD_HOC_TASK"));
 
@@ -155,15 +159,23 @@ export async function buildWeeklyContent(weeklyPlanId: string): Promise<WeeklyRe
     ...goals
       .filter((g) => g.target > g.achieved && g.goalType !== "PERCENTAGE")
       .map((g) => `${g.name}: متبقي ${round2(g.target - g.achieved)} ${g.unit}`),
-    ...tasks
-      .filter((t) => t.source === "MANUAL" && !["COMPLETED", "CANCELLED"].includes(t.status))
-      .map((t) => `مهمة: ${t.title}`),
+    ...tasks.filter((t) => t.source === "MANUAL" && !["COMPLETED", "CANCELLED"].includes(t.status)).map((t) => `مهمة: ${t.title}`),
   ];
 
   return {
     version: 1,
-    employee: { id: week.employeeId, name: week.employee.fullName, jobTitle: week.employee.jobTitle?.name ?? null },
-    week: { index: week.weekIndex, start: toDateKey(start), end: toDateKey(end), year: week.monthlyPlan.year, month: week.monthlyPlan.month },
+    employee: {
+      id: week.employeeId,
+      name: week.employee.fullName,
+      jobTitle: week.employee.jobTitle?.name ?? null,
+    },
+    week: {
+      index: week.weekIndex,
+      start: toDateKey(start),
+      end: toDateKey(end),
+      year: week.monthlyPlan.year,
+      month: week.monthlyPlan.month,
+    },
     goals,
     totals: totalsOf(goals),
     manualTasks,
@@ -189,7 +201,9 @@ export function weeklyText(c: WeeklyReportContent): string {
   lines.push("");
   lines.push("أولًا: أهداف الأسبوع");
   c.goals.forEach((g, i) => {
-    lines.push(`${i + 1}. ${g.name}: المستهدف ${g.target} ${g.unit}، المنجز ${g.achieved} (${formatPct(g.progressPct)})${breakdownText(g.breakdown)}`);
+    lines.push(
+      `${i + 1}. ${g.name}: المستهدف ${g.target} ${g.unit}، المنجز ${g.achieved} (${formatPct(g.progressPct)})${breakdownText(g.breakdown)}`,
+    );
   });
   if (c.manualTasks.length) {
     lines.push("");
@@ -203,17 +217,17 @@ export function weeklyText(c: WeeklyReportContent): string {
   }
   if (c.delayedTasks.length) {
     lines.push("");
-    lines.push("المهام المتأخرة");
+    lines.push("المعوقات والتأخير");
     c.delayedTasks.forEach((t) => lines.push(`• ${t.title}${t.delayReason ? ` — السبب: ${t.delayReason}` : ""}`));
   }
   if (c.autoHighlights.length) {
     lines.push("");
-    lines.push("أبرز الإنجازات");
+    lines.push("ما أُنجز");
     c.autoHighlights.forEach((h) => lines.push(`• ${h}`));
   }
   if (c.autoCarryOver.length) {
     lines.push("");
-    lines.push("المرحّل للأسبوع القادم");
+    lines.push("لم يكتمل — أولويات الأسبوع القادم");
     c.autoCarryOver.forEach((h) => lines.push(`• ${h}`));
   }
   return lines.join("\n");
@@ -221,7 +235,10 @@ export function weeklyText(c: WeeklyReportContent): string {
 
 /** Create or refresh the weekly report draft (employee notes are preserved). */
 export async function generateWeeklyReport(weeklyPlanId: string, opts: { notify?: boolean } = {}) {
-  const week = await db.weeklyPlan.findUniqueOrThrow({ where: { id: weeklyPlanId }, include: { report: true, employee: true } });
+  const week = await db.weeklyPlan.findUniqueOrThrow({
+    where: { id: weeklyPlanId },
+    include: { report: true, employee: true },
+  });
   if (week.report && !["DRAFT", "RETURNED"].includes(week.report.status)) return week.report;
   await recomputePlan(week.monthlyPlanId);
   const content = await buildWeeklyContent(weeklyPlanId);
@@ -236,7 +253,11 @@ export async function generateWeeklyReport(weeklyPlanId: string, opts: { notify?
       content: content as unknown as Prisma.InputJsonValue,
       generatedText: text,
     },
-    update: { content: content as unknown as Prisma.InputJsonValue, generatedText: text, generatedAt: new Date() },
+    update: {
+      content: content as unknown as Prisma.InputJsonValue,
+      generatedText: text,
+      generatedAt: new Date(),
+    },
   });
   if (opts.notify && !week.report) {
     await notifyUsers([week.employee.userId], {
@@ -257,36 +278,73 @@ function assertOwnerOrReviewer(user: AuthUser, employeeId: string) {
 export async function updateWeeklyNotes(
   user: AuthUser,
   reportId: string,
-  notes: { employeeNotes: string | null; highlights: string | null; blockers: string | null; carryOver: string | null },
+  notes: {
+    employeeNotes: string | null;
+    highlights: string | null;
+    blockers: string | null;
+    carryOver: string | null;
+  },
 ) {
-  const report = await db.weeklyReport.findUniqueOrThrow({ where: { id: reportId } });
+  const report = await db.weeklyReport.findUniqueOrThrow({
+    where: { id: reportId },
+  });
   assertOwnerOrReviewer(user, report.employeeId);
   if (report.employeeId !== user.employeeId) throw new UserError("الملاحظات يحررها صاحب التقرير فقط");
   if (!["DRAFT", "RETURNED"].includes(report.status)) throw new UserError("لا يمكن تعديل تقرير مرسل");
-  const updated = await db.weeklyReport.update({ where: { id: reportId }, data: notes });
-  await audit({ user, action: "report.weekly.update", entityType: "WeeklyReport", entityId: reportId, before: report, after: updated, diff: true });
+  const updated = await db.weeklyReport.update({
+    where: { id: reportId },
+    data: notes,
+  });
+  await audit({
+    user,
+    action: "report.weekly.update",
+    entityType: "WeeklyReport",
+    entityId: reportId,
+    before: report,
+    after: updated,
+    diff: true,
+  });
 }
 
 export async function submitWeeklyReport(user: AuthUser, reportId: string) {
-  const report = await db.weeklyReport.findUniqueOrThrow({ where: { id: reportId }, include: { employee: true } });
+  const report = await db.weeklyReport.findUniqueOrThrow({
+    where: { id: reportId },
+    include: { employee: true },
+  });
   if (report.employeeId !== user.employeeId) throw new UserError("يرسل التقرير صاحبه فقط");
   if (!["DRAFT", "RETURNED"].includes(report.status)) throw new UserError("التقرير مرسل مسبقًا");
   // refresh numbers right before submission
   await generateWeeklyReport(report.weeklyPlanId);
-  await db.weeklyReport.update({ where: { id: reportId }, data: { status: "SUBMITTED", submittedAt: new Date() } });
-  await audit({ user, action: "report.weekly.status", entityType: "WeeklyReport", entityId: reportId, before: { status: report.status }, after: { status: "SUBMITTED" } });
-  const managers = await managerUserIdsFor(report.employeeId);
-  await notifyUsers(managers.filter((id) => id !== user.id), {
-    type: "REPORT_SUBMITTED",
-    title: `تقرير أسبوعي من ${report.employee.fullName}`,
-    body: `أسبوع ${formatDateAr(report.weekStart)} بانتظار مراجعتك`,
-    link: `/reports/weekly/${reportId}`,
+  await db.weeklyReport.update({
+    where: { id: reportId },
+    data: { status: "SUBMITTED", submittedAt: new Date() },
   });
+  await audit({
+    user,
+    action: "report.weekly.status",
+    entityType: "WeeklyReport",
+    entityId: reportId,
+    before: { status: report.status },
+    after: { status: "SUBMITTED" },
+  });
+  const managers = await managerUserIdsFor(report.employeeId);
+  await notifyUsers(
+    managers.filter((id) => id !== user.id),
+    {
+      type: "REPORT_SUBMITTED",
+      title: `تقرير أسبوعي من ${report.employee.fullName}`,
+      body: `أسبوع ${formatDateAr(report.weekStart)} بانتظار مراجعتك`,
+      link: `/reports/weekly/${reportId}`,
+    },
+  );
 }
 
 export async function reviewWeeklyReport(user: AuthUser, reportId: string, decision: "APPROVE" | "RETURN" | "REVIEWED", comment: string | null) {
   if (!hasPermission(user, PERMISSIONS.REPORTS_REVIEW)) throw new UserError("ليس لديك صلاحية مراجعة التقارير");
-  const report = await db.weeklyReport.findUniqueOrThrow({ where: { id: reportId }, include: { employee: true } });
+  const report = await db.weeklyReport.findUniqueOrThrow({
+    where: { id: reportId },
+    include: { employee: true },
+  });
   assertEmployeeAccess(user, report.employeeId);
   if (!["SUBMITTED", "REVIEWED"].includes(report.status)) throw new UserError("التقرير ليس بانتظار المراجعة");
   if (decision === "RETURN" && !comment) throw new UserError("اكتب سبب الإعادة");
@@ -301,10 +359,25 @@ export async function reviewWeeklyReport(user: AuthUser, reportId: string, decis
       approvedAt: status === "APPROVED" ? new Date() : null,
     },
   });
-  await audit({ user, action: "report.weekly.status", entityType: "WeeklyReport", entityId: reportId, before: { status: report.status }, after: { status }, reason: comment });
+  await audit({
+    user,
+    action: "report.weekly.status",
+    entityType: "WeeklyReport",
+    entityId: reportId,
+    before: { status: report.status },
+    after: { status },
+    reason: comment,
+  });
   await notifyUsers([report.employee.userId], {
     type: status === "RETURNED" ? "REPORT_RETURNED" : "REPORT_APPROVED",
-    title: status === "RETURNED" ? "أعاد المدير تقريرك الأسبوعي للمراجعة" : status === "APPROVED" ? "تم اعتماد تقريرك الأسبوعي" : "تمت مراجعة تقريرك الأسبوعي",
+    title:
+      status === "RETURNED"
+        ? "أعاد المدير تقريرك الأسبوعي للمراجعة"
+        : status === "APPROVED"
+          ? "تم اعتماد تقريرك الأسبوعي"
+          : comment
+            ? "أضاف المدير ملاحظة على تقريرك الأسبوعي"
+            : "تمت مراجعة تقريرك الأسبوعي",
     body: comment,
     link: `/reports/weekly/${reportId}`,
   });
@@ -319,17 +392,31 @@ async function stageSummaryFor(employeeId: string, goals: { notionDataSourceId: 
   const pairs = new Map<string, { dataSourceId: string; stageKey: string }>();
   for (const g of goals) {
     const stageKey = g.notionFilter && typeof g.notionFilter === "object" ? (g.notionFilter as { stageKey?: string }).stageKey : undefined;
-    if (g.notionDataSourceId && stageKey) pairs.set(`${g.notionDataSourceId}:${stageKey}`, { dataSourceId: g.notionDataSourceId, stageKey });
+    if (g.notionDataSourceId && stageKey)
+      pairs.set(`${g.notionDataSourceId}:${stageKey}`, {
+        dataSourceId: g.notionDataSourceId,
+        stageKey,
+      });
   }
   const owned = await db.notionFieldMapping.findMany({
     where: { ownerEmployeeId: employeeId, role: "STATUS", isActive: true },
     select: { dataSourceId: true, stageKey: true },
   });
-  for (const o of owned) if (o.stageKey) pairs.set(`${o.dataSourceId}:${o.stageKey}`, { dataSourceId: o.dataSourceId, stageKey: o.stageKey });
+  for (const o of owned)
+    if (o.stageKey)
+      pairs.set(`${o.dataSourceId}:${o.stageKey}`, {
+        dataSourceId: o.dataSourceId,
+        stageKey: o.stageKey,
+      });
   if (pairs.size === 0) return [];
 
   const mappings = await db.notionFieldMapping.findMany({
-    where: { OR: [...pairs.values()].map((p) => ({ dataSourceId: p.dataSourceId, stageKey: p.stageKey })) },
+    where: {
+      OR: [...pairs.values()].map((p) => ({
+        dataSourceId: p.dataSourceId,
+        stageKey: p.stageKey,
+      })),
+    },
     include: { dataSource: { select: { name: true } } },
   });
   const lines: StageSummaryLine[] = [];
@@ -338,11 +425,20 @@ async function stageSummaryFor(employeeId: string, goals: { notionDataSourceId: 
     const [grouped, revisions] = await Promise.all([
       db.notionItemStage.groupBy({
         by: ["systemStatus"],
-        where: { stageKey: m.stageKey, statusChangedAt: { gte: from, lte: to }, item: { dataSourceId: m.dataSourceId, isArchived: false } },
+        where: {
+          stageKey: m.stageKey,
+          statusChangedAt: { gte: from, lte: to },
+          item: { dataSourceId: m.dataSourceId, isArchived: false },
+        },
         _count: { _all: true },
       }),
       db.notionItemEvent.count({
-        where: { stageKey: m.stageKey, toStatus: "NEEDS_REVISION", occurredAt: { gte: from, lte: to }, item: { dataSourceId: m.dataSourceId } },
+        where: {
+          stageKey: m.stageKey,
+          toStatus: "NEEDS_REVISION",
+          occurredAt: { gte: from, lte: to },
+          item: { dataSourceId: m.dataSourceId },
+        },
       }),
     ]);
     lines.push({
@@ -362,7 +458,10 @@ export async function buildMonthlyContent(planId: string): Promise<MonthlyReport
     include: {
       employee: { include: { jobTitle: true } },
       goals: { orderBy: { sortOrder: "asc" } },
-      weeklyPlans: { include: { goals: true, report: true }, orderBy: { weekIndex: "asc" } },
+      weeklyPlans: {
+        include: { goals: true, report: true },
+        orderBy: { weekIndex: "asc" },
+      },
     },
   });
   const company = await getCompanyFresh();
@@ -373,8 +472,18 @@ export async function buildMonthlyContent(planId: string): Promise<MonthlyReport
   const to = new Date(fromDateKey(endKey).getTime() + 86_399_999);
 
   const [tasks, adHoc] = await Promise.all([
-    db.dailyTask.findMany({ where: { employeeId: plan.employeeId, date: { gte: from, lte: fromDateKey(endKey) } } }),
-    db.adHocTask.findMany({ where: { employeeId: plan.employeeId, assignedDate: { gte: from, lte: fromDateKey(endKey) } } }),
+    db.dailyTask.findMany({
+      where: {
+        employeeId: plan.employeeId,
+        date: { gte: from, lte: fromDateKey(endKey) },
+      },
+    }),
+    db.adHocTask.findMany({
+      where: {
+        employeeId: plan.employeeId,
+        assignedDate: { gte: from, lte: fromDateKey(endKey) },
+      },
+    }),
   ]);
 
   const goals: ReportGoalLine[] = plan.goals.map((g) => ({
@@ -393,21 +502,38 @@ export async function buildMonthlyContent(planId: string): Promise<MonthlyReport
   }));
 
   const weeks = plan.weeklyPlans.map((w) => {
-    const lines = w.goals.map((wg) => ({ weight: num(plan.goals.find((g) => g.id === wg.monthlyGoalId)?.weight), p: Math.min(num(wg.progressPct), 100) }));
+    const lines = w.goals.map((wg) => ({
+      weight: num(plan.goals.find((g) => g.id === wg.monthlyGoalId)?.weight),
+      p: Math.min(num(wg.progressPct), 100),
+    }));
     const ws = lines.reduce((a, l) => a + l.weight, 0);
-    const progress = lines.length === 0 ? 0 : ws > 0 ? lines.reduce((a, l) => a + l.p * l.weight, 0) / ws : lines.reduce((a, l) => a + l.p, 0) / lines.length;
-    return { index: w.weekIndex, start: toDateKey(w.startDate), end: toDateKey(w.endDate), progressPct: round2(progress), reportStatus: w.report?.status ?? null };
+    const progress =
+      lines.length === 0 ? 0 : ws > 0 ? lines.reduce((a, l) => a + l.p * l.weight, 0) / ws : lines.reduce((a, l) => a + l.p, 0) / lines.length;
+    return {
+      index: w.weekIndex,
+      start: toDateKey(w.startDate),
+      end: toDateKey(w.endDate),
+      progressPct: round2(progress),
+      reportStatus: w.report?.status ?? null,
+    };
   });
 
-  const autoHighlights = goals
-    .filter((g) => g.progressPct >= 100 && g.target > 0)
-    .map((g) => `تحقيق "${g.name}" بنسبة ${formatPct(g.progressPct)}`);
+  const autoHighlights = goals.filter((g) => g.progressPct >= 100 && g.target > 0).map((g) => `تحقيق "${g.name}" بنسبة ${formatPct(g.progressPct)}`);
   adHoc.filter((t) => t.status === "COMPLETED").forEach((t) => autoHighlights.push(`إنجاز التكليف: ${t.title}`));
 
   return {
     version: 1,
-    employee: { id: plan.employeeId, name: plan.employee.fullName, jobTitle: plan.employee.jobTitle?.name ?? null },
-    period: { year: plan.year, month: plan.month, start: startKey, end: endKey },
+    employee: {
+      id: plan.employeeId,
+      name: plan.employee.fullName,
+      jobTitle: plan.employee.jobTitle?.name ?? null,
+    },
+    period: {
+      year: plan.year,
+      month: plan.month,
+      start: startKey,
+      end: endKey,
+    },
     goals,
     totals: totalsOf(goals),
     weeks,
@@ -416,10 +542,19 @@ export async function buildMonthlyContent(planId: string): Promise<MonthlyReport
       ...tasks.filter((t) => t.status === "DELAYED" || isOverdue(t.status, t.deadline ? toDateKey(t.deadline) : null, today)).map((t) => taskLine(t)),
       ...adHoc.filter((t) => isOverdue(t.status, t.dueDate ? toDateKey(t.dueDate) : null, today)).map((t) => taskLine(t, "AD_HOC_TASK")),
     ],
-    cancelledTasks: [...tasks.filter((t) => t.status === "CANCELLED").map((t) => taskLine(t)), ...adHoc.filter((t) => t.status === "CANCELLED").map((t) => taskLine(t, "AD_HOC_TASK"))],
+    cancelledTasks: [
+      ...tasks.filter((t) => t.status === "CANCELLED").map((t) => taskLine(t)),
+      ...adHoc.filter((t) => t.status === "CANCELLED").map((t) => taskLine(t, "AD_HOC_TASK")),
+    ],
     stageSummary: await stageSummaryFor(plan.employeeId, plan.goals, from, to),
     autoHighlights,
-    weeklyNotes: plan.weeklyPlans.filter((w) => w.report).map((w) => ({ week: w.weekIndex, highlights: w.report!.highlights, blockers: w.report!.blockers })),
+    weeklyNotes: plan.weeklyPlans
+      .filter((w) => w.report)
+      .map((w) => ({
+        week: w.weekIndex,
+        highlights: w.report!.highlights,
+        blockers: w.report!.blockers,
+      })),
   };
 }
 
@@ -473,13 +608,16 @@ export function monthlyText(c: MonthlyReportContent): string {
   return l.join("\n");
 }
 
-export async function generateMonthlyReport(planId: string, opts: { force?: boolean } = {}) {
-  const plan = await db.monthlyPlan.findUniqueOrThrow({ where: { id: planId }, include: { report: true, employee: true } });
+export async function generateMonthlyReport(planId: string, opts: { force?: boolean; notify?: boolean } = {}) {
+  const plan = await db.monthlyPlan.findUniqueOrThrow({
+    where: { id: planId },
+    include: { report: true, employee: true },
+  });
   if (plan.report && !opts.force && !["DRAFT", "RETURNED"].includes(plan.report.status)) return plan.report;
   await recomputePlan(planId);
   const content = await buildMonthlyContent(planId);
   const text = monthlyText(content);
-  return db.monthlyReport.upsert({
+  const report = await db.monthlyReport.upsert({
     where: { monthlyPlanId: planId },
     create: {
       monthlyPlanId: planId,
@@ -489,12 +627,124 @@ export async function generateMonthlyReport(planId: string, opts: { force?: bool
       content: content as unknown as Prisma.InputJsonValue,
       generatedText: text,
     },
-    update: { content: content as unknown as Prisma.InputJsonValue, generatedText: text, generatedAt: new Date() },
+    update: {
+      content: content as unknown as Prisma.InputJsonValue,
+      generatedText: text,
+      generatedAt: new Date(),
+    },
   });
+  if (opts.notify && !plan.report) {
+    await notifyUsers([plan.employee.userId], {
+      type: "WEEKLY_REPORT_READY",
+      title: `التقرير الشهري لشهر ${monthLabel(plan.year, plan.month)} جاهز للمراجعة`,
+      body: "راجع التقرير وأضف ملاحظتك ثم أرسله للمدير",
+      link: `/reports/monthly/${report.id}`,
+      dedupeKey: `monthly-ready:${report.id}`,
+    });
+  }
+  return report;
 }
 
-export async function updateMonthlyNotes(user: AuthUser, reportId: string, data: { employeeNotes?: string | null; highlights?: string | null; managerNotes?: string | null }) {
-  const report = await db.monthlyReport.findUniqueOrThrow({ where: { id: reportId } });
+const isUniqueViolation = (e: unknown) => typeof e === "object" && e !== null && (e as { code?: unknown }).code === "P2002";
+
+/**
+ * Create the missing report drafts for every ended week / due month of the
+ * given employees. Idempotent: only periods without any report are touched,
+ * so drafts the employee edited and submitted/approved reports are never
+ * overwritten. `limit` caps the work done in one call (lazy generation on read).
+ */
+export async function ensureDueReports(opts: { employeeIds: "ALL" | string[]; notify?: boolean; limit?: number }) {
+  const result = { weekly: 0, monthly: 0, failed: 0 };
+  if (opts.employeeIds !== "ALL" && opts.employeeIds.length === 0) return result;
+  const company = await getCompanyFresh();
+  const today = todayKey(company.timezone);
+  const employee: Prisma.EmployeeWhereInput = {
+    status: { not: "TERMINATED" },
+    ...(opts.employeeIds === "ALL" ? {} : { id: { in: opts.employeeIds } }),
+  };
+  const statuses = [...REPORTABLE_PLAN_STATUSES];
+  const window = weeklyWindow(today);
+  const months = dueMonths(today);
+  const [weeks, plans] = await Promise.all([
+    db.weeklyPlan.findMany({
+      where: {
+        endDate: {
+          gte: fromDateKey(window.from),
+          lt: fromDateKey(window.before),
+        },
+        report: null,
+        employee,
+        monthlyPlan: { status: { in: statuses } },
+      },
+      select: {
+        id: true,
+        endDate: true,
+        monthlyPlan: { select: { status: true } },
+      },
+      orderBy: { endDate: "asc" },
+    }),
+    months.length === 0
+      ? Promise.resolve([])
+      : db.monthlyPlan.findMany({
+          where: {
+            report: null,
+            employee,
+            status: { in: statuses },
+            OR: months,
+          },
+          select: { id: true, year: true, month: true, status: true },
+        }),
+  ]);
+  const dueWeeks = weeksNeedingReport(
+    weeks.map((w) => ({
+      id: w.id,
+      endDate: toDateKey(w.endDate),
+      planStatus: w.monthlyPlan.status,
+      hasReport: false,
+    })),
+    today,
+  );
+  const duePlans = monthsNeedingReport(
+    plans.map((p) => ({
+      id: p.id,
+      year: p.year,
+      month: p.month,
+      planStatus: p.status,
+      hasReport: false,
+    })),
+    today,
+  );
+
+  let budget = opts.limit ?? Number.POSITIVE_INFINITY;
+  const run = async (fn: () => Promise<unknown>, key: "weekly" | "monthly") => {
+    if (budget <= 0) return;
+    budget -= 1;
+    try {
+      await fn();
+      result[key] += 1;
+    } catch (e) {
+      if (isUniqueViolation(e)) return;
+      result.failed += 1;
+      console.error(`[reports] auto ${key} generation failed`, e);
+    }
+  };
+  for (const w of dueWeeks) await run(() => generateWeeklyReport(w.id, { notify: opts.notify }), "weekly");
+  for (const p of duePlans) await run(() => generateMonthlyReport(p.id, { notify: opts.notify }), "monthly");
+  return result;
+}
+
+export async function updateMonthlyNotes(
+  user: AuthUser,
+  reportId: string,
+  data: {
+    employeeNotes?: string | null;
+    highlights?: string | null;
+    managerNotes?: string | null;
+  },
+) {
+  const report = await db.monthlyReport.findUniqueOrThrow({
+    where: { id: reportId },
+  });
   assertEmployeeAccess(user, report.employeeId);
   const isOwner = report.employeeId === user.employeeId;
   const isReviewer = hasPermission(user, PERMISSIONS.REPORTS_REVIEW);
@@ -505,29 +755,59 @@ export async function updateMonthlyNotes(user: AuthUser, reportId: string, data:
   }
   if (isReviewer && data.managerNotes !== undefined) patch.managerNotes = data.managerNotes;
   if (Object.keys(patch).length === 0) throw new UserError("لا توجد حقول يمكنك تعديلها");
-  const updated = await db.monthlyReport.update({ where: { id: reportId }, data: patch });
-  await audit({ user, action: "report.monthly.update", entityType: "MonthlyReport", entityId: reportId, before: report, after: updated, diff: true });
+  const updated = await db.monthlyReport.update({
+    where: { id: reportId },
+    data: patch,
+  });
+  await audit({
+    user,
+    action: "report.monthly.update",
+    entityType: "MonthlyReport",
+    entityId: reportId,
+    before: report,
+    after: updated,
+    diff: true,
+  });
 }
 
 export async function submitMonthlyReport(user: AuthUser, reportId: string) {
-  const report = await db.monthlyReport.findUniqueOrThrow({ where: { id: reportId }, include: { employee: true } });
+  const report = await db.monthlyReport.findUniqueOrThrow({
+    where: { id: reportId },
+    include: { employee: true },
+  });
   if (report.employeeId !== user.employeeId) throw new UserError("يرسل التقرير صاحبه فقط");
   if (!["DRAFT", "RETURNED"].includes(report.status)) throw new UserError("التقرير مرسل مسبقًا");
   await generateMonthlyReport(report.monthlyPlanId);
-  await db.monthlyReport.update({ where: { id: reportId }, data: { status: "SUBMITTED", submittedAt: new Date() } });
-  await audit({ user, action: "report.monthly.status", entityType: "MonthlyReport", entityId: reportId, before: { status: report.status }, after: { status: "SUBMITTED" } });
-  const managers = await managerUserIdsFor(report.employeeId);
-  await notifyUsers(managers.filter((id) => id !== user.id), {
-    type: "REPORT_SUBMITTED",
-    title: `تقرير شهري من ${report.employee.fullName}`,
-    body: monthLabel(report.year, report.month),
-    link: `/reports/monthly/${reportId}`,
+  await db.monthlyReport.update({
+    where: { id: reportId },
+    data: { status: "SUBMITTED", submittedAt: new Date() },
   });
+  await audit({
+    user,
+    action: "report.monthly.status",
+    entityType: "MonthlyReport",
+    entityId: reportId,
+    before: { status: report.status },
+    after: { status: "SUBMITTED" },
+  });
+  const managers = await managerUserIdsFor(report.employeeId);
+  await notifyUsers(
+    managers.filter((id) => id !== user.id),
+    {
+      type: "REPORT_SUBMITTED",
+      title: `تقرير شهري من ${report.employee.fullName}`,
+      body: monthLabel(report.year, report.month),
+      link: `/reports/monthly/${reportId}`,
+    },
+  );
 }
 
 export async function reviewMonthlyReport(user: AuthUser, reportId: string, decision: "APPROVE" | "RETURN" | "REVIEWED", comment: string | null) {
   if (!hasPermission(user, PERMISSIONS.REPORTS_REVIEW)) throw new UserError("ليس لديك صلاحية مراجعة التقارير");
-  const report = await db.monthlyReport.findUniqueOrThrow({ where: { id: reportId }, include: { employee: true } });
+  const report = await db.monthlyReport.findUniqueOrThrow({
+    where: { id: reportId },
+    include: { employee: true },
+  });
   assertEmployeeAccess(user, report.employeeId);
   if (!["SUBMITTED", "REVIEWED"].includes(report.status)) throw new UserError("التقرير ليس بانتظار المراجعة");
   if (decision === "RETURN" && !comment) throw new UserError("اكتب سبب الإعادة");
@@ -542,10 +822,25 @@ export async function reviewMonthlyReport(user: AuthUser, reportId: string, deci
       approvedAt: status === "APPROVED" ? new Date() : null,
     },
   });
-  await audit({ user, action: "report.monthly.status", entityType: "MonthlyReport", entityId: reportId, before: { status: report.status }, after: { status }, reason: comment });
+  await audit({
+    user,
+    action: "report.monthly.status",
+    entityType: "MonthlyReport",
+    entityId: reportId,
+    before: { status: report.status },
+    after: { status },
+    reason: comment,
+  });
   await notifyUsers([report.employee.userId], {
     type: status === "RETURNED" ? "REPORT_RETURNED" : "REPORT_APPROVED",
-    title: status === "RETURNED" ? "أعاد المدير تقريرك الشهري للمراجعة" : "تم اعتماد تقريرك الشهري",
+    title:
+      status === "RETURNED"
+        ? "أعاد المدير تقريرك الشهري للمراجعة"
+        : status === "APPROVED"
+          ? "تم اعتماد تقريرك الشهري"
+          : comment
+            ? "أضاف المدير ملاحظة على تقريرك الشهري"
+            : "تمت مراجعة تقريرك الشهري",
     body: comment,
     link: `/reports/monthly/${reportId}`,
   });

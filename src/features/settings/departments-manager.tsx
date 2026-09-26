@@ -217,7 +217,7 @@ function DepartmentDialog({ rows, row, presetParent, onClose }: { rows: Departme
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{row ? `تعديل «${row.name}»` : "إضافة إدارة / قسم"}</DialogTitle>
           <DialogDescription>الأقسام تتبع إدارة رئيسية؛ ويمكن للإدارة أن تتبع إدارة أعلى.</DialogDescription>

@@ -236,3 +236,26 @@ export function unresolvedCount(fields: FieldSuggestion[]): number {
   }
   return n;
 }
+
+const DATABASE_HINTS: { words: string[]; score: number }[] = [
+  { words: ["منتج", "منتجات", "product", "products", "catalog", "sku"], score: 3 },
+  { words: ["مهام", "مهمه", "task", "tasks", "محتوي", "content", "seo", "سيو", "صور", "تصميم", "design"], score: 2 },
+];
+
+/**
+ * After authorization, choose the database to sync without asking — only when
+ * the choice is unambiguous: a single new database, or one clearly stronger
+ * name match than every other. Otherwise null (the user picks from the list).
+ */
+export function pickDatabase<T extends { name: string; addedId: string | null }>(databases: T[]): T | null {
+  const fresh = databases.filter((d) => !d.addedId);
+  if (fresh.length === 1) return fresh[0];
+  const scored = fresh
+    .map((d) => {
+      const n = normalizeLabel(d.name);
+      return { d, score: DATABASE_HINTS.reduce((s, h) => (hasStem(n, h.words) || h.words.some((w) => w.length > 3 && n.includes(w)) ? s + h.score : s), 0) };
+    })
+    .sort((a, b) => b.score - a.score);
+  if (scored.length === 0 || scored[0].score === 0) return null;
+  return scored.length === 1 || scored[0].score > scored[1].score ? scored[0].d : null;
+}

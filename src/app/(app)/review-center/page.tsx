@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { after } from "next/server";
+import { Fragment } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/shared/page";
 import type { SearchParams } from "@/lib/params";
@@ -8,6 +10,7 @@ import { hasPermission, PERMISSIONS } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 import { requirePermission } from "@/server/auth/session";
 import {
+  ensureTeamReports,
   getMonthlyReportsQueue,
   getNotionQueue,
   getPlansQueue,
@@ -24,7 +27,7 @@ const TAB_LABELS: Record<ReviewTab, string> = {
   weekly: "التقارير الأسبوعية",
   monthly: "التقارير الشهرية",
   plans: "الخطط",
-  pending: "بانتظار الاعتماد",
+  pending: "Notion · بانتظار الاعتماد",
   images: "اعتماد الصور",
   content: "اعتماد المحتوى",
   revision: "تحتاج تحسين",
@@ -46,6 +49,8 @@ export default async function ReviewCenterPage({ searchParams }: { searchParams:
   const canApproveReports = hasPermission(user, PERMISSIONS.REPORTS_REVIEW);
   const canApprovePlans = hasPermission(user, PERMISSIONS.PLANS_APPROVE);
 
+  after(() => ensureTeamReports(user).catch((e) => console.error("[review-center] auto report generation failed", e)));
+
   const counts = await getReviewCenterCounts(user);
   let body: React.ReactNode;
   if (tab === "weekly") body = <WeeklyReportsQueue rows={await getWeeklyReportsQueue(user)} canApprove={canApproveReports} />;
@@ -58,25 +63,27 @@ export default async function ReviewCenterPage({ searchParams }: { searchParams:
       <PageHeader title="بانتظارك" description="كل ما يحتاج موافقتك أو ملاحظتك في مكان واحد." />
       <nav className="mb-4 flex gap-1 overflow-x-auto rounded-lg border bg-card p-1" aria-label="أقسام المراجعة">
         {REVIEW_TABS.map((t) => (
-          <Link
-            key={t}
-            href={t === "weekly" ? "/review-center" : `/review-center?tab=${t}`}
-            aria-current={t === tab ? "page" : undefined}
-            className={cn(
-              "inline-flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium whitespace-nowrap text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
-              t === tab && "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground",
-            )}
-          >
-            {TAB_LABELS[t]}
-            <span
+          <Fragment key={t}>
+            {t === "pending" && <span aria-hidden className="mx-1 w-px shrink-0 self-stretch bg-border" />}
+            <Link
+              href={t === "weekly" ? "/review-center" : `/review-center?tab=${t}`}
+              aria-current={t === tab ? "page" : undefined}
               className={cn(
-                "min-w-5 rounded-full px-1.5 text-center text-[11px] tabular-nums",
-                t === tab ? "bg-primary-foreground/20" : counts[t] > 0 ? "bg-pending-soft text-pending" : "bg-muted",
+                "inline-flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium whitespace-nowrap text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+                t === tab && "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground",
               )}
             >
-              {counts[t]}
-            </span>
-          </Link>
+              {TAB_LABELS[t]}
+              <span
+                className={cn(
+                  "min-w-5 rounded-full px-1.5 text-center text-[11px] tabular-nums",
+                  t === tab ? "bg-primary-foreground/20" : counts[t] > 0 ? "bg-pending-soft text-pending" : "bg-muted",
+                )}
+              >
+                {counts[t]}
+              </span>
+            </Link>
+          </Fragment>
         ))}
       </nav>
       <Card>

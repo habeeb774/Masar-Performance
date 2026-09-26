@@ -42,6 +42,7 @@ export function TaskRowMenu({
   goals = [],
   employees = [],
   allowEdit,
+  onOpenDetails,
 }: {
   task: DailyTaskRow | AdHocTaskRow;
   today: string;
@@ -51,6 +52,8 @@ export function TaskRowMenu({
   goals?: GoalOption[];
   employees?: EmployeeOption[];
   allowEdit: boolean;
+  /** when the row owns the details sheet, the menu only asks it to open */
+  onOpenDetails?: () => void;
 }) {
   const router = useRouter();
   const [details, setDetails] = useState(false);
@@ -90,13 +93,13 @@ export function TaskRowMenu({
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button size="icon-sm" variant="ghost" aria-label="خيارات المهمة">
+          <Button size="icon-sm" variant="ghost" aria-label="خيارات المهمة" title="المزيد">
             <MoreVertical />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuItem onSelect={() => setDetails(true)}>
-            <Eye /> التفاصيل والمرفقات
+          <DropdownMenuItem onSelect={() => (onOpenDetails ? onOpenDetails() : setDetails(true))}>
+            <Eye /> التفاصيل والملاحظات
           </DropdownMenuItem>
           {allowEdit && (
             <>
@@ -117,7 +120,7 @@ export function TaskRowMenu({
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <TaskDetailSheet task={task} open={details} onOpenChange={setDetails} currentUserId={currentUserId} canManage={canManage} />
+      {!onOpenDetails && <TaskDetailSheet task={task} open={details} onOpenChange={setDetails} currentUserId={currentUserId} canManage={canManage} />}
 
       {allowEdit &&
         (task.kind === "daily" ? (

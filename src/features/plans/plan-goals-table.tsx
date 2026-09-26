@@ -1,22 +1,26 @@
 "use client";
 
 import { Fragment, useState } from "react";
-import { AlertTriangle, Ban, CheckCircle2, ChevronDown, Pencil, Plus, Target, Trash2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { AlertTriangle, Ban, Check, CheckCircle2, ChevronDown, Pencil, Plus, Target, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Spinner } from "@/components/ui/spinner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { EmptyState, NotionSyncedTag } from "@/components/shared/page";
 import { EnumBadge, StatusBadge } from "@/components/shared/status-badge";
 import { ProgressBar } from "@/components/shared/progress-bar";
 import { ActionButton } from "@/components/shared/action-button";
-import { cancelGoalAction, deleteGoalAction } from "@/actions/plans";
+import { cancelGoalAction, deleteGoalAction, updateGoalAction } from "@/actions/plans";
+import { useServerAction } from "@/hooks/use-server-action";
 import { formatDateAr, formatDateTimeAr } from "@/lib/dates";
 import { formatNumber } from "@/lib/num";
 import { DATE_BASIS_LABELS } from "@/lib/notion/filter-rule";
 import { GOAL_SOURCE_LABELS, GOAL_STATUS_LABELS, GOAL_TYPE_LABELS, KPI_CATEGORY_LABELS, PRIORITY_LABELS } from "@/lib/labels";
 import { cn } from "@/lib/utils";
 import type { NotionSourceOption, TestPeriod } from "@/features/goals/types";
-import { GoalForm } from "./goal-form";
+import { GoalForm, goalFormDefaults } from "./goal-form";
 import { NotionBreakdownGrid, NotionQualityGrid } from "./notion-breakdown";
 import type { PlanGoalRow } from "./types";
 
@@ -231,5 +235,111 @@ export function PlanGoalsTable({
         />
       )}
     </Card>
+  );
+}
+
+const qty = (v: number) => formatNumber(v, v % 1 ? 2 : 0);
+
+function goalState(goal: PlanGoalRow, today: string): "done" | "late" | null {
+  if (goal.status === "COMPLETED") return "done";
+  if (goal.status === "AT_RISK" || (goal.dueDate && goal.dueDate < today)) return "late";
+  return null;
+}
+
+function SimpleGoalRow({ goal, today, dates, canEdit }: { goal: PlanGoalRow; today: string; dates: { start: string; end: string }; canEdit: boolean }) {
+  const router = useRouter();
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(goal.name);
+  const [target, setTarget] = useState(String(goal.targetValue));
+  const { run, pending } = useServerAction(updateGoalAction, {
+    onSuccess: () => {
+      setEditing(false);
+      router.refresh();
+    },
+  });
+  const state = goalState(goal, today);
+
+  const save = (e: React.FormEvent) => {
+    e.preventDefault();
+    const base = goalFormDefaults(goal, dates);
+    run(goal.id, {
+      ...base,
+      ...(goal.source === "NOTION" ? {} : { notionDataSourceId: null, notionFilter: null }),
+      name: name.trim(),
+      targetValue: Number(target) || 0,
+    });
+  };
+
+  if (editing) {
+    return (
+      <li className="py-3">
+        <form onSubmit={save} className="flex flex-wrap items-end gap-2">
+          <label className="min-w-0 flex-1 basis-48 space-y-1">
+            <span className="text-xs text-muted-foreground">الهدف</span>
+            <Input value={name} onChange={(e) => setName(e.target.value)} autoFocus required disabled={pending} />
+          </label>
+          <label className="w-28 space-y-1">
+            <span className="text-xs text-muted-foreground">المستهدف ({goal.unit})</span>
+            <Input type="number" min={0} step="any" inputMode="decimal" value={target} onChange={(e) => setTarget(e.target.value)} required disabled={pending} />
+          </label>
+          <div className="flex gap-1">
+            <Button type="submit" size="icon" disabled={pending || !name.trim()} aria-label="حفظ">
+              {pending ? <Spinner /> : <Check />}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              disabled={pending}
+              aria-label="إلغاء التعديل"
+              onClick={() => {
+                setName(goal.name);
+                setTarget(String(goal.targetValue));
+                setEditing(false);
+              }}
+            >
+              <X />
+            </Button>
+          </div>
+        </form>
+      </li>
+    );
+  }
+
+  return (
+    <li className="space-y-1.5 py-3">
+      <div className="flex items-center justify-between gap-3">
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="truncate text-sm font-medium">{goal.name}</span>
+          {state === "done" && <StatusBadge tone="success">تم</StatusBadge>}
+          {state === "late" && <StatusBadge tone="warning">متأخر</StatusBadge>}
+        </span>
+        <span className="flex shrink-0 items-center gap-1 text-sm tabular-nums">
+          <span className="font-semibold">{qty(goal.achievedValue)}</span>
+          <span className="text-muted-foreground">
+            / {qty(goal.targetValue)} {goal.unit}
+          </span>
+          {canEdit && (
+            <Button variant="ghost" size="icon-sm" className="ms-1 text-muted-foreground" onClick={() => setEditing(true)} aria-label={`تعديل الهدف «${goal.name}» ومستهدفه`} title="تعديل الهدف والمستهدف">
+              <Pencil />
+            </Button>
+          )}
+        </span>
+      </div>
+      <ProgressBar value={goal.progressPct} showLabel size="sm" />
+    </li>
+  );
+}
+
+/** Plain goal list for the plan page: name, target, achieved, progress, and a status word only when it matters. */
+export function PlanGoalsSummary({ goals, today, dates, canEdit }: { goals: PlanGoalRow[]; today: string; dates: { start: string; end: string }; canEdit: boolean }) {
+  const active = goals.filter((g) => g.status !== "CANCELLED");
+  if (active.length === 0) return <EmptyState icon={Target} title="لا توجد أهداف في هذه الخطة" className="py-6" />;
+  return (
+    <ul className="divide-y">
+      {active.map((g) => (
+        <SimpleGoalRow key={`${g.id}:${g.name}:${g.targetValue}`} goal={g} today={today} dates={dates} canEdit={canEdit} />
+      ))}
+    </ul>
   );
 }

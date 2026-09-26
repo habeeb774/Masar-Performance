@@ -56,7 +56,7 @@ export function RolesManager({ rows }: { rows: RoleRow[] }) {
       {rows.length === 0 ? (
         <EmptyState icon={ShieldCheck} title="لا توجد أدوار" action={<Button onClick={() => setCreating(true)}>دور جديد</Button>} />
       ) : (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
           {rows.map((r) => {
             const full = r.permissions.includes(PERMISSIONS.SYSTEM_ADMIN);
             return (
@@ -118,7 +118,7 @@ function CreateRoleDialog({ onClose }: { onClose: () => void }) {
   });
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-md">
         <DialogHeader>
           <DialogTitle>دور جديد</DialogTitle>
           <DialogDescription>يُنشأ الدور بدون صلاحيات؛ حدد صلاحياته بعد الإنشاء من هذه الصفحة أو من مصفوفة الصلاحيات.</DialogDescription>

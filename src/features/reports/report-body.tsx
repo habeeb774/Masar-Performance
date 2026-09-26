@@ -267,17 +267,17 @@ export function WeeklyReportBody({ content }: { content: WeeklyReportContent }) 
         </ReportSection>
       </div>
       <ReportSection
-        title="المهام المتأخرة"
+        title="المعوقات والتأخير"
         count={content.delayedTasks.length}
         action={content.delayedTasks.length > 0 ? <AlertTriangle className="size-4 text-danger" /> : undefined}
       >
-        <TaskLinesTable tasks={content.delayedTasks} empty="لا توجد مهام متأخرة." showReason showSource />
+        <TaskLinesTable tasks={content.delayedTasks} empty="لا توجد معوقات أو مهام متأخرة." showReason showSource />
       </ReportSection>
       <div className="grid gap-4 md:grid-cols-2">
-        <ReportSection title="أبرز الإنجازات (تلقائي)">
+        <ReportSection title="ما أُنجز">
           <BulletList items={content.autoHighlights} empty="لا توجد إنجازات مكتملة بعد." tone="success" />
         </ReportSection>
-        <ReportSection title="المرحّل للأسبوع القادم (تلقائي)">
+        <ReportSection title="لم يكتمل — أولويات الأسبوع القادم">
           <BulletList items={content.autoCarryOver} empty="لا يوجد ما يُرحّل." tone="warning" />
         </ReportSection>
       </div>

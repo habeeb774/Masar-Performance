@@ -1,17 +1,17 @@
 import Link from "next/link";
-import { ArrowLeft, CheckCircle2, ExternalLink, FileText, Inbox } from "lucide-react";
+import { ArrowLeft, CheckCircle2, ExternalLink, Inbox, MessageSquare, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ActionButton } from "@/components/shared/action-button";
 import { EmptyState, NotionSyncedTag, SectionTitle } from "@/components/shared/page";
 import { EnumBadge, StatusBadge } from "@/components/shared/status-badge";
+import { ProgressBar } from "@/components/shared/progress-bar";
 import { Pager } from "@/components/shared/url-filters";
 import { approvePlanAction, approveWeeklyVarianceAction } from "@/actions/plans";
-import { reviewMonthlyReportAction, reviewWeeklyReportAction } from "@/actions/reports";
-import { NOTION_STATUS_LABELS, REPORT_STATUS_LABELS } from "@/lib/labels";
+import { commentMonthlyReportAction, commentWeeklyReportAction, reviewMonthlyReportAction, reviewWeeklyReportAction } from "@/actions/reports";
+import { NOTION_STATUS_LABELS } from "@/lib/labels";
 import { formatDateAr, formatDateTimeAr, monthLabel } from "@/lib/dates";
 import { formatNumber } from "@/lib/num";
-import { cn } from "@/lib/utils";
 import type { getMonthlyReportsQueue, getNotionQueue, getPlansQueue, getWeeklyReportsQueue } from "@/server/queries/review-center";
 
 function sinceDays(d: Date) {
@@ -26,215 +26,249 @@ function Wrap({ children }: { children: React.ReactNode }) {
   return <div className="overflow-x-auto rounded-lg border">{children}</div>;
 }
 
-export function WeeklyReportsQueue({ rows, canApprove }: { rows: Awaited<ReturnType<typeof getWeeklyReportsQueue>>; canApprove: boolean }) {
-  if (rows.length === 0) return <EmptyState icon={FileText} title="لا توجد تقارير أسبوعية بانتظار المراجعة" />;
+function QueueList({ children }: { children: React.ReactNode }) {
+  return <ul className="divide-y rounded-lg border">{children}</ul>;
+}
+
+function QueueRow({ href, title, meta, actions }: { href: string; title: string; meta: React.ReactNode; actions: React.ReactNode }) {
   return (
-    <Wrap>
-      <Table>
-        <TableHeader className="bg-muted/40">
-          <TableRow>
-            <TableHead className="text-start">الموظف</TableHead>
-            <TableHead className="text-start">الأسبوع</TableHead>
-            <TableHead className="text-start">الحالة</TableHead>
-            <TableHead className="text-start">أُرسل</TableHead>
-            <TableHead className="text-end">إجراءات</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {rows.map((r) => (
-            <TableRow key={r.id}>
-              <TableCell>
-                <div className="font-medium">{r.employee}</div>
-                <div className="text-xs text-muted-foreground">{r.jobTitle ?? "—"}</div>
-              </TableCell>
-              <TableCell className="text-sm">
-                الأسبوع {r.weekIndex}
-                <div className="text-xs text-muted-foreground">
+    <li className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="min-w-0 space-y-1">
+        <Link href={href} className="block font-medium hover:underline">
+          {title}
+        </Link>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">{meta}</div>
+      </div>
+      <div className="flex shrink-0 flex-wrap items-center gap-1.5">{actions}</div>
+    </li>
+  );
+}
+
+function Calm({ title, description }: { title: string; description: string }) {
+  return <EmptyState icon={CheckCircle2} title={title} description={description} />;
+}
+
+function ProgressMeta({ value }: { value: number | null }) {
+  if (value === null) return null;
+  return <ProgressBar value={value} showLabel size="sm" className="w-32" />;
+}
+
+type BoundAction = (reason?: string) => ReturnType<typeof commentWeeklyReportAction>;
+
+/** Server actions are pre-bound (`.bind`) so they can cross into the client button. */
+function ReportDecisionButtons({ subject, approve, comment }: { subject: string; approve: BoundAction; comment: BoundAction }) {
+  return (
+    <>
+      <ActionButton size="sm" action={approve} confirm={{ title: `اعتماد ${subject}؟`, confirmLabel: "اعتماد" }}>
+        <CheckCircle2 /> اعتماد
+      </ActionButton>
+      <ActionButton
+        size="sm"
+        variant="outline"
+        action={comment}
+        confirm={{
+          title: `ملاحظة على ${subject}`,
+          description: "تصل الملاحظة للموظف فورًا، ويبقى التقرير هنا حتى تعتمده.",
+          confirmLabel: "حفظ الملاحظة",
+        }}
+        reason={{
+          label: "الملاحظة",
+          required: true,
+          placeholder: "اكتب ملاحظتك للموظف…",
+        }}
+      >
+        <MessageSquare /> ملاحظة
+      </ActionButton>
+    </>
+  );
+}
+
+export function WeeklyReportsQueue({ rows, canApprove }: { rows: Awaited<ReturnType<typeof getWeeklyReportsQueue>>; canApprove: boolean }) {
+  if (rows.length === 0) return <Calm title="لا توجد تقارير أسبوعية بانتظارك" description="تظهر هنا التقارير فور إرسالها من الموظفين." />;
+  return (
+    <QueueList>
+      {rows.map((r) => {
+        const subject = `تقرير ${r.employee} الأسبوعي — الأسبوع ${r.weekIndex}`;
+        return (
+          <QueueRow
+            key={r.id}
+            href={`/reports/weekly/${r.id}`}
+            title={subject}
+            meta={
+              <>
+                <span>
                   {formatDateAr(r.weekStart)} – {formatDateAr(r.weekEnd)}
-                </div>
-              </TableCell>
-              <TableCell>
-                <div className="flex flex-wrap gap-1">
-                  <EnumBadge map={REPORT_STATUS_LABELS} value={r.status} />
-                  {r.hasBlockers && <StatusBadge tone="warning">معوقات</StatusBadge>}
-                </div>
-              </TableCell>
-              <TableCell className="text-xs whitespace-nowrap text-muted-foreground">{r.submittedAt ? `${formatDateTimeAr(r.submittedAt)} · ${sinceDays(r.submittedAt)}` : "—"}</TableCell>
-              <TableCell>
-                <div className="flex justify-end gap-1.5">
-                  {canApprove && (
-                    <ActionButton size="sm" variant="outline" action={reviewWeeklyReportAction.bind(null, r.id, { decision: "APPROVE" })} confirm={{ title: `اعتماد تقرير ${r.employee} للأسبوع ${r.weekIndex}؟`, confirmLabel: "اعتماد" }}>
-                      <CheckCircle2 /> اعتماد
-                    </ActionButton>
-                  )}
-                  <Button size="sm" variant="ghost" asChild>
-                    <Link href={`/reports/weekly/${r.id}`}>
-                      فتح <ArrowLeft />
-                    </Link>
-                  </Button>
-                </div>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </Wrap>
+                </span>
+                <ProgressMeta value={r.progress} />
+                {r.submittedAt && <span title={formatDateTimeAr(r.submittedAt)}>أُرسل {sinceDays(r.submittedAt)}</span>}
+                {r.hasBlockers && <StatusBadge tone="warning">معوقات</StatusBadge>}
+                {r.commented && <StatusBadge tone="info">أُرسلت ملاحظة</StatusBadge>}
+              </>
+            }
+            actions={
+              canApprove ? (
+                <ReportDecisionButtons
+                  subject={subject}
+                  approve={reviewWeeklyReportAction.bind(null, r.id, {
+                    decision: "APPROVE",
+                  })}
+                  comment={commentWeeklyReportAction.bind(null, r.id)}
+                />
+              ) : (
+                <OpenLink href={`/reports/weekly/${r.id}`} />
+              )
+            }
+          />
+        );
+      })}
+    </QueueList>
   );
 }
 
 export function MonthlyReportsQueue({ rows, canApprove }: { rows: Awaited<ReturnType<typeof getMonthlyReportsQueue>>; canApprove: boolean }) {
-  if (rows.length === 0) return <EmptyState icon={FileText} title="لا توجد تقارير شهرية بانتظار المراجعة" />;
+  if (rows.length === 0) return <Calm title="لا توجد تقارير شهرية بانتظارك" description="تظهر هنا التقارير الشهرية بعد إرسالها في نهاية الشهر." />;
   return (
-    <Wrap>
-      <Table>
-        <TableHeader className="bg-muted/40">
-          <TableRow>
-            <TableHead className="text-start">الموظف</TableHead>
-            <TableHead className="text-start">الشهر</TableHead>
-            <TableHead className="text-start">الحالة</TableHead>
-            <TableHead className="text-start">أُرسل</TableHead>
-            <TableHead className="text-end">إجراءات</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {rows.map((r) => (
-            <TableRow key={r.id}>
-              <TableCell>
-                <div className="font-medium">{r.employee}</div>
-                <div className="text-xs text-muted-foreground">{r.jobTitle ?? "—"}</div>
-              </TableCell>
-              <TableCell className="text-sm">{monthLabel(r.year, r.month)}</TableCell>
-              <TableCell>
-                <EnumBadge map={REPORT_STATUS_LABELS} value={r.status} />
-              </TableCell>
-              <TableCell className="text-xs whitespace-nowrap text-muted-foreground">{r.submittedAt ? `${formatDateTimeAr(r.submittedAt)} · ${sinceDays(r.submittedAt)}` : "—"}</TableCell>
-              <TableCell>
-                <div className="flex justify-end gap-1.5">
-                  {canApprove && (
-                    <ActionButton size="sm" variant="outline" action={reviewMonthlyReportAction.bind(null, r.id, { decision: "APPROVE" })} confirm={{ title: `اعتماد التقرير الشهري لـ ${r.employee}؟`, confirmLabel: "اعتماد" }}>
-                      <CheckCircle2 /> اعتماد
-                    </ActionButton>
-                  )}
-                  <Button size="sm" variant="ghost" asChild>
-                    <Link href={`/reports/monthly/${r.id}`}>
-                      فتح <ArrowLeft />
-                    </Link>
-                  </Button>
-                </div>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </Wrap>
+    <QueueList>
+      {rows.map((r) => {
+        const subject = `تقرير ${r.employee} الشهري — ${monthLabel(r.year, r.month)}`;
+        return (
+          <QueueRow
+            key={r.id}
+            href={`/reports/monthly/${r.id}`}
+            title={subject}
+            meta={
+              <>
+                <ProgressMeta value={r.progress} />
+                {r.submittedAt && <span title={formatDateTimeAr(r.submittedAt)}>أُرسل {sinceDays(r.submittedAt)}</span>}
+                {r.commented && <StatusBadge tone="info">أُرسلت ملاحظة</StatusBadge>}
+              </>
+            }
+            actions={
+              canApprove ? (
+                <ReportDecisionButtons
+                  subject={subject}
+                  approve={reviewMonthlyReportAction.bind(null, r.id, {
+                    decision: "APPROVE",
+                  })}
+                  comment={commentMonthlyReportAction.bind(null, r.id)}
+                />
+              ) : (
+                <OpenLink href={`/reports/monthly/${r.id}`} />
+              )
+            }
+          />
+        );
+      })}
+    </QueueList>
+  );
+}
+
+function OpenLink({ href, label = "فتح" }: { href: string; label?: string }) {
+  return (
+    <Button size="sm" variant="ghost" asChild>
+      <Link href={href}>
+        {label} <ArrowLeft />
+      </Link>
+    </Button>
   );
 }
 
 export function PlansQueue({ data, canApprove }: { data: Awaited<ReturnType<typeof getPlansQueue>>; canApprove: boolean }) {
+  if (data.plans.length === 0 && data.variance.length === 0) {
+    return <Calm title="لا توجد خطط بانتظارك" description="تظهر هنا خطط الموظفين الشهرية فور إرسالها للاعتماد." />;
+  }
   return (
     <div className="space-y-6">
-      <section>
-        <SectionTitle>خطط شهرية بانتظار الاعتماد ({data.plans.length})</SectionTitle>
-        {data.plans.length === 0 ? (
-          <EmptyState icon={Inbox} title="لا توجد خطط شهرية بانتظار الاعتماد" className="py-6" />
-        ) : (
-          <Wrap>
-            <Table>
-              <TableHeader className="bg-muted/40">
-                <TableRow>
-                  <TableHead className="text-start">الموظف</TableHead>
-                  <TableHead className="text-start">الشهر</TableHead>
-                  <TableHead className="text-start">الأهداف</TableHead>
-                  <TableHead className="text-start">مجموع الأوزان</TableHead>
-                  <TableHead className="text-start">أُرسلت</TableHead>
-                  <TableHead className="text-end">إجراءات</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {data.plans.map((p) => (
-                  <TableRow key={p.id}>
-                    <TableCell>
-                      <div className="font-medium">{p.employee}</div>
-                      <div className="text-xs text-muted-foreground">{p.jobTitle ?? "—"}</div>
-                    </TableCell>
-                    <TableCell className="text-sm">{monthLabel(p.year, p.month)}</TableCell>
-                    <TableCell className="tabular-nums">{formatNumber(p.goals)}</TableCell>
-                    <TableCell>
-                      <span className={cn("tabular-nums", Math.abs(p.totalWeight - 100) > 0.01 && "font-semibold text-warning")}>{formatNumber(p.totalWeight, 2)}%</span>
-                    </TableCell>
-                    <TableCell className="text-xs whitespace-nowrap text-muted-foreground">{p.submittedAt ? `${formatDateTimeAr(p.submittedAt)} · ${sinceDays(p.submittedAt)}` : "—"}</TableCell>
-                    <TableCell>
-                      <div className="flex justify-end gap-1.5">
-                        {canApprove && (
-                          <ActionButton
-                            size="sm"
-                            variant="outline"
-                            action={approvePlanAction.bind(null, p.id)}
-                            confirm={{ title: `اعتماد خطة ${p.employee} لشهر ${monthLabel(p.year, p.month)}؟`, description: "سيتم توليد الأسابيع تلقائيًا بعد الاعتماد.", confirmLabel: "اعتماد" }}
-                            reason={{ label: "ملاحظات للموظف (اختياري)" }}
-                          >
-                            <CheckCircle2 /> اعتماد
-                          </ActionButton>
-                        )}
-                        <Button size="sm" variant="ghost" asChild>
-                          <Link href={`/monthly-plans/${p.id}`}>
-                            فتح <ArrowLeft />
-                          </Link>
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </Wrap>
-        )}
-      </section>
+      {data.plans.length > 0 && (
+        <section>
+          <SectionTitle>الخطط الشهرية ({data.plans.length})</SectionTitle>
+          <QueueList>
+            {data.plans.map((p) => {
+              const month = monthLabel(p.year, p.month);
+              const weightOff = Math.abs(p.totalWeight - 100) > 0.01;
+              return (
+                <QueueRow
+                  key={p.id}
+                  href={`/monthly-plans/${p.id}`}
+                  title={`خطة ${p.employee} — ${month}`}
+                  meta={
+                    <>
+                      <span className="tabular-nums">{formatNumber(p.goals)} أهداف</span>
+                      {weightOff && <StatusBadge tone="warning">مجموع الأوزان {formatNumber(p.totalWeight, 2)}%</StatusBadge>}
+                      {p.submittedAt && <span title={formatDateTimeAr(p.submittedAt)}>أُرسلت {sinceDays(p.submittedAt)}</span>}
+                    </>
+                  }
+                  actions={
+                    <>
+                      {canApprove && (
+                        <ActionButton
+                          size="sm"
+                          action={approvePlanAction.bind(null, p.id)}
+                          confirm={{
+                            title: `اعتماد خطة ${p.employee} لشهر ${month}؟`,
+                            description: "تُوزَّع الأسابيع تلقائيًا بعد الاعتماد.",
+                            confirmLabel: "اعتماد",
+                          }}
+                          reason={{ label: "ملاحظة للموظف (اختياري)" }}
+                        >
+                          <CheckCircle2 /> اعتماد
+                        </ActionButton>
+                      )}
+                      <Button size="sm" variant="outline" asChild>
+                        <Link href={`/monthly-plans/${p.id}`}>
+                          <Pencil /> تعديل
+                        </Link>
+                      </Button>
+                    </>
+                  }
+                />
+              );
+            })}
+          </QueueList>
+        </section>
+      )}
 
-      <section>
-        <SectionTitle>فروق توزيع أسبوعي بانتظار الاعتماد ({data.variance.length})</SectionTitle>
-        {data.variance.length === 0 ? (
-          <EmptyState icon={Inbox} title="لا توجد فروق توزيع بانتظار الاعتماد" className="py-6" />
-        ) : (
-          <Wrap>
-            <Table>
-              <TableHeader className="bg-muted/40">
-                <TableRow>
-                  <TableHead className="text-start">الموظف</TableHead>
-                  <TableHead className="text-start">الشهر</TableHead>
-                  <TableHead className="text-start">الأسابيع</TableHead>
-                  <TableHead className="min-w-48 text-start">مبرر الفرق</TableHead>
-                  <TableHead className="text-end">إجراءات</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {data.variance.map((v) => (
-                  <TableRow key={v.planId}>
-                    <TableCell className="font-medium">{v.employee}</TableCell>
-                    <TableCell className="text-sm">{monthLabel(v.year, v.month)}</TableCell>
-                    <TableCell className="text-sm tabular-nums">{v.weeks.join("، ")}</TableCell>
-                    <TableCell className="max-w-72 text-xs whitespace-normal text-muted-foreground">{v.note ?? "—"}</TableCell>
-                    <TableCell>
-                      <div className="flex justify-end gap-1.5">
-                        {canApprove && (
-                          <ActionButton size="sm" variant="outline" action={approveWeeklyVarianceAction.bind(null, v.planId)} confirm={{ title: `اعتماد توزيع ${v.employee} الأسبوعي؟`, confirmLabel: "اعتماد" }}>
-                            <CheckCircle2 /> اعتماد
-                          </ActionButton>
-                        )}
-                        <Button size="sm" variant="ghost" asChild>
-                          <Link href={`/weekly-plans?plan=${v.planId}`}>
-                            فتح <ArrowLeft />
-                          </Link>
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </Wrap>
-        )}
-      </section>
+      {data.variance.length > 0 && (
+        <section>
+          <SectionTitle>فروق التوزيع الأسبوعي ({data.variance.length})</SectionTitle>
+          <QueueList>
+            {data.variance.map((v) => (
+              <QueueRow
+                key={v.planId}
+                href={`/weekly-plans?plan=${v.planId}`}
+                title={`توزيع ${v.employee} الأسبوعي — ${monthLabel(v.year, v.month)}`}
+                meta={
+                  <>
+                    <span className="tabular-nums">الأسابيع {v.weeks.join("، ")}</span>
+                    {v.note && <span className="max-w-md truncate">المبرر: {v.note}</span>}
+                  </>
+                }
+                actions={
+                  <>
+                    {canApprove && (
+                      <ActionButton
+                        size="sm"
+                        action={approveWeeklyVarianceAction.bind(null, v.planId)}
+                        confirm={{
+                          title: `اعتماد توزيع ${v.employee} الأسبوعي؟`,
+                          confirmLabel: "اعتماد",
+                        }}
+                      >
+                        <CheckCircle2 /> اعتماد
+                      </ActionButton>
+                    )}
+                    <Button size="sm" variant="outline" asChild>
+                      <Link href={`/weekly-plans?plan=${v.planId}`}>
+                        <Pencil /> تعديل
+                      </Link>
+                    </Button>
+                  </>
+                }
+              />
+            ))}
+          </QueueList>
+        </section>
+      )}
     </div>
   );
 }
@@ -269,7 +303,12 @@ export function NotionQueue({ data, emptyTitle }: { data: Awaited<ReturnType<typ
                   <TableRow key={it.id}>
                     <TableCell className="max-w-80 whitespace-normal">
                       {it.url ? (
-                        <a href={it.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-medium hover:underline">
+                        <a
+                          href={it.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 font-medium hover:underline"
+                        >
                           {it.title} <ExternalLink className="size-3 shrink-0 text-muted-foreground" />
                         </a>
                       ) : (

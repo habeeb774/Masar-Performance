@@ -1,11 +1,11 @@
 import "server-only";
 import { db } from "@/server/db";
-import { addDays, diffDays, fromDateKey, monthEnd, monthLabel, shiftMonth, toDateKey, todayKey } from "@/lib/dates";
+import { diffDays, fromDateKey, monthEnd, shiftMonth, toDateKey, todayKey } from "@/lib/dates";
 import { num } from "@/lib/num";
 import { dueDataSources, syncDataSource } from "@/server/notion/sync";
 import { getCompanyFresh } from "./company";
 import { notifyUsers } from "./notifications";
-import { generateMonthlyReport, generateWeeklyReport } from "./reports";
+import { ensureDueReports } from "./reports";
 import { recomputeAllActive, recomputeForDataSource } from "./progress";
 import { PERMISSIONS } from "@/lib/permissions";
 
@@ -64,7 +64,8 @@ export async function runScheduledSync() {
  * Daily housekeeping — safe to run many times a day (dedupe keys make
  * reminders idempotent):
  * - move approved plans of the current month to IN_PROGRESS, close last month
- * - generate weekly report drafts for ended weeks, monthly drafts at month end
+ * - generate missing weekly drafts for ended weeks and monthly drafts at month
+ *   end (the same idempotent routine also runs lazily when reports are opened)
  * - reminders (week ending, low progress, pending approvals, month ending)
  */
 export async function runDailyJobs() {
@@ -87,38 +88,10 @@ export async function runDailyJobs() {
 
   await recomputeAllActive();
 
-  // weekly reports for weeks that ended (up to 14 days back)
-  const endedWeeks = await db.weeklyPlan.findMany({
-    where: {
-      endDate: { lt: fromDateKey(today), gte: fromDateKey(addDays(today, -14)) },
-      report: null,
-      monthlyPlan: { status: { in: ["APPROVED", "IN_PROGRESS", "COMPLETED"] } },
-    },
-    select: { id: true },
-  });
-  for (const w of endedWeeks) await generateWeeklyReport(w.id, { notify: true });
-  summary.weeklyReports = endedWeeks.length;
-
-  // monthly report drafts on the last day of the month or for last month's plans
-  const lastDay = monthEnd(year, month) === today;
-  const monthlyTargets = await db.monthlyPlan.findMany({
-    where: {
-      report: null,
-      status: { in: ["APPROVED", "IN_PROGRESS", "COMPLETED"] },
-      OR: [{ year: prev.year, month: prev.month }, ...(lastDay ? [{ year, month }] : [])],
-    },
-    select: { id: true, employee: { select: { userId: true } }, year: true, month: true },
-  });
-  for (const p of monthlyTargets) {
-    const report = await generateMonthlyReport(p.id);
-    await notifyUsers([p.employee.userId], {
-      type: "WEEKLY_REPORT_READY",
-      title: `التقرير الشهري لشهر ${monthLabel(p.year, p.month)} جاهز للمراجعة`,
-      link: `/reports/monthly/${report.id}`,
-      dedupeKey: `monthly-ready:${report.id}`,
-    });
-  }
-  summary.monthlyReports = monthlyTargets.length;
+  const generated = await ensureDueReports({ employeeIds: "ALL", notify: true });
+  summary.weeklyReports = generated.weekly;
+  summary.monthlyReports = generated.monthly;
+  summary.reportFailures = generated.failed;
 
   // reminders on the current week
   const weeks = await db.weeklyPlan.findMany({

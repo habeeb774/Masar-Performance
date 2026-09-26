@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeLabel, stageKeyFor, suggestMappings, suggestStatus, unresolvedCount, type SchemaInput } from "@/lib/notion/auto-map";
+import { normalizeLabel, pickDatabase, stageKeyFor, suggestMappings, suggestStatus, unresolvedCount, type SchemaInput } from "@/lib/notion/auto-map";
 
 const sel = (name: string, values: string[], type = "select"): SchemaInput => ({ name, type, options: values.map((v) => ({ name: v })) });
 
@@ -107,5 +107,21 @@ describe("stageKeyFor", () => {
     expect(stageKeyFor("مراجعة الجودة", [])).toBe("review");
     expect(stageKeyFor("مراجعة نهائية", ["review"])).toBe("review2");
     expect(stageKeyFor("شيء آخر", ["stage"])).toBe("stage2");
+  });
+});
+
+describe("pickDatabase", () => {
+  const db = (name: string, addedId: string | null = null) => ({ name, addedId });
+  it("takes the only new database", () => {
+    expect(pickDatabase([db("A", "x"), db("Roadmap")])?.name).toBe("Roadmap");
+  });
+  it("takes a clearly stronger match", () => {
+    expect(pickDatabase([db("إضافة المنتجات للمتجر"), db("Meeting notes"), db("الإجازات")])?.name).toBe("إضافة المنتجات للمتجر");
+    expect(pickDatabase([db("Products"), db("Content Calendar")])?.name).toBe("Products");
+  });
+  it("asks when it's a tie or nothing matches", () => {
+    expect(pickDatabase([db("Content Calendar"), db("مهام التصميم")])).toBeNull();
+    expect(pickDatabase([db("Wiki"), db("Notes")])).toBeNull();
+    expect(pickDatabase([db("A", "x")])).toBeNull();
   });
 });
