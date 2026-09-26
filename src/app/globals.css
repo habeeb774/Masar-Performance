@@ -66,6 +66,10 @@
   --shadow-inset: var(--surface-shadow-inset);
   --shadow-inset-focus: var(--surface-shadow-inset-focus);
   --shadow-float: var(--surface-shadow-float);
+  /* the sidebar surface is always dark (in both app themes), so it needs its own
+     fixed shadow recipe instead of --shadow-raised/inset, which flip with .dark */
+  --shadow-sidebar-raised: 0 1px 2px oklch(0 0 0 / 30%), 0 1px 0 oklch(1 0 0 / 6%) inset;
+  --shadow-sidebar-inset: inset 0 1px 3px oklch(0 0 0 / 35%), inset 0 1px 0 oklch(0 0 0 / 20%);
   --animate-shimmer: shimmer 1.8s ease-in-out infinite;
   --animate-in-page: enter-page 0.4s var(--ease-soft) both;
 }

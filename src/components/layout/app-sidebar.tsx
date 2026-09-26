@@ -83,8 +83,12 @@ export function AppSidebar({ groups, badges }: { groups: NavGroup[]; badges: Rec
   return (
     <Sidebar side="right" collapsible="icon" dir="rtl">
       <SidebarHeader className="border-b border-sidebar-border">
-        <Link href="/dashboard" className="flex items-center gap-2.5 px-1 py-1.5" onClick={() => setOpenMobile(false)}>
-          <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
+        <Link
+          href="/dashboard"
+          className="flex items-center gap-2.5 rounded-lg px-1 py-1.5 transition-colors duration-150 [transition-timing-function:var(--ease-press)] hover:bg-sidebar-accent/50 active:scale-[0.98]"
+          onClick={() => setOpenMobile(false)}
+        >
+          <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground shadow-[var(--shadow-sidebar-raised)]">
             <BarChart3 className="size-4" />
           </span>
           <span className="min-w-0 group-data-[collapsible=icon]:hidden">
@@ -118,8 +122,8 @@ export function AppSidebar({ groups, badges }: { groups: NavGroup[]; badges: Rec
         ))}
       </SidebarContent>
       <SidebarFooter className="border-t border-sidebar-border">
-        <div className="flex items-center gap-2 px-2 py-1 text-[11px] text-sidebar-foreground/50 group-data-[collapsible=icon]:hidden">
-          <ShieldCheck className="size-3.5" /> جلسة آمنة
+        <div className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[11px] text-sidebar-foreground/50 shadow-[var(--shadow-sidebar-inset)] group-data-[collapsible=icon]:hidden">
+          <ShieldCheck className="size-3.5 text-success" /> جلسة آمنة
         </div>
       </SidebarFooter>
       <SidebarRail />
