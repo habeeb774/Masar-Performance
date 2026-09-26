@@ -1,11 +1,12 @@
 import type { Metadata, Viewport } from "next";
-import { Alexandria } from "next/font/google";
+import { Tajawal } from "next/font/google";
 import { Providers } from "@/components/providers";
 import "./globals.css";
 
-const alexandria = Alexandria({
-  variable: "--font-alexandria",
+const tajawal = Tajawal({
+  variable: "--font-tajawal",
   subsets: ["arabic", "latin"],
+  weight: ["400", "500", "700", "800"],
   display: "swap",
 });
 
@@ -24,7 +25,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="ar" dir="rtl" className={`${alexandria.variable} h-full antialiased`} suppressHydrationWarning>
+    <html lang="ar" dir="rtl" className={`${tajawal.variable} h-full antialiased`} suppressHydrationWarning>
       <body className="min-h-full">
         <Providers>{children}</Providers>
       </body>

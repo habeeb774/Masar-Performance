@@ -9,7 +9,7 @@
 
 ```mermaid
 flowchart TB
-  subgraph Browser["المتصفح (RTL / Alexandria)"]
+  subgraph Browser["المتصفح (RTL / Tajawal)"]
     UI["صفحات Next.js<br/>Server Components + Client Islands"]
   end
   subgraph Next["Next.js 16 (Node runtime)"]
