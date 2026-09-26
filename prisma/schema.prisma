@@ -1,0 +1,1028 @@
+// =====================================================================
+//  مركز الإدارة والتقييم — Store Performance Hub
+//  Prisma schema (PostgreSQL / Neon)
+// =====================================================================
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------
+//  Enums
+// ---------------------------------------------------------------------
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  LOCKED
+}
+
+enum EmployeeStatus {
+  ACTIVE
+  ON_LEAVE
+  TERMINATED
+}
+
+enum DepartmentType {
+  ADMINISTRATION // إدارة
+  SECTION // قسم
+}
+
+enum GoalType {
+  NUMERIC
+  BOOLEAN
+  PERCENTAGE
+  RECURRING
+  MANUAL
+  NOTION_SYNCED
+}
+
+enum GoalSource {
+  MANUAL
+  NOTION
+  SYSTEM
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum KpiCategory {
+  PRODUCTIVITY
+  QUALITY
+  COMMITMENT
+  DEVELOPMENT
+}
+
+enum GoalStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  AT_RISK
+  COMPLETED
+  PARTIAL
+  CANCELLED
+}
+
+enum PlanStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  IN_PROGRESS
+  COMPLETED
+  ARCHIVED
+}
+
+enum WeeklyPlanStatus {
+  DRAFT
+  PENDING_APPROVAL // distribution differs from monthly target and needs manager approval
+  ACTIVE
+  CLOSED
+}
+
+enum TaskStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+  PARTIAL
+  DELAYED
+  BLOCKED
+  CANCELLED
+}
+
+enum TaskSource {
+  DISTRIBUTED // generated from weekly goal distribution
+  MANUAL
+  NOTION
+  AD_HOC_TASK
+}
+
+enum ReportStatus {
+  DRAFT
+  SUBMITTED
+  REVIEWED
+  RETURNED
+  APPROVED
+}
+
+enum ReviewStatus {
+  DRAFT
+  CALCULATED
+  MANAGER_REVIEW
+  APPROVED
+  ACKNOWLEDGED
+}
+
+enum KpiCalculationMethod {
+  RATIO // achieved / target * 100
+  INVERSE_RATIO // lower is better (e.g. rework rate)
+  THRESHOLD_TABLE // value → score lookup (e.g. days late)
+  FORMULA // custom safe expression
+  MANUAL // manager enters the score
+}
+
+enum KpiSourceType {
+  GOALS // weighted achievement of monthly goals (filterable by category / goal type)
+  NOTION_APPROVAL_RATE
+  NOTION_REVISION_RATE
+  NOTION_COUNT
+  PLAN_SUBMISSION_DELAY // days late of monthly plan submission
+  WEEKLY_PLANS_PREPARED
+  WEEKLY_REPORTS_SUBMITTED
+  MONTHLY_REPORT_SUBMITTED
+  AD_HOC_COMPLETION
+  DEADLINE_COMMITMENT
+  MANUAL
+}
+
+enum NotionSystemStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  PENDING_APPROVAL
+  NEEDS_REVISION
+  IN_PROGRESS_AFTER_REVISION
+  COMPLETED
+  BLOCKED
+  CANCELLED
+  NOT_APPLICABLE
+  UNMAPPED
+}
+
+enum NotionFieldRole {
+  TITLE
+  STATUS // workflow stage status (can be many per data source, identified by stageKey)
+  DATE
+  BATCH
+  PRODUCT_CODE
+  EMPLOYEE
+  TASK_TYPE
+  TEXT
+  NUMBER
+}
+
+enum NotionConnectionStatus {
+  UNTESTED
+  CONNECTED
+  FAILED
+}
+
+enum SyncTrigger {
+  MANUAL
+  SCHEDULED
+  RETRY
+  FULL_RESYNC
+}
+
+enum SyncStatus {
+  RUNNING
+  SUCCESS
+  PARTIAL
+  FAILED
+}
+
+enum NotificationChannel {
+  IN_APP
+  EMAIL
+  WHATSAPP
+  SLACK
+}
+
+enum NotificationType {
+  WEEK_ENDING
+  LOW_WEEKLY_PROGRESS
+  ITEM_RETURNED_FOR_REVISION
+  PENDING_APPROVAL_ITEMS
+  TASK_ASSIGNED
+  WEEKLY_REPORT_READY
+  REPORT_RETURNED
+  REPORT_SUBMITTED
+  REPORT_APPROVED
+  MONTH_ENDING
+  PLAN_SUBMITTED
+  PLAN_APPROVED
+  PLAN_RETURNED
+  REVIEW_APPROVED
+  SYNC_FAILED
+  GENERAL
+}
+
+enum AttachmentEntity {
+  DAILY_TASK
+  AD_HOC_TASK
+  WEEKLY_REPORT
+  MONTHLY_REPORT
+  MONTHLY_GOAL
+}
+
+enum CommentEntity {
+  MONTHLY_PLAN
+  MONTHLY_GOAL
+  DAILY_TASK
+  AD_HOC_TASK
+  WEEKLY_REPORT
+  MONTHLY_REPORT
+  PERFORMANCE_REVIEW
+}
+
+// ---------------------------------------------------------------------
+//  Identity & access
+// ---------------------------------------------------------------------
+
+model Role {
+  id          String           @id @default(cuid())
+  key         String           @unique // ADMIN | MANAGER | EMPLOYEE | custom
+  name        String
+  description String?
+  isSystem    Boolean          @default(false)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  users       User[]
+  permissions RolePermission[]
+}
+
+model Permission {
+  id          String           @id @default(cuid())
+  key         String           @unique // e.g. "plans.approve"
+  name        String
+  group       String
+  description String?
+  roles       RolePermission[]
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+model User {
+  id             String     @id @default(cuid())
+  email          String     @unique
+  name           String
+  passwordHash   String
+  roleId         String
+  status         UserStatus @default(ACTIVE)
+  failedLogins   Int        @default(0)
+  lockedUntil    DateTime?
+  lastLoginAt    DateTime?
+  passwordSetAt  DateTime   @default(now())
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  role           Role       @relation(fields: [roleId], references: [id])
+  employee       Employee?
+  sessions       Session[]
+  notifications  Notification[]
+  auditLogs      AuditLog[]
+  comments       Comment[]
+  attachments    Attachment[]
+
+  @@index([roleId])
+}
+
+model Session {
+  id         String   @id @default(cuid())
+  tokenHash  String   @unique
+  userId     String
+  expiresAt  DateTime
+  lastSeenAt DateTime @default(now())
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model RateLimit {
+  key         String   @id
+  count       Int      @default(0)
+  windowStart DateTime @default(now())
+}
+
+// ---------------------------------------------------------------------
+//  Organization
+// ---------------------------------------------------------------------
+
+model Company {
+  id          String       @id @default(cuid())
+  name        String
+  legalName   String?
+  timezone    String       @default("Asia/Riyadh")
+  weekStartDay Int         @default(6) // 0=Sun … 6=Sat
+  workDays    Int[]        @default([6, 0, 1, 2, 3]) // Sat–Wed
+  planSubmissionDeadlineDay Int @default(3) // monthly plan should be submitted by day N
+  weeklyReportDueDays       Int @default(1) // days after week end
+  logoUrl     String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  departments Department[]
+  ratingScales PerformanceRatingScale[]
+}
+
+model Department {
+  id         String         @id @default(cuid())
+  companyId  String
+  parentId   String?
+  name       String
+  code       String?
+  type       DepartmentType @default(ADMINISTRATION)
+  description String?
+  headEmployeeId String?
+  isActive   Boolean        @default(true)
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+  company    Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  parent     Department?    @relation("DepartmentTree", fields: [parentId], references: [id])
+  children   Department[]   @relation("DepartmentTree")
+  employees  Employee[]
+  jobTitles  JobTitle[]
+
+  @@index([companyId])
+  @@index([parentId])
+}
+
+model JobTitle {
+  id           String         @id @default(cuid())
+  name         String
+  description  String?
+  departmentId String?
+  isActive     Boolean        @default(true)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  department   Department?    @relation(fields: [departmentId], references: [id])
+  employees    Employee[]
+  goalTemplates GoalTemplate[]
+  kpis         Kpi[]
+}
+
+model Employee {
+  id            String         @id @default(cuid())
+  userId        String         @unique
+  employeeNo    String?        @unique
+  fullName      String
+  phone         String?
+  departmentId  String?
+  jobTitleId    String?
+  managerId     String?
+  hireDate      DateTime?      @db.Date
+  status        EmployeeStatus @default(ACTIVE)
+  notionUserId  String? // Notion person id (people / created_by matching)
+  notionAlias   String? // text alias used in Notion text fields
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  department    Department?    @relation(fields: [departmentId], references: [id])
+  jobTitle      JobTitle?      @relation(fields: [jobTitleId], references: [id])
+  manager       Employee?      @relation("ManagerReports", fields: [managerId], references: [id])
+  reports       Employee[]     @relation("ManagerReports")
+
+  monthlyPlans  MonthlyPlan[]
+  monthlyGoals  MonthlyGoal[]
+  weeklyPlans   WeeklyPlan[]
+  dailyTasks    DailyTask[]
+  adHocTasks    AdHocTask[]     @relation("AdHocAssignee")
+  weeklyReports WeeklyReport[]
+  monthlyReports MonthlyReport[]
+  reviews       PerformanceReview[]
+  notionItems   NotionSyncedItem[]
+  stageOwnerships NotionFieldMapping[] @relation("StageOwner")
+  defaultForSources NotionDataSource[] @relation("DataSourceDefaultEmployee")
+
+  @@index([managerId])
+  @@index([departmentId])
+  @@index([jobTitleId])
+}
+
+// ---------------------------------------------------------------------
+//  Goal templates
+// ---------------------------------------------------------------------
+
+model GoalTemplate {
+  id          String             @id @default(cuid())
+  name        String
+  description String?
+  jobTitleId  String?
+  isActive    Boolean            @default(true)
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  jobTitle    JobTitle?          @relation(fields: [jobTitleId], references: [id])
+  items       GoalTemplateItem[]
+  plans       MonthlyPlan[]
+
+  @@index([jobTitleId])
+}
+
+model GoalTemplateItem {
+  id            String       @id @default(cuid())
+  templateId    String
+  name          String
+  description   String?
+  goalType      GoalType     @default(NUMERIC)
+  targetValue   Decimal      @default(0) @db.Decimal(12, 2)
+  unit          String       @default("عنصر")
+  weight        Decimal      @default(0) @db.Decimal(6, 2)
+  priority      Priority     @default(MEDIUM)
+  source        GoalSource   @default(MANUAL)
+  category      KpiCategory  @default(PRODUCTIVITY)
+  notionFilter  Json? // NotionFilterRule
+  sortOrder     Int          @default(0)
+  template      GoalTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@index([templateId])
+}
+
+// ---------------------------------------------------------------------
+//  Monthly → weekly → daily planning
+// ---------------------------------------------------------------------
+
+model MonthlyPlan {
+  id           String        @id @default(cuid())
+  employeeId   String
+  year         Int
+  month        Int // 1-12
+  status       PlanStatus    @default(DRAFT)
+  templateId   String?
+  notes        String?
+  managerNotes String?
+  submittedAt  DateTime?
+  approvedAt   DateTime?
+  approvedById String?
+  createdById  String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  employee     Employee      @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  template     GoalTemplate? @relation(fields: [templateId], references: [id])
+  goals        MonthlyGoal[]
+  weeklyPlans  WeeklyPlan[]
+  report       MonthlyReport?
+  review       PerformanceReview?
+
+  @@unique([employeeId, year, month])
+  @@index([year, month])
+  @@index([status])
+}
+
+model MonthlyGoal {
+  id             String       @id @default(cuid())
+  planId         String
+  employeeId     String
+  name           String
+  description    String?
+  goalType       GoalType     @default(NUMERIC)
+  targetValue    Decimal      @default(0) @db.Decimal(12, 2)
+  unit           String       @default("عنصر")
+  weight         Decimal      @default(0) @db.Decimal(6, 2)
+  startDate      DateTime?    @db.Date
+  dueDate        DateTime?    @db.Date
+  priority       Priority     @default(MEDIUM)
+  source         GoalSource   @default(MANUAL)
+  category       KpiCategory  @default(PRODUCTIVITY)
+  notionDataSourceId String?
+  notionFilter   Json? // NotionFilterRule
+  status         GoalStatus   @default(NOT_STARTED)
+  achievedValue  Decimal      @default(0) @db.Decimal(12, 2)
+  progressPct    Decimal      @default(0) @db.Decimal(7, 2)
+  breakdown      Json? // cached Notion breakdown {worked, completed, pendingApproval, ...}
+  lastComputedAt DateTime?
+  isAdHoc        Boolean      @default(false)
+  sortOrder      Int          @default(0)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  plan           MonthlyPlan  @relation(fields: [planId], references: [id], onDelete: Cascade)
+  employee       Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  notionDataSource NotionDataSource? @relation(fields: [notionDataSourceId], references: [id], onDelete: SetNull)
+  weeklyGoals    WeeklyGoal[]
+  dailyTasks     DailyTask[]
+  compensatedBy  AdHocTask[]  @relation("AdHocCompensates")
+
+  @@index([planId])
+  @@index([employeeId])
+  @@index([notionDataSourceId])
+}
+
+model WeeklyPlan {
+  id             String           @id @default(cuid())
+  monthlyPlanId  String
+  employeeId     String
+  weekIndex      Int // 1..N within month
+  startDate      DateTime         @db.Date
+  endDate        DateTime         @db.Date
+  workDays       Int              @default(5)
+  status         WeeklyPlanStatus @default(DRAFT)
+  varianceNote   String?
+  varianceApprovedById String?
+  varianceApprovedAt   DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  monthlyPlan    MonthlyPlan      @relation(fields: [monthlyPlanId], references: [id], onDelete: Cascade)
+  employee       Employee         @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  goals          WeeklyGoal[]
+  report         WeeklyReport?
+
+  @@unique([monthlyPlanId, weekIndex])
+  @@index([employeeId, startDate])
+}
+
+model WeeklyGoal {
+  id             String      @id @default(cuid())
+  weeklyPlanId   String
+  monthlyGoalId  String
+  targetValue    Decimal     @default(0) @db.Decimal(12, 2)
+  achievedValue  Decimal     @default(0) @db.Decimal(12, 2)
+  progressPct    Decimal     @default(0) @db.Decimal(7, 2)
+  breakdown      Json?
+  lastComputedAt DateTime?
+  weeklyPlan     WeeklyPlan  @relation(fields: [weeklyPlanId], references: [id], onDelete: Cascade)
+  monthlyGoal    MonthlyGoal @relation(fields: [monthlyGoalId], references: [id], onDelete: Cascade)
+  dailyTasks     DailyTask[]
+
+  @@unique([weeklyPlanId, monthlyGoalId])
+  @@index([monthlyGoalId])
+}
+
+model DailyTask {
+  id            String      @id @default(cuid())
+  employeeId    String
+  weeklyGoalId  String?
+  monthlyGoalId String?
+  title         String
+  description   String?
+  date          DateTime    @db.Date
+  deadline      DateTime?   @db.Date
+  target        Decimal     @default(0) @db.Decimal(12, 2)
+  achieved      Decimal     @default(0) @db.Decimal(12, 2)
+  progress      Int         @default(0) // 0-100 for non numeric tasks
+  status        TaskStatus  @default(NOT_STARTED)
+  source        TaskSource  @default(MANUAL)
+  priority      Priority    @default(MEDIUM)
+  notionFilter  Json?
+  breakdown     Json?
+  notes         String?
+  delayReason   String?
+  completedAt   DateTime?
+  createdById   String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  employee      Employee    @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  weeklyGoal    WeeklyGoal? @relation(fields: [weeklyGoalId], references: [id], onDelete: SetNull)
+  monthlyGoal   MonthlyGoal? @relation(fields: [monthlyGoalId], references: [id], onDelete: SetNull)
+
+  @@index([employeeId, date])
+  @@index([weeklyGoalId])
+  @@index([status])
+}
+
+model AdHocTask {
+  id                  String      @id @default(cuid())
+  employeeId          String
+  assignedById        String?
+  title               String
+  description         String?
+  assignedDate        DateTime    @db.Date
+  dueDate             DateTime?   @db.Date
+  priority            Priority    @default(MEDIUM)
+  status              TaskStatus  @default(NOT_STARTED)
+  progress            Int         @default(0)
+  includeInEvaluation Boolean     @default(true)
+  weight              Decimal     @default(0) @db.Decimal(6, 2)
+  isOutOfPlan         Boolean     @default(true)
+  compensatesGoalId   String?
+  notes               String?
+  delayReason         String?
+  completedAt         DateTime?
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+  employee            Employee    @relation("AdHocAssignee", fields: [employeeId], references: [id], onDelete: Cascade)
+  compensatesGoal     MonthlyGoal? @relation("AdHocCompensates", fields: [compensatesGoalId], references: [id], onDelete: SetNull)
+
+  @@index([employeeId, assignedDate])
+  @@index([status])
+}
+
+// ---------------------------------------------------------------------
+//  Reports
+// ---------------------------------------------------------------------
+
+model WeeklyReport {
+  id             String       @id @default(cuid())
+  weeklyPlanId   String       @unique
+  employeeId     String
+  weekStart      DateTime     @db.Date
+  weekEnd        DateTime     @db.Date
+  status         ReportStatus @default(DRAFT)
+  content        Json // computed snapshot (goals, notion breakdown, tasks…)
+  generatedText  String
+  employeeNotes  String?
+  highlights     String?
+  blockers       String? // أسباب عدم الإنجاز
+  carryOver      String? // مهام مرحلة للأسبوع القادم
+  managerComment String?
+  generatedAt    DateTime     @default(now())
+  submittedAt    DateTime?
+  reviewedAt     DateTime?
+  reviewedById   String?
+  approvedAt     DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  weeklyPlan     WeeklyPlan   @relation(fields: [weeklyPlanId], references: [id], onDelete: Cascade)
+  employee       Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId, weekStart])
+  @@index([status])
+}
+
+model MonthlyReport {
+  id             String       @id @default(cuid())
+  monthlyPlanId  String       @unique
+  employeeId     String
+  year           Int
+  month          Int
+  status         ReportStatus @default(DRAFT)
+  content        Json
+  generatedText  String
+  employeeNotes  String?
+  managerNotes   String?
+  highlights     String?
+  generatedAt    DateTime     @default(now())
+  submittedAt    DateTime?
+  reviewedAt     DateTime?
+  reviewedById   String?
+  approvedAt     DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  monthlyPlan    MonthlyPlan  @relation(fields: [monthlyPlanId], references: [id], onDelete: Cascade)
+  employee       Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId, year, month])
+  @@index([status])
+}
+
+// ---------------------------------------------------------------------
+//  KPI & performance
+// ---------------------------------------------------------------------
+
+model KpiTemplate {
+  id                String               @id @default(cuid())
+  code              String               @unique
+  name              String
+  description       String?
+  category          KpiCategory
+  unit              String               @default("%")
+  defaultTarget     Decimal              @default(100) @db.Decimal(12, 2)
+  defaultWeight     Decimal              @default(0) @db.Decimal(6, 2)
+  calculationMethod KpiCalculationMethod @default(RATIO)
+  methodConfig      Json? // thresholds / formula / cap
+  maxScore          Decimal              @default(100) @db.Decimal(8, 2)
+  sourceType        KpiSourceType        @default(MANUAL)
+  sourceConfig      Json? // e.g. { category: "PRODUCTIVITY" } | { stageKey: "images" }
+  isAutomatic       Boolean              @default(true)
+  isActive          Boolean              @default(true)
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  kpis              Kpi[]
+  results           KpiResult[]
+}
+
+// KPI assigned to a job title (or to everyone when jobTitleId is null)
+model Kpi {
+  id          String      @id @default(cuid())
+  templateId  String
+  jobTitleId  String?
+  weight      Decimal     @db.Decimal(6, 2)
+  target      Decimal?    @db.Decimal(12, 2)
+  isActive    Boolean     @default(true)
+  sortOrder   Int         @default(0)
+  template    KpiTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  jobTitle    JobTitle?   @relation(fields: [jobTitleId], references: [id], onDelete: Cascade)
+  results     KpiResult[]
+
+  @@unique([templateId, jobTitleId])
+}
+
+model KpiResult {
+  id               String            @id @default(cuid())
+  reviewId         String
+  kpiId            String?
+  templateId       String
+  name             String
+  category         KpiCategory
+  unit             String
+  target           Decimal           @db.Decimal(12, 2)
+  achieved         Decimal           @db.Decimal(12, 2)
+  achievementRate  Decimal           @db.Decimal(7, 2)
+  score            Decimal           @db.Decimal(8, 2)
+  maxScore         Decimal           @db.Decimal(8, 2)
+  weight           Decimal           @db.Decimal(6, 2)
+  weightedScore    Decimal           @db.Decimal(8, 2)
+  isAutomatic      Boolean           @default(true)
+  isOverridden     Boolean           @default(false)
+  overrideReason   String?
+  details          Json?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  review           PerformanceReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  kpi              Kpi?              @relation(fields: [kpiId], references: [id], onDelete: SetNull)
+  template         KpiTemplate       @relation(fields: [templateId], references: [id])
+
+  @@index([reviewId])
+}
+
+model PerformanceReview {
+  id                String       @id @default(cuid())
+  employeeId        String
+  monthlyPlanId     String?      @unique
+  year              Int
+  month             Int
+  status            ReviewStatus @default(DRAFT)
+  autoScore         Decimal      @default(0) @db.Decimal(7, 2)
+  managerAdjustment Decimal      @default(0) @db.Decimal(7, 2)
+  adjustmentReason  String?
+  finalScore        Decimal      @default(0) @db.Decimal(7, 2)
+  productivityScore Decimal?     @db.Decimal(7, 2)
+  qualityScore      Decimal?     @db.Decimal(7, 2)
+  ratingLabel       String?
+  ratingColor       String?
+  managerNotes      String?
+  strengths         String?
+  improvements      String?
+  calculatedAt      DateTime?
+  approvedById      String?
+  approvedAt        DateTime?
+  acknowledgedAt    DateTime?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  employee          Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  monthlyPlan       MonthlyPlan? @relation(fields: [monthlyPlanId], references: [id], onDelete: SetNull)
+  results           KpiResult[]
+
+  @@unique([employeeId, year, month])
+  @@index([year, month])
+}
+
+model PerformanceRatingScale {
+  id        String                  @id @default(cuid())
+  companyId String?
+  name      String
+  isActive  Boolean                 @default(false)
+  createdAt DateTime                @default(now())
+  updatedAt DateTime                @updatedAt
+  company   Company?                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  bands     PerformanceRatingBand[]
+}
+
+model PerformanceRatingBand {
+  id        String                 @id @default(cuid())
+  scaleId   String
+  label     String
+  minScore  Decimal                @db.Decimal(6, 2)
+  maxScore  Decimal                @db.Decimal(6, 2)
+  color     String                 @default("slate")
+  sortOrder Int                    @default(0)
+  scale     PerformanceRatingScale @relation(fields: [scaleId], references: [id], onDelete: Cascade)
+
+  @@index([scaleId])
+}
+
+// ---------------------------------------------------------------------
+//  Notion integration
+// ---------------------------------------------------------------------
+
+model NotionConnection {
+  id             String                 @id @default(cuid())
+  name           String
+  tokenEncrypted String // AES-256-GCM (iv:tag:ciphertext, base64)
+  tokenHint      String // last 4 chars only
+  workspaceName  String?
+  botName        String?
+  status         NotionConnectionStatus @default(UNTESTED)
+  lastTestedAt   DateTime?
+  lastError      String?
+  isActive       Boolean                @default(true)
+  createdById    String?
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  dataSources    NotionDataSource[]
+}
+
+model NotionDataSource {
+  id                  String             @id @default(cuid())
+  connectionId        String
+  name                String
+  purpose             String             @default("PRODUCTS") // PRODUCTS | CONTENT | ARTICLES | SEO | DESIGN | OTHER
+  notionDatabaseId    String
+  notionDataSourceId  String
+  isActive            Boolean            @default(true)
+  syncEnabled         Boolean            @default(true)
+  syncIntervalMinutes Int                @default(30)
+  lastSyncedAt        DateTime?
+  syncCursor          DateTime? // max last_edited_time processed
+  defaultEmployeeId   String?
+  schemaCache         Json? // properties snapshot from Notion
+  schemaFetchedAt     DateTime?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  connection          NotionConnection   @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  defaultEmployee     Employee?          @relation("DataSourceDefaultEmployee", fields: [defaultEmployeeId], references: [id], onDelete: SetNull)
+  fieldMappings       NotionFieldMapping[]
+  items               NotionSyncedItem[]
+  syncLogs            NotionSyncLog[]
+  goals               MonthlyGoal[]
+
+  @@unique([connectionId, notionDataSourceId])
+}
+
+model NotionFieldMapping {
+  id                 String              @id @default(cuid())
+  dataSourceId       String
+  role               NotionFieldRole
+  notionProperty     String
+  notionPropertyType String
+  stageKey           String? // for STATUS role: images | store | content | seo …
+  label              String
+  ownerEmployeeId    String? // employee responsible for this workflow stage
+  isActive           Boolean             @default(true)
+  sortOrder          Int                 @default(0)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  dataSource         NotionDataSource    @relation(fields: [dataSourceId], references: [id], onDelete: Cascade)
+  ownerEmployee      Employee?           @relation("StageOwner", fields: [ownerEmployeeId], references: [id], onDelete: SetNull)
+  statusMappings     NotionStatusMapping[]
+
+  @@unique([dataSourceId, role, notionProperty])
+  @@unique([dataSourceId, stageKey])
+}
+
+model NotionStatusMapping {
+  id             String             @id @default(cuid())
+  fieldMappingId String
+  notionValue    String
+  systemStatus   NotionSystemStatus
+  // multi_select precedence: higher wins when several values are selected
+  precedence     Int                @default(0)
+  color          String?
+  fieldMapping   NotionFieldMapping @relation(fields: [fieldMappingId], references: [id], onDelete: Cascade)
+
+  @@unique([fieldMappingId, notionValue])
+}
+
+model NotionSyncedItem {
+  id               String           @id @default(cuid())
+  dataSourceId     String
+  notionPageId     String
+  sourceDatabaseId String
+  title            String
+  url              String?
+  batch            String?
+  batchNumber      Decimal?         @db.Decimal(12, 2)
+  productCode      String?
+  taskType         String?
+  itemDate         DateTime?        @db.Date
+  employeeId       String?
+  properties       Json // normalized { propertyName: value }
+  createdTime      DateTime
+  lastEditedTime   DateTime
+  lastSyncedAt     DateTime         @default(now())
+  isArchived       Boolean          @default(false)
+  dataSource       NotionDataSource @relation(fields: [dataSourceId], references: [id], onDelete: Cascade)
+  employee         Employee?        @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  stages           NotionItemStage[]
+  events           NotionItemEvent[]
+
+  @@unique([dataSourceId, notionPageId])
+  @@index([dataSourceId, lastEditedTime])
+  @@index([dataSourceId, batchNumber])
+  @@index([dataSourceId, itemDate])
+  @@index([employeeId])
+}
+
+// current status of one workflow stage on one item (fast SQL aggregation)
+model NotionItemStage {
+  id              String             @id @default(cuid())
+  itemId          String
+  stageKey        String
+  rawValues       String[]
+  systemStatus    NotionSystemStatus
+  statusChangedAt DateTime
+  item            NotionSyncedItem   @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@unique([itemId, stageKey])
+  @@index([stageKey, systemStatus])
+}
+
+// observed status transitions — powers rework / revision KPIs
+model NotionItemEvent {
+  id         String              @id @default(cuid())
+  itemId     String
+  stageKey   String
+  fromStatus NotionSystemStatus?
+  toStatus   NotionSystemStatus
+  fromRaw    String[]
+  toRaw      String[]
+  occurredAt DateTime
+  item       NotionSyncedItem    @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([itemId])
+  @@index([stageKey, toStatus, occurredAt])
+}
+
+model NotionSyncLog {
+  id              String           @id @default(cuid())
+  dataSourceId    String
+  trigger         SyncTrigger
+  status          SyncStatus       @default(RUNNING)
+  startTime       DateTime         @default(now())
+  endTime         DateTime?
+  cursorFrom      DateTime?
+  cursorTo        DateTime?
+  recordsScanned  Int              @default(0)
+  recordsCreated  Int              @default(0)
+  recordsUpdated  Int              @default(0)
+  recordsSkipped  Int              @default(0)
+  errorCount      Int              @default(0)
+  errors          Json?
+  retryOfId       String?
+  triggeredById   String?
+  dataSource      NotionDataSource @relation(fields: [dataSourceId], references: [id], onDelete: Cascade)
+
+  @@index([dataSourceId, startTime])
+  @@index([status])
+}
+
+// ---------------------------------------------------------------------
+//  Collaboration, notifications & audit
+// ---------------------------------------------------------------------
+
+model Notification {
+  id        String              @id @default(cuid())
+  userId    String
+  type      NotificationType
+  channel   NotificationChannel @default(IN_APP)
+  title     String
+  body      String?
+  link      String?
+  dedupeKey String?             @unique
+  readAt    DateTime?
+  sentAt    DateTime?
+  createdAt DateTime            @default(now())
+  user      User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
+  @@index([userId, createdAt])
+}
+
+model Attachment {
+  id           String           @id @default(cuid())
+  entityType   AttachmentEntity
+  entityId     String
+  fileName     String
+  mimeType     String
+  size         Int
+  data         Bytes
+  uploadedById String
+  createdAt    DateTime         @default(now())
+  uploadedBy   User             @relation(fields: [uploadedById], references: [id])
+
+  @@index([entityType, entityId])
+}
+
+model Comment {
+  id         String        @id @default(cuid())
+  entityType CommentEntity
+  entityId   String
+  authorId   String
+  body       String
+  createdAt  DateTime      @default(now())
+  author     User          @relation(fields: [authorId], references: [id])
+
+  @@index([entityType, entityId])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  action     String
+  entityType String
+  entityId   String?
+  before     Json?
+  after      Json?
+  reason     String?
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId])
+  @@index([userId])
+  @@index([createdAt])
+}
