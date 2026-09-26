@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { AppHeader } from "@/components/layout/app-header";
+import { MobileBottomNav } from "@/components/layout/mobile-bottom-nav";
 import { visibleNav } from "@/components/layout/nav";
 import { requireUser } from "@/server/auth/session";
 import { db } from "@/server/db";
@@ -29,7 +30,8 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
       <AppSidebar groups={groups} badges={{ "/review-center": pendingReviews, "/notifications": unread }} />
       <SidebarInset className="min-w-0">
         <AppHeader user={{ name: user.employeeName ?? user.name, email: user.email, roleName: user.roleName, jobTitle: user.jobTitle }} unread={unread} />
-        <main className="mx-auto w-full max-w-[1400px] flex-1 px-3 py-5 md:px-6 md:py-7">{children}</main>
+        <main className="mx-auto w-full max-w-[1400px] flex-1 px-3 py-5 pb-20 md:px-6 md:py-7 md:pb-7">{children}</main>
+        {user.employeeId && <MobileBottomNav />}
       </SidebarInset>
     </SidebarProvider>
   );

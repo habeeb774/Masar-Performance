@@ -71,14 +71,14 @@ export interface EmployeeOption {
   goals: GoalOption[];
 }
 
-const dailyInclude = {
+export const dailyInclude = {
   employee: { select: { fullName: true } },
   monthlyGoal: { select: { name: true, unit: true, source: true } },
 } satisfies Prisma.DailyTaskInclude;
 
 type DailyWithRel = Prisma.DailyTaskGetPayload<{ include: typeof dailyInclude }>;
 
-function toDailyRow(t: DailyWithRel, today: string): DailyTaskRow {
+export function toDailyRow(t: DailyWithRel, today: string): DailyTaskRow {
   const deadline = t.deadline ? toDateKey(t.deadline) : null;
   const date = toDateKey(t.date);
   return {
@@ -109,14 +109,14 @@ function toDailyRow(t: DailyWithRel, today: string): DailyTaskRow {
   };
 }
 
-const adHocInclude = {
+export const adHocInclude = {
   employee: { select: { fullName: true } },
   compensatesGoal: { select: { name: true } },
 } satisfies Prisma.AdHocTaskInclude;
 
 type AdHocWithRel = Prisma.AdHocTaskGetPayload<{ include: typeof adHocInclude }>;
 
-function toAdHocRow(t: AdHocWithRel, today: string, assigners: Map<string, string>): AdHocTaskRow {
+export function toAdHocRow(t: AdHocWithRel, today: string, assigners: Map<string, string>): AdHocTaskRow {
   const due = t.dueDate ? toDateKey(t.dueDate) : null;
   return {
     id: t.id,
@@ -142,7 +142,7 @@ function toAdHocRow(t: AdHocWithRel, today: string, assigners: Map<string, strin
   };
 }
 
-async function assignerNames(rows: { assignedById: string | null }[]) {
+export async function assignerNames(rows: { assignedById: string | null }[]) {
   const ids = [...new Set(rows.map((r) => r.assignedById).filter((v): v is string => !!v))];
   if (ids.length === 0) return new Map<string, string>();
   const users = await db.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, employee: { select: { fullName: true } } } });

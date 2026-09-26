@@ -1,10 +1,23 @@
 import Link from "next/link";
-import { AlarmClock, ArrowLeft, ClipboardCheck, FileClock, Hourglass, RotateCcw, TrendingDown, Users } from "lucide-react";
+import {
+  AlarmClock,
+  ArrowLeft,
+  CheckCircle2,
+  ClipboardCheck,
+  FileClock,
+  Hourglass,
+  Lock,
+  RotateCcw,
+  TrendingDown,
+  Users,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { EmptyState, StatCard } from "@/components/shared/page";
-import { EnumBadge, StatusBadge } from "@/components/shared/status-badge";
+import { EnumBadge, StatusBadge, toneClasses } from "@/components/shared/status-badge";
+import { cn } from "@/lib/utils";
 import { ProgressBar } from "@/components/shared/progress-bar";
 import { GroupedBarChart, PercentBars, StageStatusChart, TrendChart } from "@/components/charts/charts";
 import type { getManagerDashboard } from "@/server/queries/dashboard";
@@ -13,6 +26,15 @@ import { formatNumber, formatPct } from "@/lib/num";
 import { PLAN_STATUS_LABELS } from "@/lib/labels";
 
 type Data = Awaited<ReturnType<typeof getManagerDashboard>>;
+type AttentionItem = Data["attention"]["items"][number];
+
+const ATTENTION_ICONS: Record<AttentionItem["type"], LucideIcon> = {
+  OVERDUE_EMPLOYEE: AlarmClock,
+  GOAL_AT_RISK: TrendingDown,
+  TASK_BLOCKED: Lock,
+  WEEKLY_REPORT_MISSING: FileClock,
+  PENDING_APPROVAL: Hourglass,
+};
 
 export function ManagerDashboard({ name, data }: { name: string; data: Data }) {
   const { stats } = data;
@@ -55,6 +77,47 @@ export function ManagerDashboard({ name, data }: { name: string; data: Data }) {
         <StatCard label="منتجات بانتظار الاعتماد" value={formatNumber(stats.pendingApproval)} icon={Hourglass} tone="pending" href="/review-center?tab=pending" />
         <StatCard label="عناصر تحتاج تحسين" value={formatNumber(stats.needsRevision)} icon={RotateCcw} tone={stats.needsRevision ? "warning" : "neutral"} href="/review-center?tab=revision" />
       </div>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <div>
+            <CardTitle className="text-base">يحتاج انتباهك</CardTitle>
+            <CardDescription>ملخص مرتّب حسب الأولوية لكل ما يستدعي تدخلك الآن</CardDescription>
+          </div>
+          {data.attention.total > data.attention.items.length && (
+            <Button variant="ghost" size="sm" asChild>
+              <Link href="/review-center">
+                عرض الكل <ArrowLeft />
+              </Link>
+            </Button>
+          )}
+        </CardHeader>
+        <CardContent>
+          {data.attention.items.length === 0 ? (
+            <EmptyState icon={CheckCircle2} title="لا يوجد ما يحتاج انتباهك الآن" description="كل شيء يسير على المسار الصحيح — استمر في المتابعة." className="py-8" />
+          ) : (
+            <ul className="space-y-2">
+              {data.attention.items.map((it) => {
+                const Icon = ATTENTION_ICONS[it.type];
+                return (
+                  <li key={it.id}>
+                    <Link
+                      href={it.href}
+                      className="flex items-center gap-3 rounded-lg border p-3 transition-[transform,box-shadow,background-color] duration-200 [transition-timing-function:var(--ease-soft)] hover:-translate-y-0.5 hover:bg-accent/30 hover:shadow-[var(--shadow-raised-hover)]"
+                    >
+                      <span className={cn("grid size-8 shrink-0 place-items-center rounded-full ring-1 ring-inset", toneClasses[it.tone])}>
+                        <Icon className="size-4" />
+                      </span>
+                      <span className="min-w-0 flex-1 truncate text-sm">{it.text}</span>
+                      <ArrowLeft className="size-4 shrink-0 text-muted-foreground" />
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">

@@ -1,14 +1,21 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, MoreHorizontal } from "lucide-react";
+import { CalendarClock, CheckCircle2, MoreHorizontal, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Spinner } from "@/components/ui/spinner";
 import { useServerAction } from "@/hooks/use-server-action";
 import { updateAdHocProgressAction, updateTaskProgressAction } from "@/actions/tasks";
@@ -32,7 +39,22 @@ export interface TaskControlData {
  * Quick completion button + a dialog to update status, progress, notes and
  * delay reason. Works for daily tasks and ad-hoc assignments.
  */
-export function TaskStatusControl({ task, compact = false }: { task: TaskControlData; compact?: boolean }) {
+export interface PostponeHandlers {
+  onTomorrow: () => void;
+  onNextWeek: () => void;
+  pending?: boolean;
+}
+
+export function TaskStatusControl({
+  task,
+  compact = false,
+  postpone,
+}: {
+  task: TaskControlData;
+  compact?: boolean;
+  /** omit to hide the postpone menu entirely (e.g. Notion-synced / distributed tasks) */
+  postpone?: PostponeHandlers;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState<TaskStatusKey>(task.status);
@@ -60,6 +82,13 @@ export function TaskStatusControl({ task, compact = false }: { task: TaskControl
   const done = task.status === "COMPLETED";
   return (
     <div className="flex items-center gap-1">
+      {task.kind === "daily" && !done && !compact && (
+        <Button size="icon-sm" variant="ghost" asChild aria-label="بدء العمل — وضع التركيز">
+          <Link href={`/focus/${task.id}`}>
+            <Play />
+          </Link>
+        </Button>
+      )}
       {!task.notionDriven && !done && !compact && (
         <Button
           size="icon-sm"
@@ -83,6 +112,19 @@ export function TaskStatusControl({ task, compact = false }: { task: TaskControl
       <Button size="icon-sm" variant="ghost" aria-label="تحديث المهمة" onClick={() => setOpen(true)}>
         <MoreHorizontal />
       </Button>
+      {postpone && !done && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button size="icon-sm" variant="ghost" aria-label="تأجيل المهمة" disabled={postpone.pending}>
+              <CalendarClock />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onSelect={postpone.onTomorrow}>إلى الغد</DropdownMenuItem>
+            <DropdownMenuItem onSelect={postpone.onNextWeek}>إلى الأسبوع القادم</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>

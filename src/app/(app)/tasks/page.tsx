@@ -4,14 +4,14 @@ import { pageParams, str } from "@/lib/params";
 import { requirePermission } from "@/server/auth/session";
 import { PERMISSIONS } from "@/lib/permissions";
 import { isDateKey, todayKey } from "@/lib/dates";
-import { TASK_STATUSES, TASK_STATUS_LABELS } from "@/lib/labels";
+import { TASK_STATUSES } from "@/lib/labels";
 import { getAdHocTasks, getDailyTasks, getScopeEmployees, getTaskTabCounts } from "@/server/queries/tasks";
 import { getCompany } from "@/server/services/company";
 import { PageHeader } from "@/components/shared/page";
-import { FilterBar, Pager, SearchInput, SelectFilter } from "@/components/shared/url-filters";
+import { Pager } from "@/components/shared/url-filters";
 import { UrlTabs } from "@/features/tasks/url-tabs";
 import { AdHocTaskDialog } from "@/features/tasks/adhoc-task-dialog";
-import { AdHocTable, DailyTasksTable, DateRangeFilter } from "@/features/tasks/manager-task-tables";
+import { AdHocTable, DailyTasksTable, TasksFilterBar } from "@/features/tasks/manager-task-tables";
 
 export const metadata: Metadata = { title: "المهام والتكليفات" };
 
@@ -64,17 +64,7 @@ export default async function TasksPage({ searchParams }: { searchParams: Search
         ]}
       />
 
-      <FilterBar>
-        <SearchInput placeholder={tab === "adhoc" ? "بحث في التكليفات…" : "بحث في المهام…"} />
-        <SelectFilter param="employee" placeholder="الموظف" allLabel="كل الموظفين" options={employees.map((e) => ({ value: e.id, label: e.name }))} />
-        <SelectFilter
-          param="status"
-          placeholder="الحالة"
-          allLabel="كل الحالات"
-          options={TASK_STATUSES.map((s) => ({ value: s, label: s === "DELAYED" ? "متأخرة (تجاوزت الموعد)" : TASK_STATUS_LABELS[s].label }))}
-        />
-        <DateRangeFilter />
-      </FilterBar>
+      <TasksFilterBar employees={employees} tab={tab} />
 
       {adHoc && <AdHocTable rows={adHoc.rows} today={today} employees={employees} currentUserId={user.id} />}
       {daily && <DailyTasksTable rows={daily.rows} today={today} currentUserId={user.id} />}

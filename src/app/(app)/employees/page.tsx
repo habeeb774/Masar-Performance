@@ -52,7 +52,7 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Se
               action={!filtered && canEdit ? <AddEmployeeButton options={options} /> : undefined}
             />
           ) : (
-            <div className="overflow-x-auto rounded-lg border">
+            <div className="hidden overflow-x-auto rounded-lg border md:block">
               <Table>
                 <TableHeader className="bg-muted/40">
                   <TableRow>
@@ -117,6 +117,28 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Se
                   ))}
                 </TableBody>
               </Table>
+            </div>
+          )}
+          {list.rows.length > 0 && (
+            <div className="space-y-2.5 md:hidden">
+              {list.rows.map((e) => (
+                <div key={e.id} className="rounded-xl border bg-card p-3 shadow-[var(--shadow-raised)]">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <Link href={`/employees/${e.id}`} className="font-medium hover:underline">
+                        {e.fullName}
+                      </Link>
+                      <div className="text-xs text-muted-foreground">{e.jobTitleName ?? "بدون مسمى"}</div>
+                    </div>
+                    {(canEdit || canReset) && <EmployeeRowActions employee={e} options={options} canEdit={canEdit} canResetPassword={canReset} />}
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <StatusBadge tone={EMPLOYEE_STATUS_TONE[e.status] ?? "neutral"}>{EMPLOYEE_STATUS_OPTIONS.find((s) => s.value === e.status)?.label ?? e.status}</StatusBadge>
+                    {e.planStatus && <EnumBadge map={PLAN_STATUS_LABELS} value={e.planStatus} />}
+                  </div>
+                  {e.progress !== null && <ProgressBar value={e.progress} showLabel size="sm" className="mt-2" />}
+                </div>
+              ))}
             </div>
           )}
           <Pager page={page} pageSize={pageSize} total={list.total} />

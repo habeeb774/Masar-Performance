@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Eye, MoreVertical, Pencil, Trash2 } from "lucide-react";
+import { Copy, Eye, MoreVertical, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -23,7 +23,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Spinner } from "@/components/ui/spinner";
 import { useServerAction } from "@/hooks/use-server-action";
-import { deleteAdHocAction, deleteTaskAction } from "@/actions/tasks";
+import { createTaskAction, deleteAdHocAction, deleteTaskAction } from "@/actions/tasks";
+import { addDays } from "@/lib/dates";
 import type { AdHocTaskRow, DailyTaskRow, EmployeeOption, GoalOption } from "@/server/queries/tasks";
 import { ManualTaskDialog } from "./manual-task-dialog";
 import { AdHocTaskDialog } from "./adhoc-task-dialog";
@@ -61,6 +62,29 @@ export function TaskRowMenu({
       router.refresh();
     },
   });
+  const duplicate = useServerAction(createTaskAction, {
+    successMessage: "تم تكرار المهمة",
+    onSuccess: () => router.refresh(),
+  });
+  const canDuplicate = allowEdit && task.kind === "daily";
+  const duplicateTask = () => {
+    if (task.kind !== "daily") return;
+    duplicate.run({
+      title: task.title,
+      description: task.description,
+      date: addDays(task.date, 1),
+      deadline: null,
+      target: task.target,
+      achieved: 0,
+      progress: 0,
+      status: "NOT_STARTED",
+      priority: task.priority,
+      monthlyGoalId: task.monthlyGoalId,
+      notes: task.notes,
+      delayReason: null,
+      employeeId: task.employeeId,
+    });
+  };
 
   return (
     <>
@@ -79,6 +103,11 @@ export function TaskRowMenu({
               <DropdownMenuItem onSelect={() => setEdit(true)}>
                 <Pencil /> تعديل
               </DropdownMenuItem>
+              {canDuplicate && (
+                <DropdownMenuItem onSelect={duplicateTask} disabled={duplicate.pending}>
+                  <Copy /> تكرار المهمة
+                </DropdownMenuItem>
+              )}
               <DropdownMenuSeparator />
               <DropdownMenuItem variant="destructive" onSelect={() => setConfirmDelete(true)}>
                 <Trash2 /> حذف

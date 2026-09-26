@@ -6,6 +6,8 @@ import { fromDateKey, monthLabel, shiftMonth, toDateKey, todayKey } from "@/lib/
 import { num, round2 } from "@/lib/num";
 import type { ProgressBreakdown } from "@/lib/notion/progress";
 import { getCompany } from "@/server/services/company";
+import { assignerNames, dailyInclude, adHocInclude, toDailyRow, toAdHocRow } from "@/server/queries/tasks";
+import { getAttentionFeed } from "./attention";
 
 type GoalLike = { weight: unknown; progressPct: unknown; status: string; breakdown?: unknown };
 
@@ -55,11 +57,12 @@ export async function getEmployeeDashboard(user: AuthUser) {
     }),
     db.dailyTask.findMany({
       where: { employeeId, date: todayDate },
-      include: { monthlyGoal: { select: { source: true, unit: true } } },
+      include: dailyInclude,
       orderBy: [{ priority: "desc" }, { createdAt: "asc" }],
     }),
     db.adHocTask.findMany({
       where: { employeeId, status: { notIn: ["COMPLETED", "CANCELLED"] } },
+      include: adHocInclude,
       orderBy: [{ dueDate: "asc" }],
       take: 10,
     }),
@@ -103,6 +106,9 @@ export async function getEmployeeDashboard(user: AuthUser) {
     : [];
 
   const monthTotals = breakdownTotals(plan?.goals ?? []);
+  const assigners = await assignerNames(adHoc);
+  const todayTaskRows = todayTasks.map((t) => toDailyRow(t, today));
+  const adHocRows = adHoc.map((t) => toAdHocRow(t, today, assigners));
   return {
     today,
     year,
@@ -111,6 +117,9 @@ export async function getEmployeeDashboard(user: AuthUser) {
     week,
     todayTasks,
     adHoc,
+    todayTaskRows,
+    adHocRows,
+    goalOptions: (plan?.goals ?? []).filter((g) => g.status !== "CANCELLED").map((g) => ({ id: g.id, name: g.name, unit: g.unit })),
     stats: {
       monthProgress: weightedProgress(plan?.goals ?? []),
       weekProgress: weightedProgress(week?.goals.map((g) => ({ weight: g.monthlyGoal.weight, progressPct: g.progressPct, status: g.monthlyGoal.status })) ?? []),
@@ -219,6 +228,8 @@ export async function getManagerDashboard(user: AuthUser) {
     last.quality = q.length ? round2(q.reduce((a, b) => a + b, 0) / q.length) : null;
   }
 
+  const attention = await getAttentionFeed(user);
+
   const stageCounts = await db.notionItemStage.groupBy({
     by: ["stageKey", "systemStatus"],
     where: { item: { isArchived: false } },
@@ -242,6 +253,7 @@ export async function getManagerDashboard(user: AuthUser) {
     year,
     month,
     rows,
+    attention,
     stats: {
       employees: rows.length,
       avgMonthly: withPlans.length ? round2(withPlans.reduce((a, r) => a + r.monthly, 0) / withPlans.length) : 0,

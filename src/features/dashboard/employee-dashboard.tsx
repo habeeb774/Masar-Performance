@@ -14,17 +14,16 @@ import { Button } from "@/components/ui/button";
 import { EmptyState, NotionSyncedTag, StatCard } from "@/components/shared/page";
 import { EnumBadge, StatusBadge } from "@/components/shared/status-badge";
 import { ProgressBar } from "@/components/shared/progress-bar";
-import { TaskStatusControl } from "@/features/tasks/task-status-control";
+import { DashboardTodayTasks } from "@/features/tasks/dashboard-today-tasks";
 import type { getEmployeeDashboard } from "@/server/queries/dashboard";
-import { formatDateAr, formatDateTimeAr, formatDayAr, monthLabel, toDateKey } from "@/lib/dates";
+import { formatDateAr, formatDateTimeAr, formatDayAr, monthLabel } from "@/lib/dates";
 import { formatNumber, formatPct, num } from "@/lib/num";
-import { GOAL_STATUS_LABELS, NOTION_STATUS_LABELS, PLAN_STATUS_LABELS, PRIORITY_LABELS, TASK_STATUS_LABELS } from "@/lib/labels";
+import { GOAL_STATUS_LABELS, NOTION_STATUS_LABELS, PLAN_STATUS_LABELS } from "@/lib/labels";
 
 type Data = Awaited<ReturnType<typeof getEmployeeDashboard>>;
 
-export function EmployeeDashboard({ name, data }: { name: string; data: Data }) {
-  const { stats, plan, week, todayTasks, adHoc } = data;
-  const dueAdHoc = adHoc.filter((t) => !t.dueDate || toDateKey(t.dueDate) <= data.today);
+export function EmployeeDashboard({ name, userId, data }: { name: string; userId: string; data: Data }) {
+  const { stats, plan, week } = data;
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-1">
@@ -54,55 +53,7 @@ export function EmployeeDashboard({ name, data }: { name: string; data: Data }) 
             </Button>
           </CardHeader>
           <CardContent className="space-y-2">
-            {todayTasks.length === 0 && dueAdHoc.length === 0 ? (
-              <EmptyState icon={CalendarCheck2} title="لا توجد مهام مجدولة لليوم" description="وزّع هدف الأسبوع على الأيام من صفحة أسبوعي، أو أضف مهمة يدوية." action={<Button size="sm" asChild><Link href="/my-week">توزيع الأسبوع</Link></Button>} />
-            ) : (
-              <>
-                {todayTasks.map((t) => {
-                  const notion = t.monthlyGoal?.source === "NOTION" && t.source !== "MANUAL";
-                  const target = num(t.target);
-                  const achieved = num(t.achieved);
-                  return (
-                    <div key={t.id} className="flex items-center gap-3 rounded-lg border p-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="truncate text-sm font-medium">{t.title}</span>
-                          {notion && <NotionSyncedTag />}
-                          <EnumBadge map={PRIORITY_LABELS} value={t.priority} />
-                        </div>
-                        {target > 0 ? (
-                          <div className="mt-2 flex items-center gap-3">
-                            <ProgressBar value={(achieved / target) * 100} size="sm" className="max-w-xs flex-1" />
-                            <span className="text-xs text-muted-foreground tabular-nums">
-                              {formatNumber(achieved)} / {formatNumber(target)} {t.monthlyGoal?.unit ?? ""}
-                            </span>
-                          </div>
-                        ) : (
-                          t.notes && <p className="mt-1 truncate text-xs text-muted-foreground">{t.notes}</p>
-                        )}
-                      </div>
-                      <EnumBadge map={TASK_STATUS_LABELS} value={t.status} />
-                      <TaskStatusControl
-                        task={{ id: t.id, kind: "daily", title: t.title, status: t.status, achieved, target, progress: t.progress, notes: t.notes, delayReason: t.delayReason, notionDriven: notion }}
-                      />
-                    </div>
-                  );
-                })}
-                {dueAdHoc.map((t) => (
-                  <div key={t.id} className="flex items-center gap-3 rounded-lg border border-dashed border-primary/40 bg-primary/[0.03] p-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <StatusBadge tone="primary">تكليف مستجد</StatusBadge>
-                        <span className="truncate text-sm font-medium">{t.title}</span>
-                      </div>
-                      {t.dueDate && <p className="mt-1 text-xs text-muted-foreground">التسليم: {formatDateAr(t.dueDate)}</p>}
-                    </div>
-                    <EnumBadge map={TASK_STATUS_LABELS} value={t.status} />
-                    <TaskStatusControl task={{ id: t.id, kind: "adhoc", title: t.title, status: t.status, progress: t.progress, notes: t.notes, delayReason: t.delayReason }} />
-                  </div>
-                ))}
-              </>
-            )}
+            <DashboardTodayTasks daily={data.todayTaskRows} adHoc={data.adHocRows} today={data.today} goals={data.goalOptions} currentUserId={userId} />
           </CardContent>
         </Card>
 

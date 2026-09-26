@@ -1,11 +1,14 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { CalendarClock } from "lucide-react";
 import { NotionSyncedTag } from "@/components/shared/page";
 import { EnumBadge, StatusBadge } from "@/components/shared/status-badge";
 import { ProgressBar } from "@/components/shared/progress-bar";
 import { TaskStatusControl } from "@/features/tasks/task-status-control";
-import { formatDateAr, formatDayAr } from "@/lib/dates";
+import { useServerAction } from "@/hooks/use-server-action";
+import { updateAdHocAction, updateTaskAction } from "@/actions/tasks";
+import { addDays, formatDateAr, formatDayAr } from "@/lib/dates";
 import { formatNumber } from "@/lib/num";
 import { PRIORITY_LABELS, TASK_SOURCE_LABELS, TASK_STATUS_LABELS } from "@/lib/labels";
 import { cn } from "@/lib/utils";
@@ -28,6 +31,25 @@ export function DailyTaskItem({
   showDate?: boolean;
 }) {
   const pct = task.target > 0 ? (task.achieved / task.target) * 100 : task.progress;
+  const router = useRouter();
+  const postponeAction = useServerAction(updateTaskAction, { onSuccess: () => router.refresh() });
+  const canPostpone = task.source === "MANUAL" && task.status !== "COMPLETED" && task.status !== "CANCELLED";
+  const postponeTo = (newDate: string) =>
+    postponeAction.run(task.id, {
+      title: task.title,
+      description: task.description,
+      date: newDate,
+      deadline: task.deadline,
+      target: task.target,
+      achieved: task.achieved,
+      progress: task.progress,
+      status: task.status,
+      priority: task.priority,
+      monthlyGoalId: task.monthlyGoalId,
+      notes: task.notes,
+      delayReason: task.delayReason,
+      employeeId: task.employeeId,
+    });
   return (
     <div className={cn("flex flex-col gap-3 rounded-lg border bg-card p-3 sm:flex-row sm:items-center", task.overdue && "border-danger/40 bg-danger-soft/40")}>
       <div className="min-w-0 flex-1">
@@ -81,6 +103,15 @@ export function DailyTaskItem({
               delayReason: task.delayReason,
               notionDriven: task.notionDriven,
             }}
+            postpone={
+              canPostpone
+                ? {
+                    onTomorrow: () => postponeTo(addDays(task.date, 1)),
+                    onNextWeek: () => postponeTo(addDays(task.date, 7)),
+                    pending: postponeAction.pending,
+                  }
+                : undefined
+            }
           />
           <TaskRowMenu task={task} today={today} goals={goals} currentUserId={currentUserId} canManage={canManage} allowEdit={task.source === "MANUAL"} />
         </div>
@@ -100,6 +131,25 @@ export function AdHocTaskItem({
   currentUserId: string;
   canManage: boolean;
 }) {
+  const router = useRouter();
+  const postponeAction = useServerAction(updateAdHocAction, { onSuccess: () => router.refresh() });
+  // updateAdHocAction requires TASKS_ASSIGN server-side — only offer postpone to managers here
+  const canPostpone = canManage && task.status !== "COMPLETED" && task.status !== "CANCELLED";
+  const postponeTo = (newDate: string) =>
+    postponeAction.run(task.id, {
+      employeeId: task.employeeId,
+      title: task.title,
+      description: task.description,
+      assignedDate: task.assignedDate,
+      dueDate: newDate,
+      priority: task.priority,
+      includeInEvaluation: task.includeInEvaluation,
+      weight: task.weight,
+      isOutOfPlan: task.isOutOfPlan,
+      compensatesGoalId: task.compensatesGoalId,
+      notes: task.notes,
+    });
+  const baseDate = task.dueDate ?? task.assignedDate;
   return (
     <div
       className={cn(
@@ -130,6 +180,15 @@ export function AdHocTaskItem({
         <div className="flex items-center">
           <TaskStatusControl
             task={{ id: task.id, kind: "adhoc", title: task.title, status: task.status, progress: task.progress, notes: task.notes, delayReason: task.delayReason }}
+            postpone={
+              canPostpone
+                ? {
+                    onTomorrow: () => postponeTo(addDays(baseDate, 1)),
+                    onNextWeek: () => postponeTo(addDays(baseDate, 7)),
+                    pending: postponeAction.pending,
+                  }
+                : undefined
+            }
           />
           <TaskRowMenu task={task} today={today} currentUserId={currentUserId} canManage={canManage} allowEdit={false} />
         </div>

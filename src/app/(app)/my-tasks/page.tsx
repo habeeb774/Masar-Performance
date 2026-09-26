@@ -13,6 +13,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { UrlTabs } from "@/features/tasks/url-tabs";
 import { ManualTaskDialog } from "@/features/tasks/manual-task-dialog";
 import { AdHocTaskItem, DailyTaskItem } from "@/features/tasks/my-task-list";
+import { TodayTasksPanel } from "@/features/tasks/today-tasks-panel";
 
 export const metadata: Metadata = { title: "مهامي" };
 
@@ -89,7 +90,9 @@ export default async function MyTasksPage({ searchParams }: { searchParams: Sear
       <div className="grid gap-6 lg:grid-cols-3">
         <section className="space-y-3 lg:col-span-2">
           <SectionTitle>{title}</SectionTitle>
-          {data.daily.length === 0 ? (
+          {view === "today" && !filtered ? (
+            <TodayTasksPanel daily={data.daily} adHoc={data.adHoc} today={data.today} goals={data.goals} currentUserId={user.id} canManage={canManage} />
+          ) : data.daily.length === 0 ? (
             <EmptyState
               icon={view === "overdue" ? AlarmClock : CalendarCheck2}
               title={filtered ? "لا توجد مهام مطابقة للفلترة" : view === "overdue" ? "لا توجد مهام متأخرة" : "لا توجد مهام في هذه الفترة"}

@@ -24,5 +24,5 @@ export default async function DashboardPage() {
     );
   }
   const data = await getEmployeeDashboard(user);
-  return <EmployeeDashboard name={user.employeeName ?? user.name} data={data} />;
+  return <EmployeeDashboard name={user.employeeName ?? user.name} userId={user.id} data={data} />;
 }
