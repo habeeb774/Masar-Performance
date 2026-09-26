@@ -1,12 +1,16 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 import { BarChart3, CheckCircle2, RefreshCw, Target } from "lucide-react";
 import { LoginForm } from "./login-form";
 import type { SearchParams } from "@/lib/params";
+import { isSetupCompleted } from "@/server/services/setup";
 
 export const metadata: Metadata = { title: "تسجيل الدخول" };
+export const dynamic = "force-dynamic";
 
 export default async function LoginPage({ searchParams }: { searchParams: SearchParams }) {
-  const { next } = await searchParams;
+  if (!(await isSetupCompleted())) redirect("/setup");
+  const { next, setup } = await searchParams;
   return (
     <div className="grid min-h-screen lg:grid-cols-2">
       <div className="flex items-center justify-center px-4 py-12">
@@ -22,6 +26,12 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
           </div>
           <h1 className="text-2xl font-bold">السلام عليكم 👋</h1>
           <p className="mt-1 mb-6 text-sm text-muted-foreground">سجّل الدخول لمتابعة أهدافك ومهامك وأدائك</p>
+          {setup === "1" && (
+            <div className="mb-4 flex items-center gap-2 rounded-xl border border-success/30 bg-success/10 px-3 py-2 text-sm text-success">
+              <CheckCircle2 className="size-4 shrink-0" />
+              تم إنشاء حسابك بنجاح، سجّل الدخول للمتابعة
+            </div>
+          )}
           <LoginForm next={typeof next === "string" ? next : undefined} />
         </div>
       </div>

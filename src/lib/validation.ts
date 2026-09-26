@@ -49,6 +49,16 @@ export const passwordSchema = z
   .max(128)
   .refine((v) => /[A-Za-z]/.test(v) && /\d/.test(v), "يجب أن تحتوي كلمة المرور على أحرف وأرقام");
 
+export const setupSchema = z
+  .object({
+    companyName: nameSchema,
+    fullName: nameSchema,
+    email: z.string().trim().toLowerCase().email("بريد إلكتروني غير صالح").max(200),
+    password: passwordSchema,
+    confirmPassword: z.string(),
+  })
+  .refine((d) => d.password === d.confirmPassword, { message: "كلمتا المرور غير متطابقتين", path: ["confirmPassword"] });
+
 export const changePasswordSchema = z
   .object({
     currentPassword: z.string().min(1, msg.required),

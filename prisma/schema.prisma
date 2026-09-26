@@ -329,6 +329,8 @@ model Company {
   planSubmissionDeadlineDay Int @default(3) // monthly plan should be submitted by day N
   weeklyReportDueDays       Int @default(1) // days after week end
   logoUrl     String?
+  /** null until the first-run setup wizard (/setup) creates the real admin account */
+  setupCompletedAt DateTime?
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
   departments Department[]

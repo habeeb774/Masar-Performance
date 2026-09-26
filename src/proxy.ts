@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 const SESSION_COOKIE = "sph_session";
-const PUBLIC_PATHS = ["/login", "/api/cron", "/api/health"];
+const PUBLIC_PATHS = ["/login", "/setup", "/api/cron", "/api/health"];
 
 /**
  * Optimistic auth gate: redirects visitors without a session cookie to /login.
