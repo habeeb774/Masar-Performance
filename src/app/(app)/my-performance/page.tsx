@@ -41,7 +41,7 @@ export default async function MyPerformancePage({ searchParams }: { searchParams
       <PageHeader title="أدائي" description="تقييماتك الشهرية المعتمدة وسجل إنجازك" />
 
       {!latest || !review ? (
-        <EmptyState icon={Award} title="لا يوجد تقييم معتمد بعد" description="يظهر تقييمك هنا بعد أن يعتمده مديرك. يمكنك متابعة إنجازك الحالي من خطة الشهر." action={<Button size="sm" asChild><Link href="/my-month">خطة الشهر</Link></Button>} />
+        <EmptyState icon={Award} title="لا يوجد تقييم معتمد بعد" description="يظهر تقييمك هنا بعد أن يعتمده مديرك. يمكنك متابعة إنجازك الحالي من «خطتي»." action={<Button size="sm" asChild><Link href="/my-plan">خطتي</Link></Button>} />
       ) : (
         <>
           <Card>

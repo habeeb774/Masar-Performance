@@ -78,7 +78,7 @@ export function AppSidebar({ groups, badges }: { groups: NavGroup[]; badges: Rec
   const pathname = usePathname();
   const { setOpenMobile } = useSidebar();
   const isActive = (href: string) =>
-    pathname === href || (href !== "/dashboard" && href !== "/notion" && href !== "/performance" && pathname.startsWith(`${href}/`));
+    pathname === href || (href !== "/dashboard" && (pathname.startsWith(`${href}/`) || (href === "/monthly-plans" && pathname.startsWith("/weekly-plans")) || (href === "/review-center" && pathname.startsWith("/reports"))));
 
   return (
     <Sidebar side="right" collapsible="icon" dir="rtl">

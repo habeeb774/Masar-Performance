@@ -165,7 +165,7 @@ export async function runDailyJobs() {
       await notifyUsers([p.employee.userId], {
         type: "MONTH_ENDING",
         title: "بقي 3 أيام على نهاية الشهر",
-        link: "/my-month",
+        link: "/my-plan",
         dedupeKey: `month-ending:${p.id}`,
       });
       reminders++;

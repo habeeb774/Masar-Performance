@@ -207,7 +207,7 @@ export async function approvePlan(user: AuthUser, planId: string, notes?: string
     type: "PLAN_APPROVED",
     title: `تم اعتماد خطة ${monthLabel(plan.year, plan.month)}`,
     body: "يمكنك الآن توزيع أهداف الشهر على الأسابيع",
-    link: "/my-month",
+    link: "/my-plan",
   });
 }
 
@@ -221,7 +221,7 @@ export async function returnPlan(user: AuthUser, planId: string, notes: string) 
     type: "PLAN_RETURNED",
     title: `أعيدت خطة ${monthLabel(plan.year, plan.month)} للتعديل`,
     body: notes,
-    link: "/my-month",
+    link: "/my-plan",
   });
 }
 

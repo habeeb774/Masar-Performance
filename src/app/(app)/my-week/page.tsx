@@ -56,7 +56,7 @@ export default async function MyWeekPage({ searchParams }: { searchParams: Searc
     return (
       <>
         <PageHeader title="أسبوعي" />
-        <EmptyState icon={CalendarDays} title="لا توجد خطة أسبوعية بعد" description="تتولد الأسابيع تلقائيًا بعد اعتماد خطتك الشهرية." action={<Button size="sm" asChild><Link href="/my-month">خطتي الشهرية</Link></Button>} />
+        <EmptyState icon={CalendarDays} title="لا توجد خطة أسبوعية بعد" description="تتولد الأسابيع تلقائيًا بعد اعتماد خطتك الشهرية." action={<Button size="sm" asChild><Link href="/my-plan">خطتي</Link></Button>} />
       </>
     );
   }
@@ -166,8 +166,8 @@ export default async function MyWeekPage({ searchParams }: { searchParams: Searc
         <CardHeader className="flex flex-row items-center justify-between gap-2">
           <CardTitle className="text-base">أهداف الأسبوع</CardTitle>
           <Button variant="ghost" size="sm" asChild>
-            <Link href={`/my-month?year=${week.monthlyPlan.year}&month=${week.monthlyPlan.month}`}>
-              خطة الشهر <ArrowLeft />
+            <Link href={`/my-plan?year=${week.monthlyPlan.year}&month=${week.monthlyPlan.month}`}>
+              خطتي <ArrowLeft />
             </Link>
           </Button>
         </CardHeader>

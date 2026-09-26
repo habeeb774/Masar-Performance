@@ -45,50 +45,28 @@ export const NAV: NavGroup[] = [
   {
     label: "مساحتي",
     items: [
-      { href: "/dashboard", label: "لوحة التحكم", icon: "dashboard" },
+      { href: "/dashboard", label: "الرئيسية", icon: "dashboard" },
       { href: "/my-tasks", label: "مهامي", icon: "tasks", requiresEmployee: true },
-      { href: "/my-week", label: "أسبوعي", icon: "week", requiresEmployee: true },
-      { href: "/my-month", label: "خطة الشهر", icon: "month", requiresEmployee: true },
-      { href: "/my-goals", label: "أهدافي", icon: "goals", requiresEmployee: true },
+      { href: "/my-plan", label: "خطتي", icon: "month", requiresEmployee: true },
       { href: "/my-reports", label: "تقاريري", icon: "reports", requiresEmployee: true },
       { href: "/my-performance", label: "أدائي", icon: "performance", requiresEmployee: true, anyOf: [PERMISSIONS.PERFORMANCE_VIEW_OWN] },
     ],
   },
   {
+    label: "الفريق",
+    items: [
+      { href: "/review-center", label: "بانتظارك", icon: "reviewCenter", anyOf: [PERMISSIONS.REVIEW_CENTER] },
+      { href: "/monthly-plans", label: "خطة الفريق", icon: "plans", anyOf: [PERMISSIONS.PLANS_MANAGE, PERMISSIONS.PLANS_APPROVE] },
+      { href: "/tasks", label: "مهام الفريق", icon: "allTasks", anyOf: [PERMISSIONS.TASKS_ASSIGN] },
+      { href: "/employees", label: "الموظفون", icon: "employees", anyOf: [PERMISSIONS.EMPLOYEES_VIEW_ALL, PERMISSIONS.EMPLOYEES_MANAGE] },
+      { href: "/performance", label: "أداء الفريق", icon: "kpis", anyOf: [PERMISSIONS.PERFORMANCE_REVIEW, PERMISSIONS.PERFORMANCE_APPROVE, PERMISSIONS.KPI_MANAGE] },
+    ],
+  },
+  {
     label: "الإدارة",
     items: [
-      { href: "/review-center", label: "مركز المراجعة", icon: "reviewCenter", anyOf: [PERMISSIONS.REVIEW_CENTER] },
-      { href: "/employees", label: "الموظفون", icon: "employees", anyOf: [PERMISSIONS.EMPLOYEES_VIEW_ALL, PERMISSIONS.EMPLOYEES_MANAGE] },
-      { href: "/monthly-plans", label: "الخطط الشهرية", icon: "plans", anyOf: [PERMISSIONS.PLANS_MANAGE, PERMISSIONS.PLANS_APPROVE] },
-      { href: "/weekly-plans", label: "الخطط الأسبوعية", icon: "weekly", anyOf: [PERMISSIONS.PLANS_MANAGE, PERMISSIONS.PLANS_APPROVE] },
+      { href: "/notion", label: "Notion", icon: "notion", anyOf: [PERMISSIONS.NOTION_MANAGE, PERMISSIONS.NOTION_SYNC] },
       { href: "/goals", label: "قوالب الأهداف", icon: "templates", anyOf: [PERMISSIONS.GOAL_TEMPLATES_MANAGE] },
-      { href: "/tasks", label: "المهام والتكليفات", icon: "allTasks", anyOf: [PERMISSIONS.TASKS_ASSIGN] },
-      { href: "/reports/weekly", label: "التقارير الأسبوعية", icon: "weeklyReports", anyOf: [PERMISSIONS.REPORTS_REVIEW] },
-      { href: "/reports/monthly", label: "التقارير الشهرية", icon: "monthlyReports", anyOf: [PERMISSIONS.REPORTS_REVIEW] },
-    ],
-  },
-  {
-    label: "الأداء",
-    items: [
-      { href: "/performance", label: "تحليلات الأداء", icon: "performance", anyOf: [PERMISSIONS.PERFORMANCE_REVIEW] },
-      { href: "/performance/reviews", label: "التقييمات الشهرية", icon: "reviews", anyOf: [PERMISSIONS.PERFORMANCE_REVIEW, PERMISSIONS.PERFORMANCE_APPROVE] },
-      { href: "/performance/kpis", label: "مؤشرات الأداء", icon: "kpis", anyOf: [PERMISSIONS.KPI_MANAGE, PERMISSIONS.PERFORMANCE_REVIEW] },
-    ],
-  },
-  {
-    label: "Notion",
-    items: [
-      { href: "/notion", label: "نظرة عامة", icon: "notion", anyOf: [PERMISSIONS.NOTION_MANAGE, PERMISSIONS.NOTION_SYNC] },
-      { href: "/notion/connections", label: "الاتصالات", icon: "connections", anyOf: [PERMISSIONS.NOTION_MANAGE] },
-      { href: "/notion/data-sources", label: "قواعد البيانات", icon: "dataSources", anyOf: [PERMISSIONS.NOTION_MANAGE] },
-      { href: "/notion/mappings", label: "ربط الحقول والحالات", icon: "mappings", anyOf: [PERMISSIONS.NOTION_MANAGE] },
-      { href: "/notion/sync-logs", label: "سجل المزامنة", icon: "syncLogs", anyOf: [PERMISSIONS.NOTION_MANAGE, PERMISSIONS.NOTION_SYNC] },
-    ],
-  },
-  {
-    label: "النظام",
-    items: [
-      { href: "/notifications", label: "الإشعارات", icon: "notifications" },
       {
         href: "/settings",
         label: "الإعدادات",

@@ -35,6 +35,13 @@ const nextConfig: NextConfig = {
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
+  // merged pages: «أهدافي» and «خطة الشهر» now live in «خطتي» (query string is passed through)
+  async redirects() {
+    return [
+      { source: "/my-goals", destination: "/my-plan", permanent: false },
+      { source: "/my-month", destination: "/my-plan", permanent: false },
+    ];
+  },
 };
 
 export default nextConfig;

@@ -11,7 +11,7 @@ const ITEMS = [
   { href: "/my-tasks", label: "مهامي", icon: ListChecks },
 ] as const;
 
-const ITEMS_END = [{ href: "/my-goals", label: "الأهداف", icon: Target }] as const;
+const ITEMS_END = [{ href: "/my-plan", label: "خطتي", icon: Target }] as const;
 
 /**
  * Fixed bottom navigation for small screens, shown only to users with an

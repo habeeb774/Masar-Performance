@@ -34,7 +34,7 @@ export function EmployeeDashboard({ name, userId, data }: { name: string; userId
       </div>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
-        <StatCard label="إنجاز الشهر" value={formatPct(stats.monthProgress)} icon={Target} tone="primary" href="/my-month" footer={<ProgressBar value={stats.monthProgress} size="sm" />} />
+        <StatCard label="إنجاز الشهر" value={formatPct(stats.monthProgress)} icon={Target} tone="primary" href="/my-plan" footer={<ProgressBar value={stats.monthProgress} size="sm" />} />
         <StatCard label="إنجاز الأسبوع" value={formatPct(stats.weekProgress)} icon={CalendarDays} tone="info" href="/my-week" footer={<ProgressBar value={stats.weekProgress} size="sm" />} />
         <StatCard label="مهام اليوم" value={`${stats.todayDone}/${stats.todayCount}`} icon={CalendarCheck2} tone="success" href="/my-tasks" />
         <StatCard label="المتأخرة" value={formatNumber(stats.delayed)} icon={AlarmClock} tone={stats.delayed ? "danger" : "neutral"} href="/my-tasks?status=DELAYED" />
@@ -91,7 +91,7 @@ export function EmployeeDashboard({ name, userId, data }: { name: string; userId
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-base">أهدافي الشهرية</CardTitle>
             <Button variant="ghost" size="sm" asChild>
-              <Link href="/my-goals">
+              <Link href="/my-plan">
                 التفاصيل <ArrowLeft />
               </Link>
             </Button>

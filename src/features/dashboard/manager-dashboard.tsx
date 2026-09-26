@@ -60,7 +60,7 @@ export function ManagerDashboard({ name, data }: { name: string; data: Data }) {
         <div className="flex gap-2">
           <Button variant="outline" asChild>
             <Link href="/review-center">
-              <ClipboardCheck /> مركز المراجعة
+              <ClipboardCheck /> بانتظارك
             </Link>
           </Button>
           <Button asChild>

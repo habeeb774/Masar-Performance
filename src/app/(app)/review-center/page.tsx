@@ -18,7 +18,7 @@ import {
 } from "@/server/queries/review-center";
 import { MonthlyReportsQueue, NotionQueue, PlansQueue, WeeklyReportsQueue } from "@/features/review-center/queues";
 
-export const metadata: Metadata = { title: "مركز المراجعة" };
+export const metadata: Metadata = { title: "بانتظارك" };
 
 const TAB_LABELS: Record<ReviewTab, string> = {
   weekly: "التقارير الأسبوعية",
@@ -55,7 +55,7 @@ export default async function ReviewCenterPage({ searchParams }: { searchParams:
 
   return (
     <>
-      <PageHeader title="مركز المراجعة" description="كل ما ينتظر قرارك في مكان واحد: التقارير والخطط وعناصر Notion" />
+      <PageHeader title="بانتظارك" description="كل ما يحتاج موافقتك أو ملاحظتك في مكان واحد." />
       <nav className="mb-4 flex gap-1 overflow-x-auto rounded-lg border bg-card p-1" aria-label="أقسام المراجعة">
         {REVIEW_TABS.map((t) => (
           <Link

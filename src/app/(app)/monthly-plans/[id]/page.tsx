@@ -49,7 +49,7 @@ export default async function MonthlyPlanPage({ params }: { params: IdParams }) 
         actions={
           <>
             <Button variant="outline" asChild>
-              <Link href={managerView ? `/monthly-plans?year=${plan.year}&month=${plan.month}` : "/my-month"}>
+              <Link href={managerView ? `/monthly-plans?year=${plan.year}&month=${plan.month}` : "/my-plan"}>
                 <ArrowRight /> {managerView ? "الخطط" : "شهري"}
               </Link>
             </Button>
@@ -76,7 +76,7 @@ export default async function MonthlyPlanPage({ params }: { params: IdParams }) 
           <WeeksOverview
             plan={plan}
             workDays={company.workDays}
-            distributeHref={managerView ? `/weekly-plans?plan=${plan.id}` : cap.canDistribute ? `/my-month?year=${plan.year}&month=${plan.month}` : undefined}
+            distributeHref={managerView ? `/weekly-plans?plan=${plan.id}` : cap.canDistribute ? `/my-plan?year=${plan.year}&month=${plan.month}` : undefined}
             weekHref={isOwner ? (weekId) => `/my-week?week=${weekId}` : undefined}
           />
         </div>
