@@ -3,6 +3,7 @@ import {
   AlarmClock,
   ArrowLeft,
   CheckCircle2,
+  ChevronDown,
   ClipboardCheck,
   FileClock,
   Hourglass,
@@ -69,20 +70,11 @@ export function ManagerDashboard({ name, data }: { name: string; data: Data }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
-        <StatCard label="إجمالي الموظفين" value={formatNumber(stats.employees)} icon={Users} hint={stats.withoutPlan ? `${stats.withoutPlan} بدون خطة` : "جميعهم لديهم خطط"} href="/employees" />
-        <StatCard label="متوسط إنجاز الفريق" value={formatPct(stats.avgMonthly)} icon={ClipboardCheck} tone="info" footer={<ProgressBar value={stats.avgMonthly} size="sm" />} />
-        <StatCard label="المهام المتأخرة" value={formatNumber(stats.delayed)} icon={AlarmClock} tone={stats.delayed ? "danger" : "neutral"} href="/tasks?status=DELAYED" />
-        <StatCard label="تقارير بانتظار الاعتماد" value={formatNumber(stats.reportsPending)} icon={FileClock} tone="pending" href="/review-center" hint={stats.plansPending ? `+ ${stats.plansPending} خطة` : undefined} />
-        <StatCard label="منتجات بانتظار الاعتماد" value={formatNumber(stats.pendingApproval)} icon={Hourglass} tone="pending" href="/review-center?tab=pending" />
-        <StatCard label="عناصر تحتاج تحسين" value={formatNumber(stats.needsRevision)} icon={RotateCcw} tone={stats.needsRevision ? "warning" : "neutral"} href="/review-center?tab=revision" />
-      </div>
-
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
-            <CardTitle className="text-base">يحتاج انتباهك</CardTitle>
-            <CardDescription>ملخص مرتّب حسب الأولوية لكل ما يستدعي تدخلك الآن</CardDescription>
+            <CardTitle className="text-base">يحتاج تدخلك</CardTitle>
+            <CardDescription>مرتّب حسب الأولوية</CardDescription>
           </div>
           {data.attention.total > data.attention.items.length && (
             <Button variant="ghost" size="sm" asChild>
@@ -118,6 +110,80 @@ export function ManagerDashboard({ name, data }: { name: string; data: Data }) {
           )}
         </CardContent>
       </Card>
+
+
+      {stats.withoutPlan > 0 && (
+        <div className="flex flex-col gap-3 rounded-xl border border-warning/40 bg-warning-soft/30 p-4 sm:flex-row sm:items-center">
+          <p className="flex-1 text-sm">
+            {formatNumber(stats.withoutPlan)} من موظفيك بدون خطة لشهر {monthLabel(data.year, data.month)}
+          </p>
+          <Button size="sm" asChild>
+            <Link href="/monthly-plans">إعداد خطة الفريق</Link>
+          </Button>
+        </div>
+      )}
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <div>
+            <CardTitle className="text-base">الفريق هذا الشهر</CardTitle>
+            <CardDescription>متوسط الإنجاز {formatPct(stats.avgMonthly)}</CardDescription>
+          </div>
+          <Button variant="ghost" size="sm" asChild>
+            <Link href="/monthly-plans">
+              خطة الفريق <ArrowLeft />
+            </Link>
+          </Button>
+        </CardHeader>
+        <CardContent>
+          {data.rows.length === 0 ? (
+            <EmptyState
+              icon={Users}
+              title="ابدأ بإضافة موظفيك"
+              description="بعدها أعد خطة كل موظف بخطوة واحدة من «خطة الفريق»."
+              action={
+                <Button size="sm" asChild>
+                  <Link href="/employees">الموظفون</Link>
+                </Button>
+              }
+            />
+          ) : (
+            <ul className="divide-y">
+              {data.rows.map((r) => (
+                <li key={r.id}>
+                  <Link href={`/employees/${r.id}`} className="flex items-center gap-3 py-2.5 hover:bg-accent/30">
+                    <span className="w-36 truncate text-sm font-medium sm:w-48">{r.name}</span>
+                    {r.planStatus ? (
+                      <>
+                        <ProgressBar value={r.monthly} size="sm" className="flex-1" />
+                        <span className="w-10 text-end text-xs font-medium tabular-nums">{Math.round(r.monthly)}%</span>
+                      </>
+                    ) : (
+                      <span className="flex-1 text-xs text-muted-foreground">بدون خطة</span>
+                    )}
+                    <span className="w-20 text-end">{r.delayed > 0 && <StatusBadge tone="danger">{r.delayed} متأخرة</StatusBadge>}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
+
+      <details className="group rounded-xl border bg-card">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-2 p-4 text-sm font-semibold">
+          عرض التفاصيل
+          <ChevronDown className="size-4 text-muted-foreground transition-transform group-open:rotate-180" />
+        </summary>
+        <div className="space-y-6 border-t p-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
+        <StatCard label="إجمالي الموظفين" value={formatNumber(stats.employees)} icon={Users} hint={stats.withoutPlan ? `${stats.withoutPlan} بدون خطة` : "جميعهم لديهم خطط"} href="/employees" />
+        <StatCard label="متوسط إنجاز الفريق" value={formatPct(stats.avgMonthly)} icon={ClipboardCheck} tone="info" footer={<ProgressBar value={stats.avgMonthly} size="sm" />} />
+        <StatCard label="المهام المتأخرة" value={formatNumber(stats.delayed)} icon={AlarmClock} tone={stats.delayed ? "danger" : "neutral"} href="/tasks?status=DELAYED" />
+        <StatCard label="تقارير بانتظار الاعتماد" value={formatNumber(stats.reportsPending)} icon={FileClock} tone="pending" href="/review-center" hint={stats.plansPending ? `+ ${stats.plansPending} خطة` : undefined} />
+        <StatCard label="منتجات بانتظار الاعتماد" value={formatNumber(stats.pendingApproval)} icon={Hourglass} tone="pending" href="/review-center?tab=pending" />
+        <StatCard label="عناصر تحتاج تحسين" value={formatNumber(stats.needsRevision)} icon={RotateCcw} tone={stats.needsRevision ? "warning" : "neutral"} href="/review-center?tab=revision" />
+      </div>
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
@@ -255,6 +321,8 @@ export function ManagerDashboard({ name, data }: { name: string; data: Data }) {
           <PercentBars data={data.goalProgress.map((g) => ({ name: g.name, pct: g.pct }))} />
         </CardContent>
       </Card>
+        </div>
+      </details>
     </div>
   );
 }

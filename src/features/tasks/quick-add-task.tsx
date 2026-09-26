@@ -108,7 +108,7 @@ export function QuickAddTask({
         onClick={() => setExpanded((v) => !v)}
         className="mt-2 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
       >
-        إضافة تفاصيل إضافية {expanded ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
+        خيارات إضافية {expanded ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
       </button>
 
       {expanded && (

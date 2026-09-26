@@ -21,7 +21,7 @@ export interface AttentionItem {
 
 const OVERDUE_THRESHOLD = 3;
 const BLOCKED_DAYS_THRESHOLD = 3;
-const FEED_LIMIT = 15;
+const FEED_LIMIT = 8;
 
 /**
  * A single prioritized "needs attention" feed synthesizing several existing
@@ -102,20 +102,28 @@ export async function getAttentionFeed(user: AuthUser): Promise<{ items: Attenti
 
   const monthStartKey = monthStart(year, month);
   const monthEndKey = monthEnd(year, month);
+  // one line per employee, not per goal — the manager needs "who", the details are one click away
+  const riskByEmployee = new Map<string, { names: string[]; worst: number }>();
   for (const g of atRiskGoals) {
-    const name = nameOf.get(g.employeeId);
-    if (!name) continue;
+    if (!nameOf.has(g.employeeId)) continue;
     const start = g.startDate ? toDateKey(g.startDate) : monthStartKey;
     const end = g.dueDate ? toDateKey(g.dueDate) : monthEndKey;
     const derived = deriveGoalStatus({ current: g.status, progressPct: num(g.progressPct), start, end, today });
     if (derived !== "AT_RISK") continue;
+    const entry = riskByEmployee.get(g.employeeId) ?? { names: [], worst: 0 };
+    entry.names.push(g.name);
+    entry.worst = Math.max(entry.worst, Math.round(100 - num(g.progressPct)));
+    riskByEmployee.set(g.employeeId, entry);
+  }
+  for (const [employeeId, { names, worst }] of riskByEmployee) {
+    const name = nameOf.get(employeeId)!;
     items.push({
-      id: `goal-${g.id}`,
+      id: `goal-${employeeId}`,
       type: "GOAL_AT_RISK",
-      severity: 800 + Math.round(100 - num(g.progressPct)),
+      severity: 800 + worst + names.length,
       tone: "warning",
-      text: `هدف "${g.name}" لدى ${name} متأخر عن المسار المتوقع`,
-      href: `/employees/${g.employeeId}`,
+      text: names.length === 1 ? `هدف "${names[0]}" لدى ${name} متأخر عن المسار` : `${names.length} أهداف لدى ${name} متأخرة عن المسار`,
+      href: `/employees/${employeeId}`,
     });
   }
 
@@ -133,16 +141,17 @@ export async function getAttentionFeed(user: AuthUser): Promise<{ items: Attenti
     });
   }
 
-  for (const w of weeklyDue) {
-    const name = nameOf.get(w.employeeId);
-    if (!name) continue;
-    const overdueDays = Math.max(1, Math.round((todayDate.getTime() - w.endDate.getTime()) / 86_400_000));
+  const missingByEmployee = new Map<string, typeof weeklyDue>();
+  for (const w of weeklyDue) if (nameOf.has(w.employeeId)) missingByEmployee.set(w.employeeId, [...(missingByEmployee.get(w.employeeId) ?? []), w]);
+  for (const [employeeId, weeks] of missingByEmployee) {
+    const name = nameOf.get(employeeId)!;
+    const oldest = Math.max(1, Math.round((todayDate.getTime() - weeks[0].endDate.getTime()) / 86_400_000));
     items.push({
-      id: `weekly-${w.id}`,
+      id: `weekly-${employeeId}`,
       type: "WEEKLY_REPORT_MISSING",
-      severity: 500 + overdueDays,
+      severity: 500 + oldest,
       tone: "pending",
-      text: `${name} لم يسلّم تقرير الأسبوع ${w.weekIndex} بعد انتهائه منذ ${overdueDays} يومًا`,
+      text: weeks.length === 1 ? `${name} لم يسلّم تقرير الأسبوع ${weeks[0].weekIndex}` : `${name} لم يسلّم ${weeks.length} تقارير أسبوعية`,
       href: `/review-center?tab=weekly`,
     });
   }
