@@ -18,7 +18,7 @@ import { ItemsPreview } from "@/features/notion/items-preview";
 export const metadata: Metadata = { title: "ربط الحقول والحالات" };
 
 export default async function NotionMappingsPage({ searchParams }: { searchParams: SearchParams }) {
-  await requirePermission(PERMISSIONS.NOTION_MANAGE);
+  const user = await requirePermission(PERMISSIONS.NOTION_MANAGE);
   const sp = await searchParams;
   const options = await dataSourceOptions();
 
@@ -29,10 +29,10 @@ export default async function NotionMappingsPage({ searchParams }: { searchParam
         <EmptyState
           icon={Database}
           title="لا توجد قاعدة بيانات لربطها"
-          description="أضف قاعدة «إضافة المنتجات للمتجر» أولًا من صفحة قواعد البيانات، ثم عد هنا لربط الحقول والحالات."
+          description="اربط Notion واختر القاعدة من القائمة — يقترح النظام ربط الحقول والحالات تلقائيًا، ويمكنك مراجعته هنا لاحقًا."
           action={
             <Button size="sm" asChild>
-              <Link href="/notion/data-sources">قواعد البيانات</Link>
+              <Link href="/notion/connect">ربط قاعدة بيانات</Link>
             </Button>
           }
         />
@@ -80,6 +80,7 @@ export default async function NotionMappingsPage({ searchParams }: { searchParam
             initial={data.fieldMappings}
             schema={data.schema}
             employees={data.employees}
+            advanced={user.roleKey === "ADMIN"}
           />
         </CardContent>
       </Card>

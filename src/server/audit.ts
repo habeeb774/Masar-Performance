@@ -127,6 +127,8 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   "notion.connection.create": "إضافة اتصال Notion",
   "notion.connection.update": "تعديل اتصال Notion",
   "notion.connection.delete": "حذف اتصال Notion",
+  "notion.connection.disconnect": "قطع اتصال Notion",
+  "notion.connection.reconnect": "إعادة ربط Notion",
   "notion.data_source.create": "إضافة قاعدة Notion",
   "notion.data_source.update": "تعديل قاعدة Notion",
   "notion.data_source.delete": "حذف قاعدة Notion",

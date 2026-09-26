@@ -205,6 +205,40 @@ export async function listConnections() {
   }));
 }
 
+/** OAuth workspaces as the user sees them: health, account, databases and last sync. */
+export async function listConnectionHealth() {
+  const rows = await db.notionConnection.findMany({
+    where: { authType: "OAUTH" },
+    orderBy: { createdAt: "asc" },
+    select: {
+      id: true,
+      workspaceName: true,
+      ownerEmail: true,
+      botName: true,
+      status: true,
+      isActive: true,
+      lastTestedAt: true,
+      lastError: true,
+      dataSources: { select: { id: true, name: true, lastSyncedAt: true } },
+    },
+  });
+  return rows.map((c) => {
+    const synced = c.dataSources.map((d) => d.lastSyncedAt?.getTime() ?? 0).filter(Boolean);
+    return {
+      id: c.id,
+      workspaceName: c.workspaceName,
+      ownerEmail: c.ownerEmail,
+      botName: c.botName,
+      status: c.status,
+      isActive: c.isActive,
+      lastTestedAt: c.lastTestedAt?.toISOString() ?? null,
+      lastError: c.lastError,
+      lastSyncedAt: synced.length ? new Date(Math.max(...synced)).toISOString() : null,
+      dataSources: c.dataSources.map((d) => ({ id: d.id, name: d.name })),
+    };
+  });
+}
+
 // ---- data sources ---------------------------------------------------------------------
 
 export async function listDataSources() {

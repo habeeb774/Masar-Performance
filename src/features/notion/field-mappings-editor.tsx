@@ -13,6 +13,7 @@ import { EmptyState } from "@/components/shared/page";
 import { useServerAction } from "@/hooks/use-server-action";
 import { applyPresetAction, refreshSchemaAction, saveFieldMappingsAction } from "@/actions/notion";
 import { NOTION_FIELD_ROLE_LABELS, STAGE_KEY_SUGGESTIONS } from "@/lib/labels";
+import { stageKeyFor } from "@/lib/notion/auto-map";
 import { cn } from "@/lib/utils";
 import { PROPERTY_TYPE_LABELS } from "./labels";
 
@@ -51,24 +52,42 @@ export interface FieldMappingRow {
   isActive: boolean;
 }
 
-type Row = FieldMappingRow & { key: string };
+type Row = FieldMappingRow & { key: string; autoKey?: boolean };
 
 let seq = 0;
 const newKey = () => `new-${++seq}-${Date.now()}`;
+
+/**
+ * Fills empty stage keys of STATUS rows from their label. Keys the user typed or that were
+ * already saved are never touched; only keys generated here (autoKey) follow later label edits.
+ */
+function withAutoKeys(list: Row[]): Row[] {
+  const used = new Set<string>();
+  for (const r of list) if (r.role === "STATUS" && r.stageKey.trim() && !r.autoKey) used.add(r.stageKey.trim());
+  return list.map((r) => {
+    if (r.role !== "STATUS") return r.autoKey ? { ...r, stageKey: "", autoKey: false } : r;
+    if (r.stageKey.trim() && !r.autoKey) return r;
+    const stageKey = stageKeyFor(r.label.trim() || r.notionProperty, used);
+    used.add(stageKey);
+    return r.autoKey && r.stageKey === stageKey ? r : { ...r, stageKey, autoKey: true };
+  });
+}
 
 export function FieldMappingsEditor({
   dataSourceId,
   initial,
   schema,
   employees,
+  advanced,
 }: {
   dataSourceId: string;
   initial: FieldMappingRow[];
   schema: SchemaProp[];
   employees: { value: string; label: string }[];
+  advanced: boolean;
 }) {
   const router = useRouter();
-  const [rows, setRows] = useState<Row[]>(() => initial.map((r) => ({ ...r, key: r.id ?? newKey() })));
+  const [rows, setRows] = useState<Row[]>(() => withAutoKeys(initial.map((r) => ({ ...r, key: r.id ?? newKey() }))));
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [dirty, setDirty] = useState(false);
   const refresh = { onSuccess: () => router.refresh() };
@@ -78,28 +97,31 @@ export function FieldMappingsEditor({
 
   const update = (key: string, patch: Partial<Row>) => {
     setDirty(true);
-    setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+    setRows((rs) => withAutoKeys(rs.map((r) => (r.key === key ? { ...r, ...patch } : r))));
+  };
+
+  const editStageKey = (key: string, value: string) => {
+    setDirty(true);
+    setRows((rs) => rs.map((r) => (r.key === key ? { ...r, stageKey: value.replace(/\s+/g, ""), autoKey: false } : r)));
   };
 
   const pickProperty = (row: Row, name: string) => {
     const prop = schema.find((p) => p.name === name);
     const patch: Partial<Row> = { notionProperty: name, notionPropertyType: prop?.type ?? row.notionPropertyType };
     if (!row.label.trim() || row.label === row.notionProperty) patch.label = name;
-    if (row.role === "STATUS" && !row.stageKey) {
-      const hit = STAGE_KEY_SUGGESTIONS.find((s) => s.label === name && !rows.some((r) => r.stageKey === s.key));
-      if (hit) patch.stageKey = hit.key;
-    }
     update(row.key, patch);
   };
 
   const addRow = () => {
     setDirty(true);
-    setRows((rs) => [...rs, { key: newKey(), role: "STATUS", notionProperty: "", notionPropertyType: "", stageKey: "", label: "", ownerEmployeeId: "", isActive: true }]);
+    setRows((rs) => withAutoKeys([...rs, { key: newKey(), role: "STATUS", notionProperty: "", notionPropertyType: "", stageKey: "", label: "", ownerEmployeeId: "", isActive: true }]));
   };
 
   const submit = () => {
+    const filled = withAutoKeys(rows);
+    setRows(filled);
     const errs: Record<string, string> = {};
-    rows.forEach((r, i) => {
+    filled.forEach((r, i) => {
       if (!r.notionProperty) errs[`mappings.${i}.notionProperty`] = "اختر خاصية";
       if (!r.label.trim()) errs[`mappings.${i}.label`] = "التسمية مطلوبة";
       if (r.role === "STATUS" && !r.stageKey.trim()) errs[`mappings.${i}.stageKey`] = "مفتاح المرحلة مطلوب";
@@ -109,7 +131,7 @@ export function FieldMappingsEditor({
     save
       .run({
         dataSourceId,
-        mappings: rows.map((r) => ({
+        mappings: filled.map((r) => ({
           id: r.id,
           role: r.role,
           notionProperty: r.notionProperty,
@@ -121,7 +143,10 @@ export function FieldMappingsEditor({
         })),
       })
       .then((r) => {
-        if (r.ok) setDirty(false);
+        if (r.ok) {
+          setDirty(false);
+          setRows((rs) => rs.map((row) => (row.autoKey ? { ...row, autoKey: false } : row)));
+        }
         else setErrors(Object.fromEntries(Object.entries(r.fieldErrors ?? {}).map(([k, v]) => [k, v[0]])));
       });
   };
@@ -133,7 +158,10 @@ export function FieldMappingsEditor({
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <p className="flex max-w-2xl items-start gap-2 rounded-lg bg-info-soft/60 px-3 py-2 text-xs leading-relaxed text-info">
           <Info className="mt-0.5 size-3.5 shrink-0" />
-          حدد دور كل خاصية من Notion. حقول «حالة مرحلة عمل» تحتاج مفتاحًا إنجليزيًا ثابتًا (مثل images أو seo) تُبنى عليه الأهداف. عند الحفظ يُعاد اشتقاق حالات جميع العناصر المحفوظة وإعادة احتساب الإنجاز دون الاتصال بـ Notion.
+          {advanced
+            ? "حدد دور كل خاصية من Notion. حقول «حالة مرحلة عمل» تحتاج مفتاحًا إنجليزيًا ثابتًا (مثل images أو seo) تُبنى عليه الأهداف، ويُولَّد تلقائيًا إن تُرك فارغًا."
+            : "حدد دور كل خاصية من Notion وسمّها بالعربية. حقول «حالة مرحلة عمل» هي المراحل التي تُبنى عليها الأهداف."}{" "}
+          عند الحفظ يُعاد اشتقاق حالات جميع العناصر المحفوظة وإعادة احتساب الإنجاز دون الاتصال بـ Notion.
         </p>
         <div className="flex shrink-0 flex-wrap gap-2">
           <Button variant="outline" size="sm" disabled={busy} onClick={() => schemaRefresh.run(dataSourceId)}>
@@ -181,7 +209,7 @@ export function FieldMappingsEditor({
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="space-y-1.5 lg:col-span-3">
+                  <div className={cn("space-y-1.5", advanced ? "lg:col-span-3" : "lg:col-span-4")}>
                     <Label className="text-xs text-muted-foreground">خاصية Notion</Label>
                     {schema.length > 0 ? (
                       <Select value={row.notionProperty || undefined} onValueChange={(v) => pickProperty(row, v)}>
@@ -210,21 +238,23 @@ export function FieldMappingsEditor({
                         (missing ? "لم تعد موجودة في Notion — اخترها من جديد" : row.notionPropertyType ? `النوع: ${PROPERTY_TYPE_LABELS[row.notionPropertyType] ?? row.notionPropertyType}` : " ")}
                     </p>
                   </div>
-                  <div className="space-y-1.5 lg:col-span-2">
-                    <Label className="text-xs text-muted-foreground">مفتاح المرحلة</Label>
-                    <Input
-                      dir="ltr"
-                      list={`stage-keys-${dataSourceId}`}
-                      value={row.role === "STATUS" ? row.stageKey : ""}
-                      disabled={row.role !== "STATUS"}
-                      onChange={(e) => update(row.key, { stageKey: e.target.value.replace(/\s+/g, "") })}
-                      placeholder={row.role === "STATUS" ? "images" : "—"}
-                      className="font-mono text-xs"
-                      aria-invalid={!!err("stageKey")}
-                    />
-                    {err("stageKey") && <p className="text-[11px] text-destructive">{err("stageKey")}</p>}
-                  </div>
-                  <div className="space-y-1.5 lg:col-span-2">
+                  {advanced && (
+                    <div className="space-y-1.5 lg:col-span-2">
+                      <Label className="text-xs text-muted-foreground">مفتاح المرحلة</Label>
+                      <Input
+                        dir="ltr"
+                        list={`stage-keys-${dataSourceId}`}
+                        value={row.role === "STATUS" ? row.stageKey : ""}
+                        disabled={row.role !== "STATUS"}
+                        onChange={(e) => editStageKey(row.key, e.target.value)}
+                        placeholder={row.role === "STATUS" ? "images" : "—"}
+                        className="font-mono text-xs"
+                        aria-invalid={!!err("stageKey")}
+                      />
+                      {err("stageKey") && <p className="text-[11px] text-destructive">{err("stageKey")}</p>}
+                    </div>
+                  )}
+                  <div className={cn("space-y-1.5", advanced ? "lg:col-span-2" : "lg:col-span-3")}>
                     <Label className="text-xs text-muted-foreground">التسمية بالعربية</Label>
                     <Input value={row.label} onChange={(e) => update(row.key, { label: e.target.value })} maxLength={120} aria-invalid={!!err("label")} />
                     {err("label") && <p className="text-[11px] text-destructive">{err("label")}</p>}
@@ -270,13 +300,15 @@ export function FieldMappingsEditor({
         </div>
       )}
 
-      <datalist id={`stage-keys-${dataSourceId}`}>
-        {STAGE_KEY_SUGGESTIONS.map((s) => (
-          <option key={s.key} value={s.key}>
-            {s.label}
-          </option>
-        ))}
-      </datalist>
+      {advanced && (
+        <datalist id={`stage-keys-${dataSourceId}`}>
+          {STAGE_KEY_SUGGESTIONS.map((s) => (
+            <option key={s.key} value={s.key}>
+              {s.label}
+            </option>
+          ))}
+        </datalist>
+      )}
 
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
         <Button variant="outline" size="sm" onClick={addRow} disabled={busy}>

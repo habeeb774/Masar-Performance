@@ -9,7 +9,7 @@ import { DataSourcesManager } from "@/features/notion/data-sources-manager";
 export const metadata: Metadata = { title: "قواعد بيانات Notion" };
 
 export default async function NotionDataSourcesPage() {
-  await requirePermission(PERMISSIONS.NOTION_MANAGE);
+  const user = await requirePermission(PERMISSIONS.NOTION_MANAGE);
   const [sources, connections, employees] = await Promise.all([
     listDataSources(),
     db.notionConnection.findMany({ where: { isActive: true }, orderBy: { createdAt: "asc" }, select: { id: true, name: true, workspaceName: true } }),
@@ -25,6 +25,7 @@ export default async function NotionDataSourcesPage() {
         sources={sources}
         connections={connections.map((c) => ({ value: c.id, label: c.workspaceName ? `${c.name} — ${c.workspaceName}` : c.name }))}
         employees={employees}
+        advanced={user.roleKey === "ADMIN"}
       />
     </>
   );

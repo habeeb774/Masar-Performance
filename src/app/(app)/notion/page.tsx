@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { AlertTriangle, ArrowLeft, Database, Layers, ListChecks, Plug, RotateCcw, Hourglass, CheckCircle2, History } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Database, Layers, Link2, ListChecks, RotateCcw, Hourglass, CheckCircle2, History } from "lucide-react";
 import { requirePermission } from "@/server/auth/session";
 import { getNotionOverview } from "@/server/queries/notion";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
@@ -24,7 +24,7 @@ export default async function NotionOverviewPage() {
   const canSync = hasPermission(user, PERMISSIONS.NOTION_SYNC);
   const data = await getNotionOverview();
   const o = data.onboarding;
-  const complete = o.connection && o.dataSource && o.fields && o.statuses && o.firstSync;
+  const complete = o.connection && o.connectionOk && o.dataSource && o.firstSync;
 
   return (
     <div className="space-y-6">
@@ -40,8 +40,8 @@ export default async function NotionOverviewPage() {
             </Button>
             {canManage && (
               <Button size="sm" asChild>
-                <Link href="/notion/data-sources">
-                  <Database /> قواعد البيانات
+                <Link href="/notion/connect">
+                  <Link2 /> ربط قاعدة بيانات
                 </Link>
               </Button>
             )}
@@ -108,17 +108,12 @@ export default async function NotionOverviewPage() {
           <EmptyState
             icon={Database}
             title="لم تُربط أي قاعدة بيانات بعد"
-            description={
-              data.connectionsCount === 0
-                ? "ابدأ بإضافة اتصال Notion (رمز التكامل الداخلي)، ثم أضف قاعدة «إضافة المنتجات للمتجر» بلصق رابطها."
-                : "لديك اتصال جاهز — أضف قاعدة البيانات بلصق رابطها من Notion."
-            }
+            description="اربط Notion واختر القاعدة من القائمة — يقترح النظام ربط الحقول والحالات تلقائيًا."
             action={
               canManage ? (
                 <Button size="sm" asChild>
-                  <Link href={data.connectionsCount === 0 ? "/notion/connections" : "/notion/data-sources?new=1"}>
-                    {data.connectionsCount === 0 ? <Plug /> : <Database />}
-                    {data.connectionsCount === 0 ? "إضافة اتصال" : "إضافة قاعدة بيانات"}
+                  <Link href="/notion/connect">
+                    <Link2 /> {data.connectionsCount === 0 ? "ربط Notion" : "ربط قاعدة بيانات"}
                   </Link>
                 </Button>
               ) : undefined

@@ -32,7 +32,6 @@ import { DATA_SOURCE_PURPOSES } from "@/lib/labels";
 import { formatDateTimeAr } from "@/lib/dates";
 import { formatNumber } from "@/lib/num";
 import { cn } from "@/lib/utils";
-import { NotionSetupSteps } from "./onboarding";
 
 export interface DataSourceRow {
   id: string;
@@ -541,11 +540,11 @@ function RowActions({ source, onEdit }: { source: DataSourceRow; onEdit: () => v
 
 // ---- manager --------------------------------------------------------------------------
 
-export function DataSourcesManager({ sources, connections, employees }: { sources: DataSourceRow[]; connections: Option[]; employees: Option[] }) {
+export function DataSourcesManager({ sources, connections, employees, advanced }: { sources: DataSourceRow[]; connections: Option[]; employees: Option[]; advanced: boolean }) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
-  const autoOpen = params.get("new") === "1" && connections.length > 0;
+  const autoOpen = advanced && params.get("new") === "1" && connections.length > 0;
   // `?new=1` opens the wizard on first render; the effect below only cleans the URL
   const [wizard, setWizard] = useState(() => ({ open: autoOpen, key: autoOpen ? 1 : 0 }));
   const [editing, setEditing] = useState<{ source: DataSourceRow; key: number } | null>(null);
@@ -554,44 +553,37 @@ export function DataSourcesManager({ sources, connections, employees }: { source
   const openWizard = () => setWizard((w) => ({ open: true, key: w.key + 1 }));
 
   useEffect(() => {
-    if (params.get("new") === "1") router.replace(pathname, { scroll: false });
+    if (params.get("new") !== "1") return;
+    if (advanced) router.replace(pathname, { scroll: false });
+    else router.replace("/notion/connect");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
     <>
-      <div className="mb-4 flex justify-end">
-        <Button onClick={openWizard} disabled={connections.length === 0}>
-          <Plus /> إضافة قاعدة بيانات
+      <div className="mb-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        {advanced && (
+          <Button variant="outline" onClick={openWizard} disabled={connections.length === 0}>
+            <FileSearch /> إضافة يدوية برابط
+          </Button>
+        )}
+        <Button asChild>
+          <Link href="/notion/connect">
+            <Plus /> إضافة قاعدة بيانات
+          </Link>
         </Button>
       </div>
 
-      {connections.length === 0 && sources.length === 0 ? (
-        <div className="grid gap-4 lg:grid-cols-5">
-          <EmptyState
-            className="lg:col-span-2"
-            icon={Database}
-            title="أضف اتصال Notion أولًا"
-            description="لإضافة قاعدة بيانات تحتاج اتصالًا نشطًا برمز تكامل داخلي."
-            action={
-              <Button size="sm" asChild>
-                <Link href="/notion/connections">الذهاب إلى الاتصالات</Link>
-              </Button>
-            }
-          />
-          <div className="rounded-xl border bg-card p-5 lg:col-span-3">
-            <p className="mb-3 text-sm font-semibold">خطوات الربط</p>
-            <NotionSetupSteps />
-          </div>
-        </div>
-      ) : sources.length === 0 ? (
+      {sources.length === 0 ? (
         <EmptyState
           icon={Database}
-          title="لم تُضف أي قاعدة بيانات بعد"
-          description="الصق رابط قاعدة «إضافة المنتجات للمتجر» (بعد مشاركتها مع التكامل عبر Connections) ليكتشف النظام خصائصها."
+          title="لم تُربط أي قاعدة بيانات بعد"
+          description="اربط Notion واختر القاعدة من القائمة — يقترح النظام ربط الحقول والحالات تلقائيًا."
           action={
-            <Button size="sm" onClick={openWizard}>
-              <Plus /> إضافة قاعدة بيانات
+            <Button size="sm" asChild>
+              <Link href="/notion/connect">
+                <Plus /> ربط قاعدة بيانات
+              </Link>
             </Button>
           }
         />
@@ -602,7 +594,7 @@ export function DataSourcesManager({ sources, connections, employees }: { source
               <TableRow>
                 <TableHead className="text-start">القاعدة</TableHead>
                 <TableHead className="text-start">الاتصال</TableHead>
-                <TableHead className="text-start">معرّف Notion</TableHead>
+                {advanced && <TableHead className="text-start">معرّف Notion</TableHead>}
                 <TableHead className="text-start">العناصر</TableHead>
                 <TableHead className="text-start">المزامنة</TableHead>
                 <TableHead className="text-start">الموظف الافتراضي</TableHead>
@@ -622,11 +614,13 @@ export function DataSourcesManager({ sources, connections, employees }: { source
                     </p>
                   </TableCell>
                   <TableCell className="text-sm">{s.connectionName}</TableCell>
-                  <TableCell>
-                    <code dir="ltr" className="block max-w-40 truncate font-mono text-[11px] text-muted-foreground" title={`database: ${s.notionDatabaseId}\ndata source: ${s.notionDataSourceId}`}>
-                      {s.notionDatabaseId}
-                    </code>
-                  </TableCell>
+                  {advanced && (
+                    <TableCell>
+                      <code dir="ltr" className="block max-w-40 truncate font-mono text-[11px] text-muted-foreground" title={`database: ${s.notionDatabaseId}\ndata source: ${s.notionDataSourceId}`}>
+                        {s.notionDatabaseId}
+                      </code>
+                    </TableCell>
+                  )}
                   <TableCell className="tabular-nums">{formatNumber(s.itemsCount)}</TableCell>
                   <TableCell className="text-xs whitespace-nowrap">
                     {s.syncEnabled ? <StatusBadge tone="info">كل {formatNumber(s.syncIntervalMinutes)} د</StatusBadge> : <StatusBadge tone="neutral">يدوية فقط</StatusBadge>}

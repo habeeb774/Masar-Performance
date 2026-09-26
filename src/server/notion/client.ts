@@ -17,7 +17,7 @@ export function createNotionClient(token: string) {
 
 export async function getNotionClient(connectionId: string) {
   const conn = await db.notionConnection.findUnique({ where: { id: connectionId } });
-  if (!conn || !conn.isActive) throw new Error("اتصال Notion غير موجود أو معطل");
+  if (!conn || !conn.isActive || !conn.tokenEncrypted) throw new NotionConnectionUnavailable();
   return createNotionClient(decryptSecret(conn.tokenEncrypted));
 }
 
@@ -44,14 +44,27 @@ export function isUnauthorized(e: unknown): boolean {
   return !!e && typeof e === "object" && "code" in e && (e as { code: unknown }).code === "unauthorized";
 }
 
-export function notionErrorMessage(e: unknown): string {
-  if (e && typeof e === "object" && "code" in e) {
-    const code = String((e as { code: unknown }).code);
-    if (code === "unauthorized") return "رمز Notion غير صالح أو منتهي";
-    if (code === "object_not_found") return "لم يتم العثور على القاعدة — تأكد من مشاركتها مع التكامل (Connections)";
-    if (code === "restricted_resource") return "التكامل لا يملك صلاحية على هذا المورد";
-    if (code === "rate_limited") return "تم تجاوز حد الطلبات في Notion، سيتم إعادة المحاولة لاحقًا";
-    if (code === "validation_error") return `خطأ في الطلب: ${(e as { message?: string }).message ?? ""}`;
+export class NotionConnectionUnavailable extends Error {
+  constructor() {
+    super("اتصال Notion غير نشط");
   }
-  return e instanceof Error ? e.message : "خطأ غير معروف من Notion";
+}
+
+/** What the user can do about a Notion failure — drives the action button next to the message. */
+export type NotionErrorKind = "reconnect" | "permission" | "rate_limited" | "temporary";
+
+export function classifyNotionError(e: unknown): { kind: NotionErrorKind; message: string } {
+  const code = e && typeof e === "object" && "code" in e ? String((e as { code: unknown }).code) : "";
+  if (e instanceof NotionConnectionUnavailable || code === "unauthorized")
+    return { kind: "reconnect", message: "انتهى اتصال Notion أو تم إلغاؤه." };
+  if (code === "object_not_found" || code === "restricted_resource")
+    return { kind: "permission", message: "هذه القاعدة غير متاحة للاتصال الحالي." };
+  if (code === "rate_limited") return { kind: "rate_limited", message: "Notion مشغول حاليًا، ستُعاد المحاولة تلقائيًا بعد قليل." };
+  // our own already-friendly (Arabic) messages pass through; raw technical ones do not
+  if (!code && e instanceof Error && /[؀-ۿ]/.test(e.message)) return { kind: "temporary", message: e.message };
+  return { kind: "temporary", message: "تعذر قراءة البيانات من Notion الآن، حاول مرة أخرى بعد قليل." };
+}
+
+export function notionErrorMessage(e: unknown): string {
+  return classifyNotionError(e).message;
 }

@@ -153,6 +153,7 @@ async function processPages(
       if (prev) result.updated += 1;
       else result.created += 1;
     } catch (e) {
+      console.error("[notion-sync] page failed", page.id, e instanceof Error ? e.message : e);
       result.errors.push({ pageId: page.id, message: notionErrorMessage(e) });
     }
   }
@@ -261,6 +262,14 @@ export async function syncDataSource(
         await finishLog(log.id, result, maxEdited);
         return syncDataSource(dataSourceId, trigger, { ...opts, retryOfId: log.id, afterRefresh: true });
       }
+    }
+    if (isUnauthorized(e)) {
+      await db.notionConnection.update({
+        where: { id: ds.connectionId },
+        data: { status: "FAILED", lastError: notionErrorMessage(e), lastTestedAt: new Date() },
+      });
+    } else {
+      console.error("[notion-sync] run failed", dataSourceId, e instanceof Error ? e.message : e);
     }
   }
 
