@@ -66,10 +66,6 @@
   --shadow-inset: var(--surface-shadow-inset);
   --shadow-inset-focus: var(--surface-shadow-inset-focus);
   --shadow-float: var(--surface-shadow-float);
-  /* the sidebar surface is always dark (in both app themes), so it needs its own
-     fixed shadow recipe instead of --shadow-raised/inset, which flip with .dark */
-  --shadow-sidebar-raised: 0 1px 2px oklch(0 0 0 / 30%), 0 1px 0 oklch(1 0 0 / 6%) inset;
-  --shadow-sidebar-inset: inset 0 1px 3px oklch(0 0 0 / 35%), inset 0 1px 0 oklch(0 0 0 / 20%);
   --animate-shimmer: shimmer 1.8s ease-in-out infinite;
   --animate-in-page: enter-page 0.4s var(--ease-soft) both;
 }
@@ -100,14 +96,15 @@
   --chart-4: #eda100;
   --chart-5: #e87ba4;
   --radius: 0.7rem;
-  --sidebar: oklch(0.21 0.035 255);
-  --sidebar-foreground: oklch(0.9 0.01 250);
-  --sidebar-primary: oklch(0.62 0.12 245);
-  --sidebar-primary-foreground: oklch(0.99 0 0);
-  --sidebar-accent: oklch(0.28 0.04 255);
-  --sidebar-accent-foreground: oklch(0.98 0 0);
-  --sidebar-border: oklch(0.3 0.03 255);
-  --sidebar-ring: oklch(0.62 0.12 245);
+  /* the sidebar is a light panel matching the app surface, not a separate dark chrome */
+  --sidebar: oklch(1 0 0);
+  --sidebar-foreground: oklch(0.2 0.02 255);
+  --sidebar-primary: oklch(0.46 0.11 250);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.95 0.015 250);
+  --sidebar-accent-foreground: oklch(0.3 0.05 255);
+  --sidebar-border: oklch(0.915 0.008 250);
+  --sidebar-ring: oklch(0.6 0.1 250);
   /* status tones */
   --success: oklch(0.55 0.14 150);
   --success-soft: oklch(0.95 0.04 150);
@@ -154,13 +151,13 @@
   --chart-3: #199e70;
   --chart-4: #c98500;
   --chart-5: #d55181;
-  --sidebar: oklch(0.18 0.02 255);
-  --sidebar-foreground: oklch(0.9 0.01 250);
+  --sidebar: oklch(0.2 0.018 255);
+  --sidebar-foreground: oklch(0.95 0.005 250);
   --sidebar-primary: oklch(0.66 0.12 245);
   --sidebar-primary-foreground: oklch(0.16 0.02 255);
-  --sidebar-accent: oklch(0.26 0.03 255);
-  --sidebar-accent-foreground: oklch(0.98 0 0);
-  --sidebar-border: oklch(1 0 0 / 8%);
+  --sidebar-accent: oklch(0.28 0.03 255);
+  --sidebar-accent-foreground: oklch(0.95 0.005 250);
+  --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.6 0.1 245);
   --success: oklch(0.72 0.15 150);
   --success-soft: oklch(0.3 0.05 150);

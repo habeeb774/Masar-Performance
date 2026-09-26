@@ -88,11 +88,11 @@ export function AppSidebar({ groups, badges }: { groups: NavGroup[]; badges: Rec
           className="flex items-center gap-2.5 rounded-lg px-1 py-1.5 transition-colors duration-150 [transition-timing-function:var(--ease-press)] hover:bg-sidebar-accent/50 active:scale-[0.98]"
           onClick={() => setOpenMobile(false)}
         >
-          <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground shadow-[var(--shadow-sidebar-raised)]">
+          <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground shadow-[var(--shadow-raised)]">
             <BarChart3 className="size-4" />
           </span>
           <span className="min-w-0 group-data-[collapsible=icon]:hidden">
-            <span className="block truncate text-sm font-bold text-white">مركز الإدارة والتقييم</span>
+            <span className="block truncate text-sm font-bold text-sidebar-foreground">مركز الإدارة والتقييم</span>
             <span className="block truncate text-[11px] text-sidebar-foreground/60">إدارة المتجر الإلكتروني</span>
           </span>
         </Link>
@@ -113,7 +113,7 @@ export function AppSidebar({ groups, badges }: { groups: NavGroup[]; badges: Rec
                         <span>{item.label}</span>
                       </Link>
                     </SidebarMenuButton>
-                    {badge ? <SidebarMenuBadge className="bg-sidebar-primary/25 text-white">{badge}</SidebarMenuBadge> : null}
+                    {badge ? <SidebarMenuBadge className="bg-sidebar-primary text-sidebar-primary-foreground">{badge}</SidebarMenuBadge> : null}
                   </SidebarMenuItem>
                 );
               })}
@@ -122,7 +122,7 @@ export function AppSidebar({ groups, badges }: { groups: NavGroup[]; badges: Rec
         ))}
       </SidebarContent>
       <SidebarFooter className="border-t border-sidebar-border">
-        <div className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[11px] text-sidebar-foreground/50 shadow-[var(--shadow-sidebar-inset)] group-data-[collapsible=icon]:hidden">
+        <div className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[11px] text-sidebar-foreground/50 shadow-[var(--shadow-inset)] group-data-[collapsible=icon]:hidden">
           <ShieldCheck className="size-3.5 text-success" /> جلسة آمنة
         </div>
       </SidebarFooter>
