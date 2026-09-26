@@ -44,7 +44,7 @@ import { normalizeLabel, unresolvedCount } from "@/lib/notion/auto-map";
 import { formatDateTimeAr } from "@/lib/dates";
 import { formatNumber } from "@/lib/num";
 import { cn } from "@/lib/utils";
-import { AdvancedToggle, ConfirmSummary, initialBucket, MappingReview, type Bucket, type ReviewField } from "./mapping-review";
+import { AdvancedToggle, initialBucket, MappingReview, type Bucket, type ReviewField } from "./mapping-review";
 
 export const OAUTH_START = "/api/notion/oauth/start";
 
@@ -59,17 +59,16 @@ export interface ConnectionInfo {
 }
 
 type Option = { value: string; label: string };
-type Step = "connect" | "select" | "quick" | "review" | "confirm" | "sync";
+type Step = "connect" | "select" | "quick" | "review" | "sync";
 
 const STEPS: { key: Step; label: string }[] = [
   { key: "connect", label: "ربط Notion" },
   { key: "select", label: "اختيار القاعدة" },
-  { key: "review", label: "مراجعة الربط" },
-  { key: "confirm", label: "تأكيد ومزامنة" },
+  { key: "quick", label: "بدء المزامنة" },
 ];
 
 function Stepper({ step }: { step: Step }) {
-  const current = step === "sync" ? STEPS.length : STEPS.findIndex((s) => s.key === (step === "quick" ? "review" : step));
+  const current = step === "sync" ? STEPS.length : STEPS.findIndex((s) => s.key === (step === "review" ? "quick" : step));
   return (
     <ol className="flex items-center gap-1.5 sm:gap-3" aria-label="خطوات الربط">
       {STEPS.map((s, i) => {
@@ -444,7 +443,7 @@ export function ConnectWizard({
   connections: ConnectionInfo[];
   initialConnectionId: string | null;
   oauthEnabled: boolean;
-  oauthResult: { ok: boolean; message: string } | null;
+  oauthResult: { ok: boolean; message: string; detail?: string | null } | null;
   employees: Option[];
   advanced: boolean;
   canSync: boolean;
@@ -484,8 +483,8 @@ export function ConnectWizard({
       const bs = reviewed.map(initialBucket);
       setFields(reviewed);
       setBuckets(bs);
-      // everything confidently detected → skip straight to a one-line confirmation
-      setStep(bs.every((b) => b === "auto" || b === "ignored") ? "quick" : "review");
+      // nothing ambiguous → skip the review; suggestions stay reachable via «مراجعة التفاصيل»
+      setStep(unresolvedCount(reviewed) === 0 ? "quick" : "review");
     });
   };
 
@@ -560,7 +559,17 @@ export function ConnectWizard({
       {notice && (
         <Alert variant={notice.ok ? "default" : "destructive"}>
           {notice.ok ? <CheckCircle2 className="text-success" /> : <TriangleAlert />}
-          <AlertDescription>{notice.message}</AlertDescription>
+          <AlertDescription>
+            <p>{notice.message}</p>
+            {notice.detail && (
+              <div className="mt-2 space-y-2">
+                <p className="text-xs">{notice.detail}</p>
+                <Button size="sm" variant="outline" asChild>
+                  <Link href="/notion/connections#advanced">فحص إعداد الربط</Link>
+                </Button>
+              </div>
+            )}
+          </AlertDescription>
         </Alert>
       )}
 
@@ -637,8 +646,8 @@ export function ConnectWizard({
               <Button variant="outline" onClick={reset}>
                 <ArrowRight /> اختيار قاعدة أخرى
               </Button>
-              <Button onClick={() => setStep("confirm")} disabled={analyze.pending || !!analysisFailure || fields.length === 0 || unresolved > 0}>
-                {unresolved > 0 ? `بقي ${formatNumber(unresolved)} قرار` : "متابعة"} <ArrowLeft />
+              <Button onClick={confirm} disabled={analyze.pending || !!analysisFailure || fields.length === 0 || unresolved > 0}>
+                {unresolved > 0 ? `بقي ${formatNumber(unresolved)} قرار` : "بدء المزامنة"} <ArrowLeft />
               </Button>
             </div>
           </CardContent>
@@ -653,7 +662,7 @@ export function ConnectWizard({
             </span>
             <div className="space-y-1.5">
               <h2 className="text-xl font-bold">تم تجهيز الربط تلقائيًا</h2>
-              <p className="text-sm text-muted-foreground">تعرّفنا على جميع الحقول والحالات في «{name.trim() || picked.name}» بثقة تامة.</p>
+              <p className="text-sm text-muted-foreground">تعرّفنا على «{name.trim() || picked.name}» ويمكنك البدء مباشرة.</p>
             </div>
             <dl className="flex flex-wrap justify-center gap-3">
               <div className="rounded-xl border bg-card px-4 py-2.5">
@@ -661,42 +670,22 @@ export function ConnectWizard({
                 <dd className="mt-0.5 text-sm font-semibold">{name.trim() || picked.name}</dd>
               </div>
               <div className="rounded-xl border bg-card px-4 py-2.5">
-                <dt className="text-xs text-muted-foreground">حقول تم ربطها</dt>
+                <dt className="text-xs text-muted-foreground">حقول تم التعرف عليها</dt>
                 <dd className="mt-0.5 text-sm font-semibold tabular-nums">{formatNumber(fields.filter((f) => f.role && f.role !== "STATUS").length)}</dd>
               </div>
               <div className="rounded-xl border bg-card px-4 py-2.5">
-                <dt className="text-xs text-muted-foreground">حالات تم ربطها</dt>
+                <dt className="text-xs text-muted-foreground">حالات تم التعرف عليها</dt>
                 <dd className="mt-0.5 text-sm font-semibold tabular-nums">
                   {formatNumber(fields.reduce((n, f) => n + f.statuses.filter((s) => s.status).length, 0))}
                 </dd>
               </div>
             </dl>
             <div className="flex flex-col-reverse gap-2 sm:flex-row">
-              <Button variant="outline" onClick={() => setStep("review")}>
-                مراجعة الربط
-              </Button>
-              <Button size="lg" onClick={() => setStep("confirm")}>
-                بدء المزامنة <ArrowLeft />
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {step === "confirm" && picked && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">تأكيد الربط</CardTitle>
-            <CardDescription>راجع الملخص ثم ابدأ المزامنة. يمكنك تعديل أي شيء لاحقًا.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-5">
-            <ConfirmSummary name={name.trim() || picked.name} fields={fields} employees={employees} defaultEmployeeId={defaultEmployeeId} />
-            <div className="flex flex-col-reverse gap-2 border-t pt-4 sm:flex-row sm:justify-between">
-              <Button variant="outline" onClick={() => setStep("review")}>
-                <ArrowRight /> رجوع للمراجعة
+              <Button variant="ghost" onClick={() => setStep("review")}>
+                مراجعة التفاصيل
               </Button>
               <Button size="lg" onClick={confirm}>
-                <CheckCircle2 /> تأكيد وبدء المزامنة
+                بدء المزامنة <ArrowLeft />
               </Button>
             </div>
           </CardContent>
