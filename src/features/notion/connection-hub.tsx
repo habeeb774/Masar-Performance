@@ -31,7 +31,7 @@ export interface WorkspaceRow {
 }
 
 function health(w: WorkspaceRow): { label: string; tone: "success" | "danger" | "neutral"; hint: string } {
-  if (!w.isActive) return { label: "غير متصل", tone: "neutral", hint: "تم قطع الاتصال. أعد الربط لاستئناف المزامنة — البيانات السابقة محفوظة." };
+  if (!w.isActive) return { label: "غير متصل", tone: "neutral", hint: "غير مرتبط — يمكنك إعادة الربط في أي وقت، وتبقى بياناتك السابقة كما هي." };
   if (w.status === "FAILED") return { label: "انتهى الاتصال", tone: "danger", hint: "انتهى اتصال Notion أو تم إلغاؤه." };
   return { label: "متصل بـ Notion", tone: "success", hint: "الاتصال يعمل والمزامنة التلقائية مفعّلة." };
 }
@@ -143,6 +143,32 @@ function WorkspaceCard({ w }: { w: WorkspaceRow }) {
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * Page-level "إلغاء ربط Notion" — shown next to "ربط قاعدة بيانات" in the page header.
+ * Only rendered when there is exactly one active connection (see NotionConnectionsPage),
+ * so it unambiguously targets that connection; multiple workspaces each get their own
+ * "قطع الاتصال" button on their card instead.
+ */
+export function DisconnectNotionButton({ connectionId }: { connectionId: string }) {
+  return (
+    <ActionButton
+      size="sm"
+      variant="outline"
+      className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+      action={() => disconnectNotionAction(connectionId)}
+      confirm={{
+        title: "إلغاء ربط Notion؟",
+        description:
+          "سيتم فصل اتصال Notion وإيقاف المزامنة التلقائية. لن يتم حذف الموظفين أو الخطط أو المهام أو بيانات الأداء الموجودة داخل Masar.",
+        confirmLabel: "نعم، إلغاء الربط",
+        destructive: true,
+      }}
+    >
+      <Unplug /> إلغاء ربط Notion
+    </ActionButton>
   );
 }
 

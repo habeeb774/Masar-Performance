@@ -8,7 +8,7 @@ import { PERMISSIONS } from "@/lib/permissions";
 import { cleanEnv, OAUTH_CALLBACK_PATH } from "@/lib/notion/oauth";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/shared/page";
-import { ConnectionHub, OAuthDiagnostics } from "@/features/notion/connection-hub";
+import { ConnectionHub, DisconnectNotionButton, OAuthDiagnostics } from "@/features/notion/connection-hub";
 import { ConnectionsManager } from "@/features/notion/connections-manager";
 
 export const metadata: Metadata = { title: "الاتصال بـ Notion" };
@@ -19,6 +19,9 @@ export default async function NotionConnectionsPage() {
   const [workspaces, all] = await Promise.all([listConnectionHealth(), advanced ? listConnections() : Promise.resolve([])]);
   const config = oauthConfig();
   const appUrl = cleanEnv(process.env.APP_URL)?.replace(/\/+$/, "") ?? "";
+  // a single button can only unambiguously target one connection — with several active
+  // workspaces each keeps its own "قطع الاتصال" button on its card instead
+  const activeConnections = workspaces.filter((w) => w.isActive);
 
   return (
     <div className="space-y-6">
@@ -27,11 +30,14 @@ export default async function NotionConnectionsPage() {
         description="مساحات عمل Notion المربوطة وحالة كل اتصال."
         actions={
           config && workspaces.length > 0 ? (
-            <Button size="sm" asChild>
-              <Link href="/notion/connect">
-                <Link2 /> ربط قاعدة بيانات
-              </Link>
-            </Button>
+            <>
+              <Button size="sm" asChild>
+                <Link href="/notion/connect">
+                  <Link2 /> ربط قاعدة بيانات
+                </Link>
+              </Button>
+              {activeConnections.length === 1 && <DisconnectNotionButton connectionId={activeConnections[0].id} />}
+            </>
           ) : undefined
         }
       />

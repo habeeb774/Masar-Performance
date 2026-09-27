@@ -188,29 +188,43 @@ export async function confirmNotionDatabaseAction(input: z.input<typeof confirmS
   });
 }
 
-/** Revoke the OAuth token at Notion and wipe local credentials. Synced history is kept; reconnecting the same workspace resumes it. */
+/**
+ * Revoke the OAuth token at Notion and wipe local credentials, which also stops every
+ * automated and manual sync for this connection's data sources (both the cron job's
+ * selection query and getNotionClient() gate on connection.isActive). Field/status
+ * mappings and previously synced records are kept as-is, un-updated, so reconnecting
+ * the same workspace later resumes exactly where it left off with no re-setup needed.
+ */
 export async function disconnectNotionAction(connectionId: string) {
   return runAction(async () => {
     const user = await actionPermission(PERMISSIONS.NOTION_MANAGE);
-    const conn = await db.notionConnection.findUniqueOrThrow({ where: { id: idSchema.parse(connectionId) } });
-    let revoked = false;
-    if (conn.authType === "OAUTH" && conn.tokenEncrypted) {
-      revoked = await revokeOAuthToken(decryptSecret(conn.tokenEncrypted));
+    const id = idSchema.parse(connectionId);
+    let dataSourceCount = 0;
+    try {
+      const conn = await db.notionConnection.findUniqueOrThrow({ where: { id } });
+      dataSourceCount = await db.notionDataSource.count({ where: { connectionId: id } });
+      let revoked = false;
+      if (conn.authType === "OAUTH" && conn.tokenEncrypted) {
+        revoked = await revokeOAuthToken(decryptSecret(conn.tokenEncrypted));
+      }
+      await db.notionConnection.update({
+        where: { id: conn.id },
+        data: { tokenEncrypted: "", tokenHint: "", refreshTokenEncrypted: null, isActive: false, status: "UNTESTED", lastError: null },
+      });
+      await audit({
+        user,
+        action: "NOTION_DISCONNECTED",
+        entityType: "NotionConnection",
+        entityId: conn.id,
+        before: { workspaceName: conn.workspaceName, ownerEmail: conn.ownerEmail },
+        after: { connectionId: conn.id, revokedAtNotion: revoked, dataSourceCount },
+      });
+    } catch (e) {
+      console.error("[notion-connect] disconnect failed", e);
+      throw new UserError("تعذر إلغاء الربط، حاول مرة أخرى.");
     }
-    await db.notionConnection.update({
-      where: { id: conn.id },
-      data: { tokenEncrypted: "", tokenHint: "", refreshTokenEncrypted: null, isActive: false, status: "UNTESTED", lastError: null },
-    });
-    await audit({
-      user,
-      action: "notion.connection.disconnect",
-      entityType: "NotionConnection",
-      entityId: conn.id,
-      before: { workspaceName: conn.workspaceName, ownerEmail: conn.ownerEmail },
-      after: { revokedAtNotion: revoked },
-    });
     revalidatePath("/", "layout");
-  }, "تم قطع الاتصال بـ Notion وحذف بيانات الدخول");
+  }, "تم إلغاء ربط Notion بنجاح");
 }
 
 /** Admin diagnostics: is the OAuth app configured, and does Notion accept its Client ID/Secret? */
