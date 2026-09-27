@@ -7,6 +7,7 @@ import { createSession, destroySession, getCurrentUser, requestMeta } from "@/se
 import { DUMMY_HASH, verifyPassword } from "@/server/auth/password";
 import { rateLimit, resetRateLimit } from "@/server/rate-limit";
 import { loginSchema } from "@/lib/validation";
+import { safeNextPath } from "@/lib/params";
 
 export interface LoginState {
   error?: string;
@@ -14,11 +15,6 @@ export interface LoginState {
 
 const MAX_FAILURES = 5;
 const LOCK_MS = 15 * 60 * 1000;
-
-function safeNext(next: unknown) {
-  const v = typeof next === "string" ? next : "";
-  return v.startsWith("/") && !v.startsWith("//") && !v.startsWith("/\\") ? v : "/dashboard";
-}
 
 export async function loginAction(_prev: LoginState, formData: FormData): Promise<LoginState> {
   const parsed = loginSchema.safeParse({ email: formData.get("email"), password: formData.get("password") });
@@ -56,7 +52,7 @@ export async function loginAction(_prev: LoginState, formData: FormData): Promis
   await resetRateLimit(`login:email:${email}`);
   await createSession(user.id);
   await audit({ user: null, action: "auth.login", entityType: "User", entityId: user.id });
-  redirect(safeNext(formData.get("next")));
+  redirect(safeNextPath(formData.get("next")));
 }
 
 export async function logoutAction() {

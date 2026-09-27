@@ -3,8 +3,9 @@ import Image from "next/image";
 import { redirect } from "next/navigation";
 import { BarChart3, CheckCircle2, RefreshCw, Target } from "lucide-react";
 import { LoginForm } from "./login-form";
-import type { SearchParams } from "@/lib/params";
+import { safeNextPath, type SearchParams } from "@/lib/params";
 import { isSetupCompleted } from "@/server/services/setup";
+import { getCurrentUser } from "@/server/auth/session";
 
 export const metadata: Metadata = { title: "تسجيل الدخول" };
 export const dynamic = "force-dynamic";
@@ -12,6 +13,13 @@ export const dynamic = "force-dynamic";
 export default async function LoginPage({ searchParams }: { searchParams: SearchParams }) {
   if (!(await isSetupCompleted())) redirect("/setup");
   const { next, setup } = await searchParams;
+  // The only place that decides "already signed in → skip login": the same
+  // DB-validated session check the (app) layout uses. Middleware only gates
+  // on cookie *presence* for private routes — it must never redirect away
+  // from /login itself, or a stale/invalid cookie causes a redirect loop
+  // (middleware bounces /login → /dashboard, the layout's real check bounces
+  // straight back since the session doesn't actually resolve).
+  if (await getCurrentUser()) redirect(safeNextPath(next));
   return (
     <div className="grid min-h-screen lg:grid-cols-2">
       <div className="flex items-center justify-center px-4 py-12">
