@@ -45,6 +45,18 @@ export interface ReportTotals {
   revisionRate: number | null;
 }
 
+export interface ReportBatchLine {
+  label: string;
+  total: number;
+  imagesApproved: number;
+  added: number;
+  needsImprovement: number;
+  /** waiting for approval + edited and resubmitted */
+  waiting: number;
+  imagesPct: number;
+  addedPct: number;
+}
+
 export interface WeeklyReportContent {
   version: 1;
   employee: { id: string; name: string; jobTitle: string | null };
@@ -56,6 +68,8 @@ export interface WeeklyReportContent {
   adHocTasks: ReportTaskLine[];
   autoHighlights: string[];
   autoCarryOver: string[];
+  /** older reports have none */
+  batches?: ReportBatchLine[];
 }
 
 export interface StageSummaryLine {
@@ -79,4 +93,6 @@ export interface MonthlyReportContent {
   stageSummary: StageSummaryLine[];
   autoHighlights: string[];
   weeklyNotes: { week: number; highlights: string | null; blockers: string | null }[];
+  /** older reports have none */
+  batches?: ReportBatchLine[];
 }

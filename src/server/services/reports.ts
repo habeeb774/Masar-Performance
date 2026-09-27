@@ -5,12 +5,14 @@ import { audit } from "@/server/audit";
 import { UserError } from "@/server/action";
 import { assertEmployeeAccess, type AuthUser } from "@/server/auth/session";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
-import { formatDateAr, fromDateKey, monthEnd, monthLabel, monthStart, toDateKey, todayKey } from "@/lib/dates";
+import { formatDateAr, fromDateKey, monthEnd, monthLabel, monthStart, shiftMonth, toDateKey, todayKey } from "@/lib/dates";
 import { isOverdue } from "@/lib/goal-status";
 import { formatPct, num, round2 } from "@/lib/num";
 import type { ProgressBreakdown } from "@/lib/notion/progress";
 import { GOAL_STATUS_LABELS, NOTION_STATUS_LABELS, TASK_STATUS_LABELS } from "@/lib/labels";
-import type { MonthlyReportContent, ReportGoalLine, ReportTaskLine, ReportTotals, StageSummaryLine, WeeklyReportContent } from "@/lib/report-types";
+import { pct, type BatchSummary } from "@/lib/notion/batches";
+import { batchesForPeriod } from "@/server/queries/batches";
+import type { MonthlyReportContent, ReportBatchLine, ReportGoalLine, ReportTaskLine, ReportTotals, StageSummaryLine, WeeklyReportContent } from "@/lib/report-types";
 import { getCompanyFresh } from "./company";
 import { managerUserIdsFor, notifyUsers } from "./notifications";
 import { recomputePlan } from "./progress";
@@ -88,6 +90,27 @@ function breakdownText(b: ProgressBreakdown | null) {
   if (b.needsRevision) parts.push(`يحتاج تحسين ${b.needsRevision}`);
   if (b.blocked) parts.push(`معلق ${b.blocked}`);
   return ` (${parts.join("، ")})`;
+}
+
+function batchLine(b: BatchSummary): ReportBatchLine {
+  return {
+    label: b.label,
+    total: b.total,
+    imagesApproved: b.images.approved,
+    added: b.store.added,
+    needsImprovement: b.images.needsImprovement,
+    waiting: b.images.waiting + b.images.edited,
+    imagesPct: pct(b.images.approved, b.total),
+    addedPct: pct(b.store.added, b.total),
+  };
+}
+
+async function batchLinesFor(employeeId: string, start: string, end: string): Promise<ReportBatchLine[]> {
+  return (await batchesForPeriod(employeeId, start, end)).map(batchLine);
+}
+
+export function batchText(b: ReportBatchLine) {
+  return `• ${b.label} — المستهدف ${b.total} منتج: الصور المعتمدة ${b.imagesApproved}، تمت الإضافة للمتجر ${b.added}، تحتاج تحسين ${b.needsImprovement}، بانتظار الاعتماد ${b.waiting} — إنجاز الصور ${formatPct(b.imagesPct)}، إضافة المنتجات ${formatPct(b.addedPct)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -184,6 +207,7 @@ export async function buildWeeklyContent(weeklyPlanId: string): Promise<WeeklyRe
     adHocTasks,
     autoHighlights,
     autoCarryOver,
+    batches: await batchLinesFor(week.employeeId, toDateKey(start), toDateKey(end)),
   };
 }
 
@@ -220,6 +244,11 @@ export function weeklyText(c: WeeklyReportContent): string {
     lines.push("");
     lines.push("المعوقات والتأخير");
     c.delayedTasks.forEach((t) => lines.push(`• ${t.title}${t.delayReason ? ` — السبب: ${t.delayReason}` : ""}`));
+  }
+  if (c.batches?.length) {
+    lines.push("");
+    lines.push("الدفعات");
+    c.batches.forEach((b) => lines.push(batchText(b)));
   }
   if (c.autoHighlights.length) {
     lines.push("");
@@ -557,6 +586,7 @@ export async function buildMonthlyContent(planId: string): Promise<MonthlyReport
         highlights: w.report!.highlights,
         blockers: w.report!.blockers,
       })),
+    batches: await batchLinesFor(plan.employeeId, startKey, endKey),
   };
 }
 
@@ -591,6 +621,11 @@ export function monthlyText(c: MonthlyReportContent): string {
       const parts = Object.entries(s.counts).map(([k, v]) => `${NOTION_STATUS_LABELS[k as keyof typeof NOTION_STATUS_LABELS]?.label ?? k} ${v}`);
       l.push(`• ${s.label} (${s.dataSourceName}): ${parts.join("، ")}${s.revisionEvents ? ` — أعيد للتحسين ${s.revisionEvents} مرة` : ""}`);
     });
+  }
+  if (c.batches?.length) {
+    l.push("");
+    l.push("الدفعات");
+    c.batches.forEach((b) => l.push(batchText(b)));
   }
   if (c.adHocTasks.length) {
     l.push("");
@@ -645,6 +680,72 @@ export async function generateMonthlyReport(planId: string, opts: { force?: bool
     });
   }
   return report;
+}
+
+const DRAFT_STATUSES = ["DRAFT", "RETURNED"] as const;
+
+async function recentMonths() {
+  const company = await getCompanyFresh();
+  const today = todayKey(company.timezone);
+  const current = { year: +today.slice(0, 4), month: +today.slice(5, 7) };
+  return [current, shiftMonth(current.year, current.month, -1)];
+}
+
+/**
+ * Regenerate the draft/returned reports (current and previous month) of the given
+ * employees so they reflect freshly synced data. Submitted, reviewed and approved
+ * reports are never touched; the generators keep the employee's notes.
+ */
+export async function refreshDraftReports(employeeIds: string[]) {
+  const result = { weekly: 0, monthly: 0, failed: 0 };
+  if (employeeIds.length === 0) return result;
+  const months = await recentMonths();
+  const monthFilter = months.map((m) => ({ year: m.year, month: m.month }));
+  const [weekly, monthly] = await Promise.all([
+    db.weeklyReport.findMany({
+      where: { employeeId: { in: employeeIds }, status: { in: [...DRAFT_STATUSES] }, weeklyPlan: { monthlyPlan: { OR: monthFilter } } },
+      select: { weeklyPlanId: true },
+    }),
+    db.monthlyReport.findMany({
+      where: { employeeId: { in: employeeIds }, status: { in: [...DRAFT_STATUSES] }, OR: monthFilter },
+      select: { monthlyPlanId: true },
+    }),
+  ]);
+  for (const r of weekly) {
+    try {
+      await generateWeeklyReport(r.weeklyPlanId);
+      result.weekly++;
+    } catch (e) {
+      result.failed++;
+      console.error("refreshDraftReports weekly", r.weeklyPlanId, e);
+    }
+  }
+  for (const r of monthly) {
+    try {
+      await generateMonthlyReport(r.monthlyPlanId);
+      result.monthly++;
+    } catch (e) {
+      result.failed++;
+      console.error("refreshDraftReports monthly", r.monthlyPlanId, e);
+    }
+  }
+  return result;
+}
+
+/** After a sync: refresh the drafts of employees whose recent plans use this data source. Never throws. */
+export async function refreshDraftsForDataSource(dataSourceId: string) {
+  try {
+    const months = await recentMonths();
+    const plans = await db.monthlyPlan.findMany({
+      where: { OR: months.map((m) => ({ year: m.year, month: m.month })), goals: { some: { notionDataSourceId: dataSourceId } } },
+      select: { employeeId: true },
+      distinct: ["employeeId"],
+    });
+    return await refreshDraftReports(plans.map((p) => p.employeeId));
+  } catch (e) {
+    console.error("refreshDraftsForDataSource", dataSourceId, e);
+    return null;
+  }
 }
 
 const isUniqueViolation = (e: unknown) => typeof e === "object" && e !== null && (e as { code?: unknown }).code === "P2002";

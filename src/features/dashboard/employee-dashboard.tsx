@@ -6,6 +6,9 @@ import { EmptyState } from "@/components/shared/page";
 import { EnumBadge, StatusBadge } from "@/components/shared/status-badge";
 import { ProgressBar } from "@/components/shared/progress-bar";
 import { DashboardTodayTasks } from "@/features/tasks/dashboard-today-tasks";
+import { BatchCard } from "@/features/notion/batch-card";
+import { BatchWorkNow } from "@/features/notion/batch-work";
+import type { getEmployeeBatches } from "@/server/queries/batches";
 import type { getEmployeeDashboard } from "@/server/queries/dashboard";
 import type { AdHocTaskRow, DailyTaskRow } from "@/server/queries/tasks";
 import { formatDateAr, formatDateTimeAr, formatDayAr, monthLabel } from "@/lib/dates";
@@ -28,7 +31,7 @@ function nextTask(daily: DailyTaskRow[], adHoc: AdHocTaskRow[], today: string) {
   return candidates.sort((a, b) => Number(b.overdue) - Number(a.overdue) || RANK[a.priority] - RANK[b.priority])[0] ?? null;
 }
 
-export function EmployeeDashboard({ name, userId, data }: { name: string; userId: string; data: Data }) {
+export function EmployeeDashboard({ name, userId, data, batches }: { name: string; userId: string; data: Data; batches?: Awaited<ReturnType<typeof getEmployeeBatches>> }) {
   const { stats, week } = data;
   const next = nextTask(data.todayTaskRows, data.adHocRows, data.today);
   const allDone = stats.todayCount > 0 && stats.todayDone >= stats.todayCount;
@@ -80,6 +83,12 @@ export function EmployeeDashboard({ name, userId, data }: { name: string; userId
           </div>
         )}
       </Card>
+
+      {batches?.current && (
+        <BatchCard batch={batches.current}>
+          <BatchWorkNow needsImprovement={batches.needsImprovement} readyToAdd={batches.readyToAdd} />
+        </BatchCard>
+      )}
 
       {alerts.length > 0 && (
         <div className="flex flex-wrap gap-2">

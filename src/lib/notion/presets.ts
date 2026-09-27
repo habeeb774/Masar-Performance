@@ -8,7 +8,7 @@ import type { SystemStatus } from "./status";
 
 export interface PresetField {
   property: string;
-  role: "TITLE" | "STATUS" | "DATE" | "BATCH" | "PRODUCT_CODE" | "EMPLOYEE" | "TASK_TYPE" | "TEXT" | "NUMBER";
+  role: "TITLE" | "STATUS" | "DATE" | "BATCH" | "PRODUCT_CODE" | "EMPLOYEE" | "TASK_TYPE" | "TEXT" | "NUMBER" | "NOTES";
   label: string;
   stageKey?: string;
   statuses?: { value: string; status: SystemStatus; precedence?: number }[];

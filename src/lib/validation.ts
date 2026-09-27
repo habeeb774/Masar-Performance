@@ -386,7 +386,7 @@ export const notionDataSourceSchema = z.object({
 
 export const fieldMappingSchema = z.object({
   id: z.string().optional(),
-  role: z.enum(["TITLE", "STATUS", "DATE", "BATCH", "PRODUCT_CODE", "EMPLOYEE", "TASK_TYPE", "TEXT", "NUMBER"]),
+  role: z.enum(["TITLE", "STATUS", "DATE", "BATCH", "PRODUCT_CODE", "EMPLOYEE", "TASK_TYPE", "TEXT", "NUMBER", "NOTES"]),
   notionProperty: z.string().min(1).max(200),
   notionPropertyType: z.string().min(1).max(40),
   stageKey: z

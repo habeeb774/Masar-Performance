@@ -12,7 +12,10 @@ import {
   TrendingDown,
   Users,
 } from "lucide-react";
+import { PackageSearch } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { BatchCard } from "@/features/notion/batch-card";
+import type { getTeamBatchOverview } from "@/server/queries/batches";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -22,7 +25,7 @@ import { cn } from "@/lib/utils";
 import { ProgressBar } from "@/components/shared/progress-bar";
 import { GroupedBarChart, PercentBars, StageStatusChart, TrendChart } from "@/components/charts/charts";
 import type { getManagerDashboard } from "@/server/queries/dashboard";
-import { formatDayAr, monthLabel } from "@/lib/dates";
+import { formatDateAr, formatDayAr, monthLabel } from "@/lib/dates";
 import { formatNumber, formatPct } from "@/lib/num";
 import { PLAN_STATUS_LABELS } from "@/lib/labels";
 
@@ -35,9 +38,10 @@ const ATTENTION_ICONS: Record<AttentionItem["type"], LucideIcon> = {
   TASK_BLOCKED: Lock,
   WEEKLY_REPORT_MISSING: FileClock,
   PENDING_APPROVAL: Hourglass,
+  BATCH_BOTTLENECK: PackageSearch,
 };
 
-export function ManagerDashboard({ name, data }: { name: string; data: Data }) {
+export function ManagerDashboard({ name, data, batches = [] }: { name: string; data: Data; batches?: Awaited<ReturnType<typeof getTeamBatchOverview>> }) {
   const { stats } = data;
   const stageRows = Object.values(
     data.stages.reduce<Record<string, { label: string; [k: string]: string | number }>>((acc, s) => {
@@ -111,6 +115,26 @@ export function ManagerDashboard({ name, data }: { name: string; data: Data }) {
         </CardContent>
       </Card>
 
+      {batches.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-base font-semibold">الدفعة الحالية</h2>
+          <div className="grid gap-3 md:grid-cols-2">
+            {batches.map((b) => (
+              <BatchCard key={b.batch.key} batch={b.batch} pace={b.pace} subtitle={`الأسبوع ${formatDateAr(b.week.start)}–${formatDateAr(b.week.end)}`}>
+                {b.batch.images.waiting + b.batch.images.edited > 0 && (
+                  <div className="flex justify-end">
+                    <Button variant="ghost" size="sm" asChild>
+                      <Link href="/review-center?tab=batches">
+                        مراجعة <ArrowLeft />
+                      </Link>
+                    </Button>
+                  </div>
+                )}
+              </BatchCard>
+            ))}
+          </div>
+        </section>
+      )}
 
       {stats.withoutPlan > 0 && (
         <div className="flex flex-col gap-3 rounded-xl border border-warning/40 bg-warning-soft/30 p-4 sm:flex-row sm:items-center">

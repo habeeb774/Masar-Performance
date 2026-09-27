@@ -134,7 +134,7 @@ export const NOTION_STATUS_LABELS: LabelMap<
 };
 
 export const NOTION_FIELD_ROLE_LABELS: Record<
-  "TITLE" | "STATUS" | "DATE" | "BATCH" | "PRODUCT_CODE" | "EMPLOYEE" | "TASK_TYPE" | "TEXT" | "NUMBER",
+  "TITLE" | "STATUS" | "DATE" | "BATCH" | "PRODUCT_CODE" | "EMPLOYEE" | "TASK_TYPE" | "TEXT" | "NUMBER" | "NOTES",
   string
 > = {
   TITLE: "العنوان / اسم العنصر",
@@ -146,6 +146,7 @@ export const NOTION_FIELD_ROLE_LABELS: Record<
   TASK_TYPE: "نوع المهمة",
   TEXT: "نص إضافي",
   NUMBER: "رقم إضافي",
+  NOTES: "ملاحظة المراجع",
 };
 
 export const SYNC_STATUS_LABELS: LabelMap<"RUNNING" | "SUCCESS" | "PARTIAL" | "FAILED"> = {

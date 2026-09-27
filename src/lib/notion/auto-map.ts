@@ -63,18 +63,24 @@ const hasStem = (n: string, words: string[]) => stems(n).some((t) => words.inclu
 
 const EXACT_STATUS: Record<string, SystemStatus> = {};
 const exact = (status: SystemStatus, values: string[]) => values.forEach((v) => (EXACT_STATUS[normalizeLabel(v)] = status));
-exact("COMPLETED", ["done", "complete", "completed", "finished", "approved", "published", "مكتمل", "مكتملة", "تم", "منجز", "منتهي", "معتمد", "تم الإنجاز", "تم الإضافة", "تم النشر", "اعتماد نهائي", "مضاف نهائي"]);
+exact("COMPLETED", ["done", "complete", "completed", "finished", "approved", "published", "مكتمل", "مكتملة", "تم", "منجز", "منتهي", "معتمد", "تم الاعتماد", "تم الإنجاز", "تم الإضافة", "تمت الإضافة", "مضاف", "تم النشر", "اعتماد نهائي", "مضاف نهائي"]);
 exact("IN_PROGRESS", ["doing", "in progress", "working", "started", "wip", "جاري", "جاري العمل", "قيد التنفيذ", "قيد العمل", "تحت التنفيذ", "بدأ"]);
 exact("PENDING_APPROVAL", ["waiting", "review", "in review", "pending", "pending review", "awaiting approval", "بانتظار", "بانتظار المراجعة", "بانتظار الاعتماد", "قيد المراجعة", "تحت المراجعة", "يحتاج اعتماد", "يحتاج إلى اعتماد"]);
 exact("NOT_STARTED", ["not started", "new", "todo", "to do", "backlog", "جديد", "لم يبدأ", "لم يتم", "لم يتم البدء", "مطلوب"]);
-exact("NEEDS_REVISION", ["needs revision", "changes requested", "rework", "يحتاج تعديل", "يحتاج تحسين", "تحتاج إلى تحسين", "مرفوض"]);
-exact("IN_PROGRESS_AFTER_REVISION", ["revised", "تم التعديل", "تم التحسين"]);
+exact("NEEDS_REVISION", ["needs revision", "changes requested", "rework", "يحتاج تعديل", "يحتاج تحسين", "تحتاج تحسين", "تحتاج إلى تحسين", "إعادة تعديل", "مرفوض"]);
+exact("IN_PROGRESS_AFTER_REVISION", ["revised", "تم التعديل", "تم تعديل الصور", "تم التحسين"]);
 exact("BLOCKED", ["blocked", "on hold", "paused", "معلق", "متوقف"]);
 exact("CANCELLED", ["cancelled", "canceled", "ملغي", "غير معتمد"]);
-exact("NOT_APPLICABLE", ["n a", "na", "not applicable", "لا ينطبق", "غير مطلوب"]);
+exact("NOT_APPLICABLE", ["n a", "na", "not applicable", "لا ينطبق"]);
+
+/**
+ * Terminal values whose effect on the target is a business rule (count as done, or
+ * exclude from the target) — never guessed; the admin decides once in the mapping.
+ */
+const RULE_DECIDED = ["دمج", "منتج سابق", "مستبعد", "استبعاد", "غير مطلوب", "merged", "excluded"];
 
 function keywordStatus(n: string): SystemStatus | null {
-  if (hasAny(n, ["غير مطلوب", "ليس بحاجه", "لا يحتاج", "لا ينطبق", "مسبقا", "not needed", "not applicable"])) return "NOT_APPLICABLE";
+  if (hasAny(n, ["ليس بحاجه", "لا يحتاج", "لا ينطبق", "مسبقا", "not needed", "not applicable"])) return "NOT_APPLICABLE";
   if (hasAny(n, ["غير معتمد", "ملغ", "cancel", "reject"])) return "CANCELLED";
   if (hasWord(n, ["لم", "not"]) || hasAny(n, ["لم يتم", "لم يبدا"])) return "NOT_STARTED";
   if (hasAny(n, ["تم تعديل", "تم التعديل", "تم التحسين", "تم تحسين", "revised", "after revision"])) return "IN_PROGRESS_AFTER_REVISION";
@@ -91,6 +97,7 @@ const GROUP_STATUS: Record<StatusGroup, SystemStatus> = { complete: "COMPLETED",
 
 export function suggestStatus(value: string, group?: StatusGroup | null): Omit<StatusSuggestion, "value"> {
   const n = normalizeLabel(value);
+  if (hasAny(n, RULE_DECIDED.map(normalizeLabel))) return { status: null, confidence: "unknown" };
   const hit = EXACT_STATUS[n];
   if (hit) return { status: hit, confidence: "auto" };
   const kw = keywordStatus(n);
@@ -107,7 +114,8 @@ const STAGE_KEYWORDS: { key: string; words: string[]; parts?: string[] }[] = [
   { key: "content", words: ["محتوي", "وصف", "content", "description", "copy", "copywriting", "كتابه"] },
   { key: "video", words: ["فيديو", "video", "reels", "ريلز"] },
   { key: "design", words: ["تصميم", "design", "تصاميم"] },
-  { key: "upload", words: ["رفع", "اضافه", "متجر", "نشر", "upload", "publish", "store", "listing"] },
+  // "store" matches the key goal rules use for «الإضافة للمتجر»
+  { key: "store", words: ["رفع", "اضافه", "متجر", "نشر", "upload", "publish", "store", "listing"] },
   { key: "review", words: ["مراجعه", "اعتماد", "review", "approval", "qa", "تدقيق"] },
   { key: "status", words: ["status", "حاله", "state", "stage", "مرحله"] },
 ];
@@ -128,6 +136,8 @@ function detectRole(p: SchemaInput): { role: FieldRole; confidence: Confidence }
   if (TEXTUAL.has(p.type) && (hasStem(n, ["sku", "كود", "باركود", "barcode", "رمز"]) || hasAny(n, ["product code", "item code", "code"])))
     return { role: "PRODUCT_CODE", confidence: "auto" };
   if (hasStem(n, ["batch", "دفعه", "دفعات"]) && p.type !== "date") return { role: "BATCH", confidence: "auto" };
+  if ((p.type === "rich_text" || p.type === "formula") && hasStem(n, ["ملاحظات", "ملاحظه", "notes", "note", "تعليق", "تعليقات", "comments", "feedback"]))
+    return { role: "NOTES", confidence: "auto" };
   if (p.type === "date" || p.type === "created_time")
     return { role: "DATE", confidence: hasStem(n, ["date", "تاريخ", "يوم", "day"]) ? "auto" : "suggested" };
   if (p.type === "people")

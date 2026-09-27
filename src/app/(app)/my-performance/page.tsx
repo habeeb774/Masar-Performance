@@ -15,6 +15,8 @@ import { aggregateScores } from "@/lib/kpi/engine";
 import { cn } from "@/lib/utils";
 import { can, requirePermission } from "@/server/auth/session";
 import { getLatestApprovedReviewId, getPerformanceHistory, getReviewDetail, type KpiResultRow } from "@/server/queries/performance";
+import { getEmployeeBatches } from "@/server/queries/batches";
+import { pct } from "@/lib/notion/batches";
 import { acknowledgeReviewAction } from "@/actions/performance";
 import { PerformanceHistory } from "@/features/performance/performance-history";
 import { KpiResultsTable } from "@/features/performance/kpi-results-table";
@@ -76,6 +78,11 @@ export default async function MyPerformancePage({ searchParams }: { searchParams
       </div>
     );
   }
+
+  const batches = await getEmployeeBatches(user.employeeId, review.year, review.month);
+  const monthKeys = new Map((batches?.month ?? []).map((b) => [b.key, b.label]));
+  const q = (batches?.month ?? []).reduce((a, b) => ({ approved: a.approved + b.quality.approved, firstPass: a.firstPass + b.quality.firstPass, reworked: a.reworked + b.quality.reworked }), { approved: 0, firstPass: 0, reworked: 0 });
+  const sentBack = (batches?.quality ?? []).filter((r) => monthKeys.has(r.batch) && r.rejections > 0).sort((a, b) => b.rejections - a.rejections);
 
   const tone = ratingTone(review.ratingColor);
   const scores = [
@@ -147,6 +154,53 @@ export default async function MyPerformancePage({ searchParams }: { searchParams
               </Card>
             ))}
           </div>
+
+          {batches && monthKeys.size > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm">جودة الصور</CardTitle>
+                <CardDescription>من دفعات {monthLabel(review.year, review.month)}</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
+                  {[
+                    ["اعتُمدت من أول مراجعة", q.approved > 0 ? formatPct(pct(q.firstPass, q.approved)) : "—"],
+                    ["صور معتمدة", formatNumber(q.approved)],
+                    ["احتاجت تحسين", formatNumber(q.reworked)],
+                  ].map(([label, value]) => (
+                    <div key={label} className="rounded-lg bg-muted/40 p-3">
+                      <dt className="text-xs text-muted-foreground">{label}</dt>
+                      <dd className="mt-0.5 font-semibold tabular-nums">{value}</dd>
+                    </div>
+                  ))}
+                </dl>
+                {sentBack.length > 0 && (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="text-xs text-muted-foreground">
+                        <tr className="border-b">
+                          <th className="py-2 text-start font-medium">المنتج</th>
+                          <th className="py-2 text-start font-medium">الدفعة</th>
+                          <th className="py-2 text-center font-medium">مرات الإرسال</th>
+                          <th className="py-2 text-center font-medium">مرات طلب التحسين</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {sentBack.map((r, i) => (
+                          <tr key={`${r.batch}-${r.title}-${i}`}>
+                            <td className="max-w-48 py-2 pe-2 break-words">{r.title}</td>
+                            <td className="py-2 pe-2 whitespace-nowrap">{monthKeys.get(r.batch) ?? r.batch}</td>
+                            <td className="py-2 text-center tabular-nums">{formatNumber(r.submissions)}</td>
+                            <td className="py-2 text-center tabular-nums">{formatNumber(r.rejections)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           <ReviewScoreSummary
             autoScore={review.autoScore}

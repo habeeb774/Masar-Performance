@@ -18,7 +18,7 @@ export type Bucket = "decide" | "suggested" | "auto" | "ignored";
 type Option = { value: string; label: string };
 
 const NONE = "__none__";
-const SINGLE_ROLES: FieldRole[] = ["TITLE", "PRODUCT_CODE", "DATE", "BATCH", "EMPLOYEE", "TASK_TYPE"];
+const SINGLE_ROLES: FieldRole[] = ["TITLE", "PRODUCT_CODE", "DATE", "BATCH", "EMPLOYEE", "TASK_TYPE", "NOTES"];
 const PICKABLE_STATUSES = SYSTEM_STATUSES.filter((s) => s !== "UNMAPPED");
 
 export const ROLE_LABELS: Partial<Record<FieldRole, string>> = {
@@ -29,6 +29,7 @@ export const ROLE_LABELS: Partial<Record<FieldRole, string>> = {
   EMPLOYEE: "الموظف المسؤول",
   TASK_TYPE: "نوع المهمة",
   STATUS: "مرحلة عمل",
+  NOTES: "ملاحظة المراجع",
 };
 
 function rolesFor(type: string): FieldRole[] {
@@ -38,6 +39,7 @@ function rolesFor(type: string): FieldRole[] {
   if (["date", "created_time", "last_edited_time", "formula"].includes(type)) roles.push("DATE");
   if (["people", "rich_text", "select", "created_by"].includes(type)) roles.push("EMPLOYEE");
   if (type === "select" || type === "multi_select") roles.push("TASK_TYPE");
+  if (type === "rich_text" || type === "formula") roles.push("NOTES");
   if (STAGE_TYPES.has(type)) roles.push("STATUS");
   return roles;
 }

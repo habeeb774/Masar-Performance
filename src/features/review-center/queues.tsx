@@ -12,7 +12,8 @@ import { commentMonthlyReportAction, commentWeeklyReportAction, reviewMonthlyRep
 import { NOTION_STATUS_LABELS } from "@/lib/labels";
 import { formatDateAr, formatDateTimeAr, monthLabel } from "@/lib/dates";
 import { formatNumber } from "@/lib/num";
-import type { getMonthlyReportsQueue, getNotionQueue, getPlansQueue, getWeeklyReportsQueue } from "@/server/queries/review-center";
+import type { ReviewProduct } from "@/server/queries/batches";
+import type { getBatchReviewQueue, getMonthlyReportsQueue, getNotionQueue, getPlansQueue, getWeeklyReportsQueue } from "@/server/queries/review-center";
 
 function sinceDays(d: Date) {
   const days = Math.floor((Date.now() - d.getTime()) / 86_400_000);
@@ -336,6 +337,69 @@ export function NotionQueue({ data, emptyTitle }: { data: Awaited<ReturnType<typ
         </section>
       ))}
       <Pager page={data.page} pageSize={data.pageSize} total={data.total} />
+    </div>
+  );
+}
+
+function BatchProducts({ summary, products }: { summary: string; products: ReviewProduct[] }) {
+  return (
+    <details className="group">
+      <summary className="flex cursor-pointer list-none items-center gap-3 p-3 hover:bg-muted/40 [&::-webkit-details-marker]:hidden">
+        <span className="min-w-0 flex-1 text-sm">{summary}</span>
+        <span className="shrink-0 text-xs font-medium text-primary">مراجعة</span>
+      </summary>
+      <ul className="divide-y border-t bg-muted/20">
+        {products.map((p) => (
+          <li key={p.id} className="flex flex-col gap-2 p-3 ps-5 sm:flex-row sm:items-center">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium break-words">{p.title}</p>
+              <p className="text-xs text-muted-foreground" title={formatDateTimeAr(new Date(p.since))}>
+                {sinceDays(new Date(p.since))}
+              </p>
+              {p.note && (
+                <p className="mt-1 flex items-start gap-1 text-xs text-muted-foreground">
+                  <MessageSquare className="mt-0.5 size-3 shrink-0" />
+                  <span className="break-words">{p.note}</span>
+                </p>
+              )}
+            </div>
+            {p.url && (
+              <Button variant="outline" size="sm" asChild className="self-start sm:self-center">
+                <a href={p.url} target="_blank" rel="noopener noreferrer">
+                  فتح في Notion <ExternalLink />
+                </a>
+              </Button>
+            )}
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
+export function BatchReviewQueue({ groups }: { groups: Awaited<ReturnType<typeof getBatchReviewQueue>> }) {
+  if (groups.length === 0)
+    return <EmptyState icon={CheckCircle2} title="لا توجد صور بانتظار اعتمادك" description="تُحدَّث هذه القائمة مع كل مزامنة من Notion." />;
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <NotionSyncedTag />
+        <span className="text-xs text-muted-foreground">الاعتماد يتم في Notion</span>
+      </div>
+      <QueueList>
+        {groups.flatMap((g) => [
+          g.waiting.length > 0 && (
+            <li key={`${g.label}-waiting`}>
+              <BatchProducts summary={`${g.label} — ${formatNumber(g.waiting.length)} صور تحتاج اعتماد`} products={g.waiting} />
+            </li>
+          ),
+          g.edited.length > 0 && (
+            <li key={`${g.label}-edited`}>
+              <BatchProducts summary={`${g.label} — ${formatNumber(g.edited.length)} منتجات تم تعديل صورها وتحتاج إعادة مراجعة`} products={g.edited} />
+            </li>
+          ),
+        ])}
+      </QueueList>
     </div>
   );
 }

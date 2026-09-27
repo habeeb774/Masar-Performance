@@ -7,8 +7,10 @@ import { num } from "@/lib/num";
 import { deriveGoalStatus } from "@/lib/goal-status";
 import { getCompany } from "@/server/services/company";
 import type { Tone } from "@/lib/labels";
+import { STALE_DAYS } from "@/lib/notion/batches";
+import { getBatchAlerts } from "./batches";
 
-export type AttentionType = "OVERDUE_EMPLOYEE" | "GOAL_AT_RISK" | "TASK_BLOCKED" | "WEEKLY_REPORT_MISSING" | "PENDING_APPROVAL";
+export type AttentionType = "OVERDUE_EMPLOYEE" | "GOAL_AT_RISK" | "TASK_BLOCKED" | "WEEKLY_REPORT_MISSING" | "PENDING_APPROVAL" | "BATCH_BOTTLENECK";
 
 export interface AttentionItem {
   id: string;
@@ -44,7 +46,7 @@ export async function getAttentionFeed(user: AuthUser): Promise<{ items: Attenti
   const nameOf = new Map(employees.map((e) => [e.id, e.fullName]));
   if (ids.length === 0) return { items: [], total: 0 };
 
-  const [overdueDaily, overdueAdHoc, blockedDaily, blockedAdHoc, weeklyDue, atRiskGoals, reviewCounts] = await Promise.all([
+  const [overdueDaily, overdueAdHoc, blockedDaily, blockedAdHoc, weeklyDue, atRiskGoals, reviewCounts, batchAlerts] = await Promise.all([
     db.dailyTask.groupBy({
       by: ["employeeId"],
       where: { employeeId: { in: ids }, OR: [{ status: "DELAYED" }, { deadline: { lt: todayDate }, status: { notIn: ["COMPLETED", "CANCELLED"] } }] },
@@ -79,6 +81,7 @@ export async function getAttentionFeed(user: AuthUser): Promise<{ items: Attenti
       take: 200,
     }),
     getReviewCounts(user),
+    getBatchAlerts(user).catch(() => []),
   ]);
 
   const overdueMap = new Map<string, number>();
@@ -185,6 +188,38 @@ export async function getAttentionFeed(user: AuthUser): Promise<{ items: Attenti
       text: `${reviewCounts.monthly} تقرير شهري بانتظار المراجعة`,
       href: "/review-center?tab=monthly",
     });
+  }
+
+  const since = STALE_DAYS === 2 ? "منذ أكثر من يومين" : `منذ أكثر من ${STALE_DAYS} أيام`;
+  for (const b of batchAlerts) {
+    const { waitingTooLong, improvementNotDone, approvedNotAdded } = b.stale;
+    if (waitingTooLong > 0)
+      items.push({
+        id: `batch-waiting-${b.key}`,
+        type: "BATCH_BOTTLENECK",
+        severity: 900 + waitingTooLong,
+        tone: "danger",
+        text: `${b.label}: ${waitingTooLong} منتجات بانتظار الاعتماد ${since}`,
+        href: "/review-center?tab=batches",
+      });
+    if (improvementNotDone > 0)
+      items.push({
+        id: `batch-improve-${b.key}`,
+        type: "BATCH_BOTTLENECK",
+        severity: 750 + improvementNotDone,
+        tone: "warning",
+        text: `${b.label}: ${improvementNotDone} منتجات تحتاج تحسين ولم تُعدّل بعد`,
+        href: "/review-center?tab=batches",
+      });
+    if (approvedNotAdded > 0)
+      items.push({
+        id: `batch-add-${b.key}`,
+        type: "BATCH_BOTTLENECK",
+        severity: 600 + approvedNotAdded,
+        tone: "warning",
+        text: `${b.label}: ${approvedNotAdded} منتجات صورها معتمدة ولم تُضف للمتجر`,
+        href: "/review-center?tab=batches",
+      });
   }
 
   items.sort((a, b) => b.severity - a.severity);

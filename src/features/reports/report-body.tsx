@@ -8,7 +8,7 @@ import { ProgressBar } from "@/components/shared/progress-bar";
 import { formatDateAr } from "@/lib/dates";
 import { formatNumber, formatPct } from "@/lib/num";
 import { GOAL_STATUS_LABELS, NOTION_STATUS_LABELS, REPORT_STATUS_LABELS, TASK_SOURCE_LABELS, TASK_STATUS_LABELS } from "@/lib/labels";
-import type { MonthlyReportContent, ReportGoalLine, ReportTaskLine, ReportTotals, WeeklyReportContent } from "@/lib/report-types";
+import type { MonthlyReportContent, ReportBatchLine, ReportGoalLine, ReportTaskLine, ReportTotals, WeeklyReportContent } from "@/lib/report-types";
 import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
@@ -300,6 +300,46 @@ export function TaskLinesTable({
   );
 }
 
+export function BatchesSection({ batches }: { batches: ReportBatchLine[] | undefined }) {
+  if (!batches?.length) return null;
+  return (
+    <ReportSection title="الدفعات" count={batches.length}>
+      <div className="grid gap-3 md:grid-cols-2">
+        {batches.map((b) => (
+          <div key={b.label} className="rounded-lg border p-3 break-inside-avoid">
+            <p className="text-sm font-semibold">
+              {b.label} <span className="font-normal text-muted-foreground">— المستهدف: {formatNumber(b.total)} منتج</span>
+            </p>
+            <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+              {[
+                ["الصور المعتمدة", b.imagesApproved],
+                ["تمت الإضافة للمتجر", b.added],
+                ["تحتاج تحسين", b.needsImprovement],
+                ["بانتظار الاعتماد", b.waiting],
+              ].map(([label, value]) => (
+                <div key={label} className="flex justify-between gap-2">
+                  <dt className="text-muted-foreground">{label}</dt>
+                  <dd className={cn("font-medium tabular-nums", label === "تحتاج تحسين" && Number(value) > 0 && "text-danger")}>{formatNumber(Number(value))}</dd>
+                </div>
+              ))}
+            </dl>
+            <div className="mt-3 space-y-2">
+              <div>
+                <p className="mb-1 text-[11px] text-muted-foreground">نسبة إنجاز الصور</p>
+                <ProgressBar value={b.imagesPct} showLabel size="sm" />
+              </div>
+              <div>
+                <p className="mb-1 text-[11px] text-muted-foreground">نسبة إضافة المنتجات</p>
+                <ProgressBar value={b.addedPct} showLabel size="sm" />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </ReportSection>
+  );
+}
+
 // ---------------------------------------------------------------------------
 //  Weekly
 // ---------------------------------------------------------------------------
@@ -311,6 +351,7 @@ export function WeeklyReportBody({ content }: { content: WeeklyReportContent }) 
       <ReportSection title="أهداف الأسبوع" count={content.goals.length}>
         <GoalsTable goals={content.goals} />
       </ReportSection>
+      <BatchesSection batches={content.batches} />
       <div className="grid gap-4 xl:grid-cols-2">
         <ReportSection title="المهام اليدوية" count={content.manualTasks.length}>
           <TaskLinesTable tasks={content.manualTasks} empty="لا توجد مهام يدوية هذا الأسبوع." />
@@ -350,6 +391,7 @@ export function MonthlyReportBody({ content }: { content: MonthlyReportContent }
       <ReportSection title="الأهداف الشهرية" count={content.goals.length}>
         <GoalsTable goals={content.goals} />
       </ReportSection>
+      <BatchesSection batches={content.batches} />
 
       <ReportSection title="الإنجاز حسب الأسابيع" count={content.weeks.length}>
         {content.weeks.length === 0 ? (

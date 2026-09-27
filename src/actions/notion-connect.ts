@@ -98,7 +98,7 @@ const confirmSchema = z.object({
       z.object({
         property: z.string().min(1).max(200),
         propertyType: z.string().min(1).max(40),
-        role: z.enum(["TITLE", "STATUS", "DATE", "BATCH", "PRODUCT_CODE", "EMPLOYEE", "TASK_TYPE", "TEXT", "NUMBER"]).nullable(),
+        role: z.enum(["TITLE", "STATUS", "DATE", "BATCH", "PRODUCT_CODE", "EMPLOYEE", "TASK_TYPE", "TEXT", "NUMBER", "NOTES"]).nullable(),
         stageKey: z.string().max(40).nullable(),
         label: z.string().min(1).max(200),
         ownerEmployeeId: z.string().nullable(),

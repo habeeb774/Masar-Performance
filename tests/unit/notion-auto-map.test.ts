@@ -85,7 +85,7 @@ describe("suggestMappings", () => {
 
   it("asks the user only about ambiguous fields", () => {
     expect(by("اللون")).toMatchObject({ role: null, confidence: "unknown" });
-    expect(by("ملاحظات")).toMatchObject({ role: null, confidence: "auto" });
+    expect(by("ملاحظات")).toMatchObject({ role: "NOTES", confidence: "auto" });
     // «اللون» + «Something odd» + «Legacy value»
     expect(unresolvedCount(result)).toBe(3);
   });
@@ -123,5 +123,44 @@ describe("pickDatabase", () => {
     expect(pickDatabase([db("Content Calendar"), db("مهام التصميم")])).toBeNull();
     expect(pickDatabase([db("Wiki"), db("Notes")])).toBeNull();
     expect(pickDatabase([db("A", "x")])).toBeNull();
+  });
+});
+
+describe("store workflow detection", () => {
+  it.each([
+    ["يحتاج اعتماد", "PENDING_APPROVAL"],
+    ["يحتاج إلى اعتماد", "PENDING_APPROVAL"],
+    ["بانتظار الاعتماد", "PENDING_APPROVAL"],
+    ["تحتاج تحسين", "NEEDS_REVISION"],
+    ["يحتاج تحسين", "NEEDS_REVISION"],
+    ["إعادة تعديل", "NEEDS_REVISION"],
+    ["تم التعديل", "IN_PROGRESS_AFTER_REVISION"],
+    ["تم تعديل الصور", "IN_PROGRESS_AFTER_REVISION"],
+    ["معتمد", "COMPLETED"],
+    ["تم الاعتماد", "COMPLETED"],
+    ["تم الإضافة", "COMPLETED"],
+    ["تمت الإضافة", "COMPLETED"],
+    ["مضاف", "COMPLETED"],
+  ])("%s → %s", (value, status) => {
+    expect(suggestStatus(value).status).toBe(status);
+  });
+
+  it("leaves rule-dependent terminal values to the admin (never guessed)", () => {
+    for (const v of ["تم الدمج", "تم الإضافة إلى منتج سابق", "مستبعد", "غير مطلوب"]) expect(suggestStatus(v)).toEqual({ status: null, confidence: "unknown" });
+  });
+
+  it("detects batch, image approval, store upload and reviewer notes by name, type and values", () => {
+    const r = suggestMappings([
+      { name: "رقم الدفعة", type: "number", options: [] },
+      sel("حالة الصور", ["قيد العمل", "يحتاج إلى اعتماد", "تحتاج إلى تحسين", "تم التعديل", "معتمد"]),
+      sel("حالة الإضافة", ["لم يتم", "تم الإضافة"]),
+      { name: "ملاحظة المدير", type: "rich_text", options: [] },
+    ]);
+    const by = (p: string) => r.find((x) => x.property === p)!;
+    expect(by("رقم الدفعة").role).toBe("BATCH");
+    expect(by("حالة الصور")).toMatchObject({ role: "STATUS", stageKey: "images" });
+    expect(by("حالة الإضافة")).toMatchObject({ role: "STATUS", stageKey: "store" });
+    expect(by("ملاحظة المدير")).toMatchObject({ role: "NOTES", confidence: "auto" });
+    expect(by("حالة الصور").statuses.every((s) => s.status)).toBe(true);
   });
 });

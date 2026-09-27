@@ -7,8 +7,11 @@ import { toDateKey } from "@/lib/dates";
 import { num } from "@/lib/num";
 import { ensureDueReports } from "@/server/services/reports";
 import { contentProgress } from "./reports";
+import { getBatchReviewQueue } from "./batches";
 
-export const REVIEW_TABS = ["weekly", "monthly", "plans", "pending", "images", "content", "revision"] as const;
+export { getBatchReviewQueue };
+
+export const REVIEW_TABS = ["batches", "weekly", "monthly", "plans", "pending", "images", "content", "revision"] as const;
 export type ReviewTab = (typeof REVIEW_TABS)[number];
 
 export const NOTION_PAGE_SIZE = 50;
@@ -60,7 +63,8 @@ export function ensureTeamReports(user: AuthUser) {
 
 export async function getReviewCenterCounts(user: AuthUser) {
   const scope = employeeWhere(user);
-  const [weekly, monthly, plans, variance, pending, images, content, revision] = await Promise.all([
+  const [batchQueue, weekly, monthly, plans, variance, pending, images, content, revision] = await Promise.all([
+    getBatchReviewQueue(user).catch(() => []),
     db.weeklyReport.count({
       where: { ...scope, status: { in: ["SUBMITTED", "REVIEWED"] } },
     }),
@@ -78,6 +82,7 @@ export async function getReviewCenterCounts(user: AuthUser) {
     db.notionItemStage.count({ where: stageWhere(user, "revision") }),
   ]);
   return {
+    batches: batchQueue.reduce((n, g) => n + g.waiting.length + g.edited.length, 0),
     weekly,
     monthly,
     plans: plans + variance.length,

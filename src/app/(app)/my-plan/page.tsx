@@ -10,6 +10,8 @@ import { formatNumber, formatPct, num } from "@/lib/num";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
 import { dutyOf, groupByDuty } from "@/lib/duties";
 import { companyToday, distributionGoals, getNotionSourceOptions, getPlanDetail, monthPeriod, serializeGoal, weekColumns, weeklyTargetsMatrix } from "@/server/queries/plans";
+import { getEmployeeBatches } from "@/server/queries/batches";
+import { BatchCard } from "@/features/notion/batch-card";
 import { breakdownTotals, weightedProgress } from "@/server/queries/dashboard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -114,7 +116,8 @@ export default async function MyPlanPage({ searchParams }: { searchParams: Searc
     : null;
   const weekGoals = (currentWeek?.goals ?? []).filter((g) => g.monthlyGoal.status !== "CANCELLED").sort((a, b) => a.monthlyGoal.sortOrder - b.monthlyGoal.sortOrder);
 
-  const sources = await getNotionSourceOptions();
+  const [sources, batches] = await Promise.all([getNotionSourceOptions(), getEmployeeBatches(user.employeeId, year, month)]);
+  const weekBatch = batches?.current && batches.currentWeek && batches.currentWeek.start <= now.today && now.today <= batches.currentWeek.end ? batches.current : null;
   const totals = breakdownTotals(plan.goals);
   const weeks = weekColumns(plan.weeklyPlans, now.company.workDays);
   const varianceNote = plan.weeklyPlans.find((w) => w.varianceNote)?.varianceNote ?? null;
@@ -159,6 +162,7 @@ export default async function MyPlanPage({ searchParams }: { searchParams: Searc
             </Button>
           </CardHeader>
           <CardContent>
+            {weekBatch && <BatchCard batch={weekBatch} subtitle="دفعة هذا الأسبوع" className="mb-3 bg-muted/20 shadow-none" />}
             <ul className="divide-y">
               {weekGoals.map((g) => (
                 <GoalLine key={g.id} name={g.monthlyGoal.name} achieved={num(g.achievedValue)} target={num(g.targetValue)} unit={g.monthlyGoal.unit} />
@@ -167,6 +171,8 @@ export default async function MyPlanPage({ searchParams }: { searchParams: Searc
           </CardContent>
         </Card>
       )}
+
+      {weekBatch && !(currentWeek && weekGoals.length > 0) && <BatchCard batch={weekBatch} subtitle="دفعة هذا الأسبوع" />}
 
       <Card>
         <CardHeader>
@@ -210,6 +216,28 @@ export default async function MyPlanPage({ searchParams }: { searchParams: Searc
               </div>
             ))}
           </dl>
+          {batches && batches.month.length > 0 && (
+            <section className="space-y-2">
+              <h3 className="text-sm font-semibold">دفعات الشهر</h3>
+              <ul className="divide-y rounded-lg border text-sm">
+                {batches.month.map((b) => (
+                  <li key={b.key} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 px-3 py-2">
+                    <span className="font-medium">{b.label}</span>
+                    <span className="text-xs text-muted-foreground tabular-nums">
+                      {formatNumber(b.total)} منتج · صور معتمدة {formatNumber(b.images.approved)} · أضيفت للمتجر {formatNumber(b.store.added)}
+                    </span>
+                  </li>
+                ))}
+                <li className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 bg-muted/40 px-3 py-2 font-semibold">
+                  <span>مجموع الشهر</span>
+                  <span className="text-xs tabular-nums">
+                    {formatNumber(batches.month.reduce((a, b) => a + b.total, 0))} منتج · صور معتمدة {formatNumber(batches.month.reduce((a, b) => a + b.images.approved, 0))} · أضيفت للمتجر{" "}
+                    {formatNumber(batches.month.reduce((a, b) => a + b.store.added, 0))}
+                  </span>
+                </li>
+              </ul>
+            </section>
+          )}
           <PlanGoalsTable
             planId={plan.id}
             employeeId={plan.employeeId}

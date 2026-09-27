@@ -32,6 +32,7 @@ const ROLE_TYPES: Record<Role, string[]> = {
   TASK_TYPE: ["select", "multi_select", "status", "rich_text"],
   TEXT: ["rich_text", "title", "url", "formula", "select"],
   NUMBER: ["number", "formula", "rollup"],
+  NOTES: ["rich_text", "title", "formula"],
 };
 
 export interface SchemaProp {

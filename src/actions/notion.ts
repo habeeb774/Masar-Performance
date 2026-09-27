@@ -19,6 +19,7 @@ import { fetchDataSourceSchema, readSchemaCache, refreshSchemaCache, resolveNoti
 import { rebuildStages, syncDataSource } from "@/server/notion/sync";
 import { loadEvalItems, recomputeForDataSource } from "@/server/services/progress";
 import { notifyRevisions } from "@/server/services/jobs";
+import { refreshDraftsForDataSource } from "@/server/services/reports";
 
 const refresh = () => revalidatePath("/", "layout");
 
@@ -255,6 +256,7 @@ export async function syncNowAction(dataSourceId: string, full = false) {
     await audit({ user, action: "notion.sync", entityType: "NotionDataSource", entityId: id, after: { status: result.status, scanned: result.scanned, full } });
     await notifyRevisions(result.newRevisionItemIds);
     await recomputeForDataSource(id);
+    if (result.status !== "FAILED") await refreshDraftsForDataSource(id);
     refresh();
     if (result.status === "FAILED") throw new UserError(`فشلت المزامنة: ${result.errors[0]?.message ?? ""}`);
     return result;
@@ -268,6 +270,7 @@ export async function retrySyncAction(logId: string) {
     const result = await syncDataSource(log.dataSourceId, "RETRY", { triggeredById: user.id, retryOfId: log.id });
     await notifyRevisions(result.newRevisionItemIds);
     await recomputeForDataSource(log.dataSourceId);
+    if (result.status !== "FAILED") await refreshDraftsForDataSource(log.dataSourceId);
     refresh();
     if (result.status === "FAILED") throw new UserError(`فشلت إعادة المحاولة: ${result.errors[0]?.message ?? ""}`);
     return result;

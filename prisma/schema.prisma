@@ -165,6 +165,7 @@ enum NotionFieldRole {
   TASK_TYPE
   TEXT
   NUMBER
+  NOTES // reviewer's note shown to the employee (e.g. why images need improvement)
 }
 
 enum NotionConnectionStatus {

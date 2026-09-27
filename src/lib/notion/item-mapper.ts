@@ -2,7 +2,7 @@ import type { NormalizedValue } from "./properties";
 import { valueToDateKey, valueToNumber, valueToPeople, valueToStrings } from "./properties";
 import { buildStatusLookup, resolveSystemStatus, type StatusMappingRule, type SystemStatus } from "./status";
 
-export type FieldRole = "TITLE" | "STATUS" | "DATE" | "BATCH" | "PRODUCT_CODE" | "EMPLOYEE" | "TASK_TYPE" | "TEXT" | "NUMBER";
+export type FieldRole = "TITLE" | "STATUS" | "DATE" | "BATCH" | "PRODUCT_CODE" | "EMPLOYEE" | "TASK_TYPE" | "TEXT" | "NUMBER" | "NOTES";
 
 export interface FieldMappingConfig {
   role: FieldRole;

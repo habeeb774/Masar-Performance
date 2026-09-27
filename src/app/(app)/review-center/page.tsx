@@ -12,6 +12,7 @@ import { requirePermission } from "@/server/auth/session";
 import {
   ensureTeamReports,
   getMonthlyReportsQueue,
+  getBatchReviewQueue,
   getNotionQueue,
   getPlansQueue,
   getReviewCenterCounts,
@@ -19,11 +20,12 @@ import {
   REVIEW_TABS,
   type ReviewTab,
 } from "@/server/queries/review-center";
-import { MonthlyReportsQueue, NotionQueue, PlansQueue, WeeklyReportsQueue } from "@/features/review-center/queues";
+import { BatchReviewQueue, MonthlyReportsQueue, NotionQueue, PlansQueue, WeeklyReportsQueue } from "@/features/review-center/queues";
 
 export const metadata: Metadata = { title: "بانتظارك" };
 
 const TAB_LABELS: Record<ReviewTab, string> = {
+  batches: "منتجات Notion",
   weekly: "التقارير الأسبوعية",
   monthly: "التقارير الشهرية",
   plans: "الخطط",
@@ -44,7 +46,7 @@ export default async function ReviewCenterPage({ searchParams }: { searchParams:
   const user = await requirePermission(PERMISSIONS.REVIEW_CENTER);
   const sp = await searchParams;
   const raw = str(sp.tab);
-  const tab: ReviewTab = raw && (REVIEW_TABS as readonly string[]).includes(raw) ? (raw as ReviewTab) : "weekly";
+  const tab: ReviewTab = raw && (REVIEW_TABS as readonly string[]).includes(raw) ? (raw as ReviewTab) : "batches";
   const page = int(sp.page, 1, 1, 10_000);
   const canApproveReports = hasPermission(user, PERMISSIONS.REPORTS_REVIEW);
   const canApprovePlans = hasPermission(user, PERMISSIONS.PLANS_APPROVE);
@@ -53,7 +55,8 @@ export default async function ReviewCenterPage({ searchParams }: { searchParams:
 
   const counts = await getReviewCenterCounts(user);
   let body: React.ReactNode;
-  if (tab === "weekly") body = <WeeklyReportsQueue rows={await getWeeklyReportsQueue(user)} canApprove={canApproveReports} />;
+  if (tab === "batches") body = <BatchReviewQueue groups={await getBatchReviewQueue(user)} />;
+  else if (tab === "weekly") body = <WeeklyReportsQueue rows={await getWeeklyReportsQueue(user)} canApprove={canApproveReports} />;
   else if (tab === "monthly") body = <MonthlyReportsQueue rows={await getMonthlyReportsQueue(user)} canApprove={canApproveReports} />;
   else if (tab === "plans") body = <PlansQueue data={await getPlansQueue(user)} canApprove={canApprovePlans} />;
   else body = <NotionQueue data={await getNotionQueue(user, tab, page)} emptyTitle={NOTION_EMPTY[tab]} />;
@@ -64,9 +67,9 @@ export default async function ReviewCenterPage({ searchParams }: { searchParams:
       <nav className="mb-4 flex gap-1 overflow-x-auto rounded-lg border bg-card p-1" aria-label="أقسام المراجعة">
         {REVIEW_TABS.map((t) => (
           <Fragment key={t}>
-            {t === "pending" && <span aria-hidden className="mx-1 w-px shrink-0 self-stretch bg-border" />}
+            {(t === "weekly" || t === "pending") && <span aria-hidden className="mx-1 w-px shrink-0 self-stretch bg-border" />}
             <Link
-              href={t === "weekly" ? "/review-center" : `/review-center?tab=${t}`}
+              href={t === "batches" ? "/review-center" : `/review-center?tab=${t}`}
               aria-current={t === tab ? "page" : undefined}
               className={cn(
                 "inline-flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium whitespace-nowrap text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",

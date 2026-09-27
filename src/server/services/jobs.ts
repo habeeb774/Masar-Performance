@@ -5,7 +5,7 @@ import { num } from "@/lib/num";
 import { dueDataSources, syncDataSource } from "@/server/notion/sync";
 import { getCompanyFresh } from "./company";
 import { notifyUsers } from "./notifications";
-import { ensureDueReports } from "./reports";
+import { ensureDueReports, refreshDraftsForDataSource } from "./reports";
 import { recomputeAllActive, recomputeForDataSource } from "./progress";
 import { PERMISSIONS } from "@/lib/permissions";
 
@@ -55,7 +55,10 @@ export async function runScheduledSync() {
         dedupeKey: `sync-failed:${r.logId}`,
       });
     }
-    if (r.created + r.updated > 0) await recomputeForDataSource(ds.id);
+    if (r.created + r.updated > 0) {
+      await recomputeForDataSource(ds.id);
+      await refreshDraftsForDataSource(ds.id);
+    }
   }
   return results;
 }
