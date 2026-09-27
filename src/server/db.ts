@@ -13,7 +13,12 @@ function createClient() {
 }
 
 function client(): PrismaClient {
-  globalForPrisma.prisma ??= createClient();
+  // in dev the client survives hot reloads on globalThis; after `prisma generate` the class changes
+  // (new models), so a client built from the old class is replaced instead of missing the new tables
+  if (!(globalForPrisma.prisma instanceof PrismaClient)) {
+    void globalForPrisma.prisma?.$disconnect().catch(() => {});
+    globalForPrisma.prisma = createClient();
+  }
   return globalForPrisma.prisma;
 }
 
