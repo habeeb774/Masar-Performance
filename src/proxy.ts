@@ -3,6 +3,19 @@ import { NextResponse, type NextRequest } from "next/server";
 const SESSION_COOKIE = "sph_session";
 const PUBLIC_PATHS = ["/login", "/setup", "/api/cron", "/api/health"];
 
+// The canonical production hostname (must match APP_URL). Vercel always keeps its
+// auto-generated aliases working alongside a custom domain — redirect the ones people
+// can stumble onto (an old bookmark, Vercel's own dashboard "Visit" button) to it, so
+// a visitor never ends up signed in on the wrong origin (session cookies are host-only).
+// Deliberately NOT a wildcard: unique-per-deploy preview URLs (*-<hash>-...vercel.app)
+// must keep working untouched for previewing branches before they reach main.
+const CANONICAL_HOST = "m.leanpix.site";
+const LEGACY_HOSTS = new Set([
+  "masar-performance.vercel.app",
+  "masar-performance-habrrbs-projects.vercel.app",
+  "masar-performance-git-main-habrrbs-projects.vercel.app",
+]);
+
 /**
  * Optimistic auth gate: redirects visitors without a session cookie to /login.
  * The real session validation + authorization happens server-side on every
@@ -19,6 +32,21 @@ const PUBLIC_PATHS = ["/login", "/setup", "/api/cron", "/api/health"];
  */
 export function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
+  // request.nextUrl.hostname does not reliably reflect the domain the visitor
+  // actually requested when several domains alias to one deployment — verified
+  // against a close-to-production run, where it stayed the deployment's internal
+  // hostname regardless of which alias was requested. The incoming Host header
+  // (what the browser's address bar actually shows) is the reliable source.
+  const requestHost = (request.headers.get("host") ?? "").split(":")[0];
+
+  if (LEGACY_HOSTS.has(requestHost)) {
+    const url = request.nextUrl.clone();
+    url.hostname = CANONICAL_HOST;
+    url.port = "";
+    url.protocol = "https";
+    return NextResponse.redirect(url, 308);
+  }
+
   const isPublic = PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
   const hasSession = request.cookies.has(SESSION_COOKIE);
 
