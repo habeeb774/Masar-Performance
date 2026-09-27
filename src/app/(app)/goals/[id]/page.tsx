@@ -40,6 +40,7 @@ export default async function EditGoalTemplatePage({ params }: { params: IdParam
       return {
         id: it.id,
         name: it.name,
+        dutyName: it.dutyName ?? "",
         description: it.description ?? "",
         goalType: it.goalType as GoalTypeKey,
         targetValue: num(it.targetValue),

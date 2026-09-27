@@ -64,6 +64,7 @@ export function autoWeights(known: (number | null)[]): number[] {
 }
 
 type Source = {
+  dutyName: string | null;
   description: string | null;
   goalType: string;
   weight: Prisma.Decimal;
@@ -103,6 +104,7 @@ export async function createTeamPlan(user: AuthUser, input: z.infer<typeof teamP
         planId: plan.id,
         employeeId: input.employeeId,
         name: g.name,
+        dutyName: s?.dutyName ?? null,
         description: s?.description ?? null,
         goalType: (s && (s.goalType !== "NOTION_SYNCED" || notion) ? s.goalType : "NUMERIC") as never,
         targetValue: g.target,

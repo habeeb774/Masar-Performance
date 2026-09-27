@@ -125,6 +125,8 @@ export const roleSchema = z.object({
 
 const goalBase = z.object({
   name: nameSchema,
+  /** «الواجب»; empty = grouped by category */
+  dutyName: z.string().trim().max(120).nullish(),
   description: optionalText(2000),
   goalType: z.enum(GOAL_TYPES),
   targetValue: z.coerce.number().min(0, "لا يمكن أن يكون سالبًا").max(1_000_000_000),

@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
     assertEmployeeAccess(user, employeeId.data);
     const { year, month } = period.data;
     const file = await buildEmployeePerformanceFile(employeeId.data, year, month);
-    await audit({ user, action: "performance.export", entityType: "Employee", entityId: employeeId.data, after: { year, month } });
+    await audit({ user, action: "performance.export", entityType: "Employee", entityId: employeeId.data, after: { kind: "single", year, month } });
     return fileResponse(file.buffer, file.fileName, XLSX_TYPE);
   } catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status });

@@ -9,6 +9,9 @@
  * expanded (per goal / per task) when the expansion reproduces the stored rate.
  */
 
+import { ADHOC_DUTY_TITLE, categoryDuty, dutyOf, groupByDuty } from "./duties";
+
+export { ADHOC_DUTY_TITLE };
 export type ExportCategory = "PRODUCTIVITY" | "QUALITY" | "COMMITMENT" | "DEVELOPMENT";
 
 export interface ExportResult {
@@ -27,6 +30,8 @@ export interface ExportResult {
 
 export interface ExportGoal {
   name: string;
+  dutyName?: string | null;
+  category?: string | null;
   unit: string;
   target: number;
   achieved: number;
@@ -61,18 +66,17 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 const cap = (n: number) => Math.min(Math.max(n, 0), 100);
 const TOLERANCE = 0.05;
 
-/** Split 100 proportionally to raw weights, 2 decimals, exact total. */
+/**
+ * Split 100 proportionally to raw weights at full precision — rounding here would
+ * make Excel's recalculated result drift from the system score (e.g. 38.4987 vs 38.50).
+ */
 export function normalizeWeights(raw: number[]): number[] {
   if (raw.length === 0) return [];
   const safe = raw.map((w) => (w > 0 ? w : 0));
   const sum = safe.reduce((a, b) => a + b, 0);
   const base = sum > 0 ? safe : raw.map(() => 1);
   const total = base.reduce((a, b) => a + b, 0);
-  const out = base.map((w) => round2((w / total) * 100));
-  const diff = round2(100 - out.reduce((a, b) => a + b, 0));
-  const i = out.indexOf(Math.max(...out));
-  out[i] = round2(out[i] + diff);
-  return out;
+  return base.map((w) => (w / total) * 100);
 }
 
 /** Show real counts (e.g. 3 of 4) when they reproduce the rate; otherwise the rate out of 100. */
@@ -95,13 +99,6 @@ const INDICATORS: Record<string, string> = {
 };
 const ADHOC_INDICATOR = "إنجاز المهمة المكلّف بها بالكامل وفق المطلوب.";
 
-const DUTY_TITLES: Record<ExportCategory, string> = {
-  COMMITMENT: "الالتزام بسلوكيات وآليات العمل.",
-  PRODUCTIVITY: "الإنتاجية",
-  QUALITY: "جودة العمل",
-  DEVELOPMENT: "التطوير المهني",
-};
-export const ADHOC_DUTY_TITLE = "مهام مستجدة كُلّف بها خلال الشهر";
 const ORDINALS = ["الأول", "الثاني", "الثالث", "الرابع", "الخامس", "السادس", "السابع", "الثامن", "التاسع", "العاشر"];
 
 export function dutyHeading(index: number, title: string) {
@@ -125,10 +122,12 @@ function singleRow(r: ExportResult): ExportRow {
   return { name: r.name, indicator: INDICATORS[r.sourceType] ?? r.name, note: note(r), ...v, weight: 100 };
 }
 
-/** One row per goal, only when it reproduces the stored rate (else the KPI stays one row). */
-function goalRows(r: ExportResult, goals: ExportGoal[]): ExportRow[] | null {
+type GoalSnapshot = { name: string; progress: number; weight: number; dutyName?: string | null; category?: string | null };
+
+/** One row per goal (tagged with its duty), only when it reproduces the stored rate. */
+function goalRows(r: ExportResult, goals: ExportGoal[]): (ExportRow & { duty: string })[] | null {
   if (r.isOverridden) return null;
-  const snapshot = ((r.details as { goals?: { name: string; progress: number; weight: number }[] } | null)?.goals ?? []).filter((g) => g && typeof g.name === "string");
+  const snapshot = ((r.details as { goals?: GoalSnapshot[] } | null)?.goals ?? []).filter((g) => g && typeof g.name === "string");
   if (snapshot.length === 0) return null;
   const weights = normalizeWeights(snapshot.map((g) => Number(g.weight) || 0));
   const rows = snapshot.map((g, i) => {
@@ -141,6 +140,7 @@ function goalRows(r: ExportResult, goals: ExportGoal[]): ExportRow[] | null {
       note: current?.status === "AT_RISK" ? "متأخر عن المسار المتوقع" : "",
       ...v,
       weight: weights[i],
+      duty: dutyOf({ dutyName: g.dutyName ?? current?.dutyName, category: g.category ?? current?.category ?? r.category }),
     };
   });
   return reproduces(rows, r.achievementRate) ? rows : null;
@@ -173,41 +173,50 @@ function reproduces(rows: ExportRow[], rate: number) {
   return Math.abs(dutyResult(rows) - cap(rate)) <= TOLERANCE;
 }
 
+/** A slice of the score: rows (weights within the block total 100) worth `weight` KPI points. */
+type Block = { title: string; order: number; weight: number; rows: ExportRow[] };
+
+const CATEGORY_ORDER: Record<ExportCategory, number> = { COMMITMENT: 0, PRODUCTIVITY: 2, QUALITY: 3, DEVELOPMENT: 4 };
+
 export function buildDuties(results: ExportResult[], goals: ExportGoal[], adHoc: ExportAdHoc[]): ExportDuty[] {
   const counted = results.filter((r) => r.weight > 0);
-  const total = counted.reduce((a, r) => a + r.weight, 0);
-  if (total === 0) return [];
+  if (counted.reduce((a, r) => a + r.weight, 0) === 0) return [];
 
-  type Draft = { title: string; order: number; results: ExportResult[]; rows: ExportRow[] };
-  const drafts: Draft[] = [];
-  const byCategory = new Map<ExportCategory, Draft>();
-  const ORDER: Record<ExportCategory, number> = { COMMITMENT: 0, PRODUCTIVITY: 2, QUALITY: 3, DEVELOPMENT: 4 };
-
+  const blocks: Block[] = [];
+  let goalOrder = 0;
   for (const r of counted) {
     if (r.sourceType === "GOALS") {
       const rows = goalRows(r, goals);
-      drafts.push({ title: r.name, order: 1, results: [r], rows: rows ?? [singleRow(r)] });
-    } else if (r.sourceType === "AD_HOC_COMPLETION") {
-      const rows = adHocRows(r, adHoc);
-      drafts.push({ title: ADHOC_DUTY_TITLE, order: 9, results: [r], rows: rows ?? [singleRow(r)] });
-    } else {
-      let d = byCategory.get(r.category);
-      if (!d) {
-        d = { title: DUTY_TITLES[r.category], order: ORDER[r.category], results: [], rows: [] };
-        byCategory.set(r.category, d);
-        drafts.push(d);
+      if (!rows) {
+        blocks.push({ title: categoryDuty(r.category), order: CATEGORY_ORDER[r.category], weight: r.weight, rows: [singleRow(r)] });
+        continue;
       }
-      d.results.push(r);
+      // split the goals KPI into its template duties, each worth its share of the KPI weight
+      for (const group of groupByDuty(rows, (x) => x.duty)) {
+        const share = group.items.reduce((a, x) => a + x.weight, 0);
+        blocks.push({
+          title: group.duty,
+          order: group.duty === ADHOC_DUTY_TITLE ? 9 : 1 + goalOrder++ / 1000,
+          weight: (r.weight * share) / 100,
+          rows: group.items.map(({ duty: _duty, ...row }) => ({ ...row, weight: share > 0 ? (row.weight / share) * 100 : 100 / group.items.length })),
+        });
+      }
+    } else if (r.sourceType === "AD_HOC_COMPLETION") {
+      blocks.push({ title: ADHOC_DUTY_TITLE, order: 9, weight: r.weight, rows: adHocRows(r, adHoc) ?? [singleRow(r)] });
+    } else {
+      blocks.push({ title: categoryDuty(r.category), order: CATEGORY_ORDER[r.category], weight: r.weight, rows: [singleRow(r)] });
     }
   }
-  // KPIs grouped under one duty share it by their own weights
-  for (const d of byCategory.values()) {
-    const w = normalizeWeights(d.results.map((r) => r.weight));
-    d.rows = d.results.map((r, i) => ({ ...singleRow(r), weight: w[i] }));
-  }
 
-  const ordered = drafts.sort((a, b) => a.order - b.order);
-  const dutyWeights = normalizeWeights(ordered.map((d) => d.results.reduce((a, r) => a + r.weight, 0)));
+  // blocks with the same title form one duty; each row keeps its exact share of the duty
+  const duties = groupByDuty(blocks, (b) => b.title).map(({ duty, items }) => {
+    const weight = items.reduce((a, b) => a + b.weight, 0);
+    const rows = items.flatMap((b) => b.rows.map((row) => ({ row, raw: (row.weight * b.weight) / 100 })));
+    const w = normalizeWeights(rows.map((x) => x.raw));
+    return { title: duty, order: Math.min(...items.map((b) => b.order)), weight, rows: rows.map((x, i) => ({ ...x.row, weight: w[i] })) };
+  });
+  const ordered = duties.sort((a, b) => a.order - b.order);
+  const dutyWeights = normalizeWeights(ordered.map((d) => d.weight));
   return ordered.map((d, i) => ({ title: d.title, weight: dutyWeights[i], rows: d.rows }));
 }
 

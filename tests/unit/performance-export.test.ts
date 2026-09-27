@@ -60,11 +60,11 @@ describe("buildDuties", () => {
 
   it("reproduces the system score exactly through the workbook formulas", () => {
     const system = aggregateScores(results.map((x) => ({ category: x.category, weight: x.weight, achievementRate: x.achievementRate, weightedScore: 0 }))).autoScore;
-    expect(workbookScore(duties)).toBeCloseTo(system, 1);
+    expect(workbookScore(duties)).toBe(system);
   });
 
   it("orders duties like the workbook: commitment, goals, quality, then new tasks last", () => {
-    expect(duties.map((d) => d.title)).toEqual(["الالتزام بسلوكيات وآليات العمل.", "إنجاز أهداف الإنتاجية", "جودة العمل", ADHOC_DUTY_TITLE]);
+    expect(duties.map((d) => d.title)).toEqual(["الالتزام بسلوكيات وآليات العمل.", "الإنتاجية", "جودة العمل", ADHOC_DUTY_TITLE]);
     expect(dutyHeading(0, duties[0].title)).toBe("الواجب الأول: الالتزام بسلوكيات وآليات العمل.");
   });
 
@@ -107,11 +107,11 @@ describe("buildDuties", () => {
   it("falls back to one row when a KPI was overridden or goals changed since calculation", () => {
     const overridden = results.map((x) => (x.sourceType === "GOALS" ? { ...x, isOverridden: true, overrideReason: "ظروف السوق", achievementRate: 95 } : x));
     const d = buildDuties(overridden, goals, adHoc);
-    const goalsDuty = d.find((x) => x.title === "إنجاز أهداف الإنتاجية")!;
+    const goalsDuty = d.find((x) => x.title === "الإنتاجية")!;
     expect(goalsDuty.rows).toHaveLength(1);
     expect(goalsDuty.rows[0]).toMatchObject({ achieved: 95, target: 100, note: "تعديل يدوي: ظروف السوق" });
     const system = aggregateScores(overridden.map((x) => ({ category: x.category, weight: x.weight, achievementRate: x.achievementRate, weightedScore: 0 }))).autoScore;
-    expect(workbookScore(d)).toBeCloseTo(system, 1);
+    expect(workbookScore(d)).toBe(system);
   });
 
   it("shows a placeholder row when no new tasks were assigned", () => {
@@ -120,9 +120,56 @@ describe("buildDuties", () => {
   });
 });
 
+describe("duty names from goal templates", () => {
+  const dutyGoals = [
+    { ...goals[0], dutyName: "إضافة وتعديل المنتجات في المتجر" },
+    { ...goals[1], dutyName: "تجهيز صور المنتجات" },
+    { ...goals[2], dutyName: "التصاميم" },
+  ];
+  const withDuties = results.map((x) =>
+    x.sourceType === "GOALS"
+      ? { ...x, details: { goals: goals.map((g, i) => ({ name: g.name, progress: goalProgress[i], weight: goalWeights[i], dutyName: dutyGoals[i].dutyName })) } }
+      : x,
+  );
+  const system = aggregateScores(results.map((x) => ({ category: x.category, weight: x.weight, achievementRate: x.achievementRate, weightedScore: 0 }))).autoScore;
+
+  it("splits goals into their template duties, each weighted by its share", () => {
+    const d = buildDuties(withDuties, dutyGoals, adHoc);
+    expect(d.map((x) => [x.title, x.weight])).toEqual([
+      ["الالتزام بسلوكيات وآليات العمل.", 25],
+      ["إضافة وتعديل المنتجات في المتجر", 25],
+      ["تجهيز صور المنتجات", 15],
+      ["التصاميم", 10],
+      ["جودة العمل", 18.75],
+      [ADHOC_DUTY_TITLE, 6.25],
+    ]);
+    expect(workbookScore(d)).toBe(system);
+  });
+
+  it("uses the current plan's duty when an older review snapshot has none", () => {
+    const d = buildDuties(results, dutyGoals, adHoc);
+    expect(d.map((x) => x.title)).toContain("تجهيز صور المنتجات");
+    expect(workbookScore(d)).toBe(system);
+  });
+
+  it("merges a goal whose duty is «مهام مستجدة» into the new-tasks duty, exactly", () => {
+    const merged = withDuties.map((x) =>
+      x.sourceType === "GOALS" ? { ...x, details: { goals: (x.details as { goals: object[] }).goals.map((g, i) => (i === 2 ? { ...g, dutyName: ADHOC_DUTY_TITLE } : g)) } } : x,
+    );
+    const d = buildDuties(merged, dutyGoals, adHoc);
+    const last = d.at(-1)!;
+    expect(last.title).toBe(ADHOC_DUTY_TITLE);
+    expect(last.rows.map((x) => x.name)).toEqual(["تصميم بنرات", "تصميم بنرات العرض السريع", "تخصيص تطبيق الفايندر"]);
+    expect(d.filter((x) => x.title === ADHOC_DUTY_TITLE)).toHaveLength(1);
+    expect(workbookScore(d)).toBe(system);
+  });
+});
+
 describe("helpers", () => {
-  it("normalizeWeights totals exactly 100", () => {
-    expect(normalizeWeights([1, 1, 1])).toEqual([33.34, 33.33, 33.33]);
+  it("normalizeWeights keeps full precision and totals 100", () => {
+    const w = normalizeWeights([1, 1, 1]);
+    w.forEach((x) => expect(x).toBeCloseTo(100 / 3, 10));
+    expect(w.reduce((a, b) => a + b, 0)).toBeCloseTo(100, 10);
     expect(normalizeWeights([0, 0])).toEqual([50, 50]);
   });
   it("rowValues keeps counts only when they reproduce the rate", () => {

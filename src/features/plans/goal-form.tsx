@@ -37,6 +37,7 @@ type FormOut = z.output<typeof monthlyGoalSchema>;
 export function goalFormDefaults(goal: PlanGoalRow | undefined, dates: { start: string; end: string }): FormIn {
   return {
     name: goal?.name ?? "",
+    dutyName: goal?.dutyName ?? "",
     description: goal?.description ?? "",
     goalType: goal?.goalType ?? "NUMERIC",
     targetValue: goal?.targetValue ?? 0,
@@ -132,6 +133,11 @@ function GoalFormBody({
         </summary>
         <div className="space-y-4 border-t p-3">
           <div className="grid gap-4 sm:grid-cols-2">
+            <Field className="sm:col-span-2">
+              <FieldLabel htmlFor="goal-duty">الواجب</FieldLabel>
+              <Input id="goal-duty" maxLength={120} placeholder="مثال: إضافة وتعديل المنتجات في المتجر" {...register("dutyName")} />
+              <p className="text-xs text-muted-foreground">يجمع الأهداف في الخطة والتقييم وملف الموارد البشرية. فارغ = حسب التصنيف.</p>
+            </Field>
             <Field data-invalid={!!errors.weight}>
               <FieldLabel htmlFor="goal-weight">الوزن %</FieldLabel>
               <Input id="goal-weight" type="number" min={0} max={100} step="any" inputMode="decimal" {...register("weight")} />

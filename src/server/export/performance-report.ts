@@ -1,7 +1,7 @@
 import "server-only";
 import { db } from "@/server/db";
 import { UserError } from "@/server/action";
-import { reviewForExport } from "@/server/services/performance";
+import { activeRatingBands, reviewForExport } from "@/server/services/performance";
 import { buildDuties, exportFileName, type ExportCategory } from "@/lib/performance-export";
 import { num } from "@/lib/num";
 import { renderPerformanceWorkbook } from "./performance-xlsx";
@@ -18,7 +18,7 @@ export async function buildEmployeePerformanceFile(employeeId: string, year: num
 
   const goals = (data.ctx.plan?.goals ?? [])
     .filter((g) => g.status !== "CANCELLED")
-    .map((g) => ({ name: g.name, unit: g.unit, target: num(g.targetValue), achieved: num(g.achievedValue), status: g.status }));
+    .map((g) => ({ name: g.name, dutyName: g.dutyName, category: g.category, unit: g.unit, target: num(g.targetValue), achieved: num(g.achievedValue), status: g.status }));
   const adHoc = data.ctx.adHoc
     .filter((t) => t.includeInEvaluation && t.status !== "CANCELLED")
     .map((t) => ({ title: t.title, status: t.status, progress: t.progress, weight: num(t.weight) }));
@@ -41,6 +41,7 @@ export async function buildEmployeePerformanceFile(employeeId: string, year: num
       adjustment: data.adjustment,
       adjustmentReason: data.adjustmentReason,
       managerNotes: data.managerNotes,
+      ratingBands: await activeRatingBands(),
     },
     duties,
   );

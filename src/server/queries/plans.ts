@@ -65,6 +65,7 @@ export async function getNotionSourceOptions(): Promise<NotionSourceOption[]> {
 type GoalRecord = {
   id: string;
   name: string;
+  dutyName?: string | null;
   description: string | null;
   goalType: string;
   targetValue: unknown;
@@ -90,6 +91,7 @@ export function serializeGoal(g: GoalRecord): PlanGoalRow {
   return {
     id: g.id,
     name: g.name,
+    dutyName: g.dutyName ?? null,
     description: g.description,
     goalType: g.goalType as GoalTypeKey,
     targetValue: num(g.targetValue),

@@ -127,6 +127,7 @@ export async function buildWeeklyContent(weeklyPlanId: string): Promise<WeeklyRe
   const goals: ReportGoalLine[] = week.goals.map((wg) => ({
     goalId: wg.monthlyGoalId,
     name: wg.monthlyGoal.name,
+    dutyName: wg.monthlyGoal.dutyName,
     unit: wg.monthlyGoal.unit,
     category: wg.monthlyGoal.category,
     source: wg.monthlyGoal.source,
@@ -489,6 +490,7 @@ export async function buildMonthlyContent(planId: string): Promise<MonthlyReport
   const goals: ReportGoalLine[] = plan.goals.map((g) => ({
     goalId: g.id,
     name: g.name,
+    dutyName: g.dutyName,
     unit: g.unit,
     category: g.category,
     source: g.source,

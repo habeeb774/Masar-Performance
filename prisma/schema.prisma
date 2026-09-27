@@ -434,6 +434,8 @@ model GoalTemplateItem {
   id            String       @id @default(cuid())
   templateId    String
   name          String
+  /** HR duty (الواجب) this goal belongs to; null = grouped by category */
+  dutyName      String?
   description   String?
   goalType      GoalType     @default(NUMERIC)
   targetValue   Decimal      @default(0) @db.Decimal(12, 2)
@@ -485,6 +487,8 @@ model MonthlyGoal {
   planId         String
   employeeId     String
   name           String
+  /** copied from the template item when the plan is created; null = grouped by category */
+  dutyName       String?
   description    String?
   goalType       GoalType     @default(NUMERIC)
   targetValue    Decimal      @default(0) @db.Decimal(12, 2)

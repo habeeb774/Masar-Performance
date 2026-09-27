@@ -40,6 +40,7 @@ function assertCanEditGoals(user: AuthUser, plan: { employeeId: string; status: 
 function goalData(input: GoalInput) {
   return {
     name: input.name,
+    dutyName: input.dutyName?.trim() || null,
     description: input.description,
     goalType: input.goalType,
     targetValue: input.targetValue,
@@ -90,6 +91,7 @@ export async function createMonthlyPlan(user: AuthUser, input: z.infer<typeof cr
           create: (template?.items ?? []).map((item, i) => ({
             employeeId: input.employeeId,
             name: item.name,
+            dutyName: item.dutyName,
             description: item.description,
             goalType: item.goalType,
             targetValue: item.targetValue,

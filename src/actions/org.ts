@@ -220,6 +220,7 @@ export async function saveGoalTemplateAction(id: string | null, input: z.input<t
     const data = goalTemplateSchema.parse(input);
     const items = data.items.map((it, i) => ({
       name: it.name,
+      dutyName: it.dutyName?.trim() || null,
       description: it.description,
       goalType: it.goalType,
       targetValue: it.targetValue,

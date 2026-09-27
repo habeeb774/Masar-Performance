@@ -74,6 +74,7 @@ export function readBreakdown(value: unknown): ProgressBreakdown | null {
 
 export const newTemplateItem = (): TemplateItemInput => ({
   name: "",
+  dutyName: "",
   description: "",
   goalType: "NUMERIC",
   targetValue: 0,

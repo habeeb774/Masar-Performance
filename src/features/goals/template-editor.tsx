@@ -32,6 +32,7 @@ import { formatNumber } from "@/lib/num";
 import { cn } from "@/lib/utils";
 import { NotionFilterRuleBuilder } from "./notion-filter-builder";
 import { EMPTY_RULE, newTemplateItem, normalizeRule, type NotionSourceOption, type TestPeriod } from "./types";
+import { ADHOC_DUTY_TITLE } from "@/lib/duties";
 
 type FormIn = z.input<typeof goalTemplateSchema>;
 type FormOut = z.output<typeof goalTemplateSchema>;
@@ -102,6 +103,14 @@ function ItemEditor({
       <div className="flex flex-wrap items-center gap-2 p-2.5 sm:flex-nowrap">
         <span className="grid size-7 shrink-0 place-items-center rounded-md bg-muted text-xs font-semibold tabular-nums">{index + 1}</span>
         <Input {...register(`items.${index}.name`)} placeholder="اسم الهدف" className="min-w-0 flex-1 basis-40" aria-invalid={!!err?.name} aria-label="اسم الهدف" />
+        <Input
+          {...register(`items.${index}.dutyName`)}
+          list={DUTY_LIST_ID}
+          placeholder="الواجب (اختياري)"
+          className="min-w-0 basis-40 sm:w-56 sm:flex-none"
+          maxLength={120}
+          aria-label="اسم الواجب"
+        />
         <div className="flex items-center gap-1">
           <Input
             {...register(`items.${index}.weight`)}
@@ -242,6 +251,8 @@ function ItemEditor({
   );
 }
 
+const DUTY_LIST_ID = "template-duties";
+
 /** Full editor for a goal template and its items. */
 export function TemplateEditor({
   id,
@@ -331,6 +342,12 @@ export function TemplateEditor({
           </div>
         </CardHeader>
         <CardContent className="space-y-2.5">
+          <datalist id={DUTY_LIST_ID}>
+            {[...new Set([...(items ?? []).map((it) => it?.dutyName?.trim()).filter(Boolean), ADHOC_DUTY_TITLE])].map((d) => (
+              <option key={d} value={d!} />
+            ))}
+          </datalist>
+          <p className="text-xs text-muted-foreground">«الواجب» يجمع الأهداف في الخطة والتقييم وملف الموارد البشرية. إن تُرك فارغًا تُجمع حسب التصنيف.</p>
           {!weightOk && fields.length > 0 && (
             <p className="rounded-lg bg-warning-soft p-2.5 text-xs text-warning">مجموع الأوزان يجب أن يساوي 100% ليكون الإنجاز الموزون دقيقًا (الفرق {formatNumber(Math.round((totalWeight - 100) * 100) / 100, 2)}).</p>
           )}

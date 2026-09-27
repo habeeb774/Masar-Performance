@@ -1,5 +1,6 @@
 "use client";
 
+import { HR_RATING_BANDS } from "@/lib/kpi/rating-scale";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, ArrowDownWideNarrow, Info, Plus, RotateCcw, Save, Trash2 } from "lucide-react";
@@ -32,13 +33,7 @@ interface BandDraft {
   color: string;
 }
 
-const DEFAULT_BANDS: Band[] = [
-  { label: "ممتاز", minScore: 90, maxScore: 100, color: "emerald" },
-  { label: "جيد جدًا", minScore: 80, maxScore: 89.99, color: "blue" },
-  { label: "جيد", minScore: 70, maxScore: 79.99, color: "amber" },
-  { label: "مقبول", minScore: 60, maxScore: 69.99, color: "orange" },
-  { label: "يحتاج تحسين", minScore: 0, maxScore: 59.99, color: "red" },
-];
+const DEFAULT_BANDS: Band[] = HR_RATING_BANDS.map((b) => ({ ...b }));
 
 let uidSeq = 0;
 const toDrafts = (bands: Band[]): BandDraft[] =>

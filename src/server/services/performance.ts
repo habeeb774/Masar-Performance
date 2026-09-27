@@ -97,7 +97,7 @@ export function measureSource(sourceType: KpiSourceType, config: SourceConfig, c
         achieved: round2(achieved),
         target: 100,
         vars: { count: list.length, total: goals.length },
-        details: { goals: list.map((g) => ({ name: g.name, progress: num(g.progressPct), weight: num(g.weight) })) },
+        details: { goals: list.map((g) => ({ name: g.name, progress: num(g.progressPct), weight: num(g.weight), dutyName: g.dutyName, category: g.category })) },
       };
     }
     case "NOTION_APPROVAL_RATE": {
@@ -185,7 +185,7 @@ async function loadContext(employeeId: string, year: number, month: number): Pro
   const to = fromDateKey(monthEnd(year, month));
   const plan = await db.monthlyPlan.findUnique({
     where: { employeeId_year_month: { employeeId, year, month } },
-    include: { goals: true, weeklyPlans: { include: { report: true, goals: true } }, report: true },
+    include: { goals: { orderBy: { sortOrder: "asc" } }, weeklyPlans: { include: { report: true, goals: true } }, report: true },
   });
   const [adHoc, deadlineTasks] = await Promise.all([
     db.adHocTask.findMany({ where: { employeeId, OR: [{ assignedDate: { gte: from, lte: to } }, { dueDate: { gte: from, lte: to } }] } }),

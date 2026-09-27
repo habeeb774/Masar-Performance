@@ -6,6 +6,7 @@ import type { GoalSourceKey, GoalStatusKey, GoalTypeKey, KpiCategoryKey, Priorit
 export interface PlanGoalRow {
   id: string;
   name: string;
+  dutyName: string | null;
   description: string | null;
   goalType: GoalTypeKey;
   targetValue: number;

@@ -1,3 +1,4 @@
+import { dutyOf, groupByDuty } from "@/lib/duties";
 import { AlertTriangle, CheckCircle2, Clock3, Hourglass, RotateCcw, Target, ThumbsUp } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -60,7 +61,15 @@ export function BulletList({ items, empty, tone = "neutral" }: { items: string[]
   );
 }
 
-export function NoteBlock({ label, value, tone = "neutral" }: { label: string; value: string | null | undefined; tone?: "neutral" | "primary" | "warning" }) {
+export function NoteBlock({
+  label,
+  value,
+  tone = "neutral",
+}: {
+  label: string;
+  value: string | null | undefined;
+  tone?: "neutral" | "primary" | "warning";
+}) {
   return (
     <div
       className={cn(
@@ -117,11 +126,34 @@ export function ReportHeaderCard({
 export function KpiTiles({ totals }: { totals: ReportTotals }) {
   return (
     <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-      <StatCard label="الإنجاز الموزون" value={formatPct(totals.weightedProgress)} icon={Target} tone="primary" footer={<ProgressBar value={totals.weightedProgress} size="sm" />} />
-      <StatCard label="أهداف مكتملة" value={`${formatNumber(totals.completedGoals)} / ${formatNumber(totals.goalsCount)}`} icon={CheckCircle2} tone="success" />
-      <StatCard label="معتمد" value={formatNumber(totals.approved)} icon={ThumbsUp} tone="success" hint={totals.worked ? `من ${formatNumber(totals.worked)} عنصر` : undefined} />
+      <StatCard
+        label="الإنجاز الموزون"
+        value={formatPct(totals.weightedProgress)}
+        icon={Target}
+        tone="primary"
+        footer={<ProgressBar value={totals.weightedProgress} size="sm" />}
+      />
+      <StatCard
+        label="أهداف مكتملة"
+        value={`${formatNumber(totals.completedGoals)} / ${formatNumber(totals.goalsCount)}`}
+        icon={CheckCircle2}
+        tone="success"
+      />
+      <StatCard
+        label="معتمد"
+        value={formatNumber(totals.approved)}
+        icon={ThumbsUp}
+        tone="success"
+        hint={totals.worked ? `من ${formatNumber(totals.worked)} عنصر` : undefined}
+      />
       <StatCard label="بانتظار الاعتماد" value={formatNumber(totals.pendingApproval)} icon={Hourglass} tone="pending" />
-      <StatCard label="يحتاج تحسين" value={formatNumber(totals.needsRevision)} icon={RotateCcw} tone={totals.needsRevision ? "warning" : "neutral"} hint={totals.reworkCount ? `إعادة عمل ${formatNumber(totals.reworkCount)}` : undefined} />
+      <StatCard
+        label="يحتاج تحسين"
+        value={formatNumber(totals.needsRevision)}
+        icon={RotateCcw}
+        tone={totals.needsRevision ? "warning" : "neutral"}
+        hint={totals.reworkCount ? `إعادة عمل ${formatNumber(totals.reworkCount)}` : undefined}
+      />
       <StatCard
         label="نسبة الاعتماد"
         value={formatPct(totals.approvalRate)}
@@ -174,35 +206,56 @@ export function GoalsTable({ goals }: { goals: ReportGoalLine[] }) {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {goals.map((g) => (
-            <TableRow key={g.goalId} className="break-inside-avoid">
-              <TableCell className="py-2.5 align-top whitespace-normal">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="font-medium">{g.name}</span>
-                  {g.source === "NOTION" && <NotionSyncedTag className="print:hidden" />}
-                </div>
-                <BreakdownChips goal={g} />
-              </TableCell>
-              <TableCell className="align-top tabular-nums">{formatNumber(g.weight)}%</TableCell>
-              <TableCell className="align-top tabular-nums">
-                {formatNumber(g.target, 2)} <span className="text-xs text-muted-foreground">{g.unit}</span>
-              </TableCell>
-              <TableCell className="align-top tabular-nums">{formatNumber(g.achieved, 2)}</TableCell>
-              <TableCell className="align-top">
-                <ProgressBar value={g.progressPct} showLabel size="sm" />
-              </TableCell>
-              <TableCell className="align-top">
-                <EnumBadge map={GOAL_STATUS_LABELS} value={g.status} />
-              </TableCell>
-            </TableRow>
-          ))}
+          {groupByDuty(goals, dutyOf).flatMap((group, _i, groups) => [
+            ...(groups.length > 1
+              ? [
+                  <TableRow key={`duty:${group.duty}`} className="bg-muted/30 hover:bg-muted/30">
+                    <TableCell colSpan={6} className="py-1.5 text-xs font-semibold">
+                      {group.duty}
+                    </TableCell>
+                  </TableRow>,
+                ]
+              : []),
+            ...group.items.map((g) => (
+              <TableRow key={g.goalId} className="break-inside-avoid">
+                <TableCell className="py-2.5 align-top whitespace-normal">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="font-medium">{g.name}</span>
+                    {g.source === "NOTION" && <NotionSyncedTag className="print:hidden" />}
+                  </div>
+                  <BreakdownChips goal={g} />
+                </TableCell>
+                <TableCell className="align-top tabular-nums">{formatNumber(g.weight)}%</TableCell>
+                <TableCell className="align-top tabular-nums">
+                  {formatNumber(g.target, 2)} <span className="text-xs text-muted-foreground">{g.unit}</span>
+                </TableCell>
+                <TableCell className="align-top tabular-nums">{formatNumber(g.achieved, 2)}</TableCell>
+                <TableCell className="align-top">
+                  <ProgressBar value={g.progressPct} showLabel size="sm" />
+                </TableCell>
+                <TableCell className="align-top">
+                  <EnumBadge map={GOAL_STATUS_LABELS} value={g.status} />
+                </TableCell>
+              </TableRow>
+            )),
+          ])}
         </TableBody>
       </Table>
     </div>
   );
 }
 
-export function TaskLinesTable({ tasks, empty, showReason = false, showSource = false }: { tasks: ReportTaskLine[]; empty: string; showReason?: boolean; showSource?: boolean }) {
+export function TaskLinesTable({
+  tasks,
+  empty,
+  showReason = false,
+  showSource = false,
+}: {
+  tasks: ReportTaskLine[];
+  empty: string;
+  showReason?: boolean;
+  showSource?: boolean;
+}) {
   if (tasks.length === 0) return <EmptyLine>{empty}</EmptyLine>;
   return (
     <div className="overflow-hidden rounded-lg border">
@@ -307,7 +360,11 @@ export function MonthlyReportBody({ content }: { content: MonthlyReportContent }
               <div key={w.index} className="rounded-lg border p-3 break-inside-avoid">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-sm font-semibold">الأسبوع {w.index}</span>
-                  {w.reportStatus ? <EnumBadge map={REPORT_STATUS_LABELS} value={w.reportStatus} /> : <span className="text-[11px] text-muted-foreground">بلا تقرير</span>}
+                  {w.reportStatus ? (
+                    <EnumBadge map={REPORT_STATUS_LABELS} value={w.reportStatus} />
+                  ) : (
+                    <span className="text-[11px] text-muted-foreground">بلا تقرير</span>
+                  )}
                 </div>
                 <p className="mt-0.5 text-[11px] text-muted-foreground">
                   {formatDateAr(w.start)} – {formatDateAr(w.end)}
@@ -351,7 +408,9 @@ export function MonthlyReportBody({ content }: { content: MonthlyReportContent }
                         {Object.values(s.counts).every((v) => !v) && <span className="text-xs text-muted-foreground">لا حركة</span>}
                       </div>
                     </TableCell>
-                    <TableCell className={cn("tabular-nums", s.revisionEvents > 0 && "font-semibold text-danger")}>{formatNumber(s.revisionEvents)}</TableCell>
+                    <TableCell className={cn("tabular-nums", s.revisionEvents > 0 && "font-semibold text-danger")}>
+                      {formatNumber(s.revisionEvents)}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>

@@ -1,5 +1,6 @@
 "use client";
 
+import { dutyOf, groupByDuty } from "@/lib/duties";
 import { Fragment, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronDown, PencilLine, RotateCcw } from "lucide-react";
@@ -73,31 +74,64 @@ export function KpiDetails({ details }: { details: Record<string, unknown> | nul
           ))}
         </dl>
       )}
-      {lists.map(([k, list]) => (
-        <div key={k}>
-          <p className="mb-1 text-xs font-semibold">
-            {DETAIL_LABELS[k] ?? k} ({list.length})
-          </p>
-          {list.length === 0 ? (
-            <p className="text-xs text-muted-foreground">لا يوجد</p>
-          ) : (
-            <ul className="divide-y rounded-md border bg-background text-xs">
-              {list.map((item, i) => (
-                <li key={i} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-2.5 py-1.5">
-                  {item && typeof item === "object" ? (
-                    Object.entries(item as Record<string, unknown>).map(([ik, iv]) => (
-                      <span key={ik}>
-                        <span className="text-muted-foreground">{DETAIL_LABELS[ik] ?? ik}: </span>
-                        <span className="font-medium">{formatValue(ik, iv)}</span>
-                      </span>
-                    ))
-                  ) : (
-                    <span>{formatValue(k, item)}</span>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
+      {lists.map(([k, list]) =>
+        k === "goals" ? (
+          <GoalsByDuty key={k} goals={list as GoalSnap[]} />
+        ) : (
+          <div key={k}>
+            <p className="mb-1 text-xs font-semibold">
+              {DETAIL_LABELS[k] ?? k} ({list.length})
+            </p>
+            {list.length === 0 ? (
+              <p className="text-xs text-muted-foreground">لا يوجد</p>
+            ) : (
+              <ul className="divide-y rounded-md border bg-background text-xs">
+                {list.map((item, i) => (
+                  <li key={i} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-2.5 py-1.5">
+                    {item && typeof item === "object" ? (
+                      Object.entries(item as Record<string, unknown>).map(([ik, iv]) => (
+                        <span key={ik}>
+                          <span className="text-muted-foreground">{DETAIL_LABELS[ik] ?? ik}: </span>
+                          <span className="font-medium">{formatValue(ik, iv)}</span>
+                        </span>
+                      ))
+                    ) : (
+                      <span>{formatValue(k, item)}</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ),
+      )}
+    </div>
+  );
+}
+
+type GoalSnap = { name: string; progress?: number; weight?: number; dutyName?: string | null; category?: string | null };
+
+function GoalsByDuty({ goals }: { goals: GoalSnap[] }) {
+  const groups = groupByDuty(
+    goals.filter((g) => g && typeof g.name === "string"),
+    dutyOf,
+  );
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-semibold">الأهداف ({goals.length})</p>
+      {groups.map((group) => (
+        <div key={group.duty}>
+          <p className="mb-1 text-[11px] font-semibold text-muted-foreground">{group.duty}</p>
+          <ul className="divide-y rounded-md border bg-background text-xs">
+            {group.items.map((g, i) => (
+              <li key={i} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-2.5 py-1.5">
+                <span className="font-medium">{g.name}</span>
+                <span className="text-muted-foreground tabular-nums">
+                  {formatValue("progress", g.progress)} · الوزن {formatValue("weight", g.weight)}
+                </span>
+              </li>
+            ))}
+          </ul>
         </div>
       ))}
     </div>
@@ -116,7 +150,8 @@ function OverrideDialog({ result, open, onOpenChange }: { result: KpiResultRow; 
     },
   });
   const n = Number(score);
-  const scoreError = !restore && (score.trim() === "" || !Number.isFinite(n) || n < 0 || n > result.maxScore) ? `أدخل درجة بين 0 و ${result.maxScore}` : null;
+  const scoreError =
+    !restore && (score.trim() === "" || !Number.isFinite(n) || n < 0 || n > result.maxScore) ? `أدخل درجة بين 0 و ${result.maxScore}` : null;
   const reasonError = reason.trim().length < 5 ? "سبب التعديل مطلوب (5 أحرف على الأقل)" : null;
 
   return (
@@ -138,13 +173,29 @@ function OverrideDialog({ result, open, onOpenChange }: { result: KpiResultRow; 
           {!restore && (
             <div className="space-y-2">
               <Label htmlFor="kpi-score">الدرجة (0 – {formatNumber(result.maxScore)})</Label>
-              <Input id="kpi-score" type="number" min={0} max={result.maxScore} step="0.5" value={score} onChange={(e) => setScore(e.target.value)} aria-invalid={!!scoreError} />
+              <Input
+                id="kpi-score"
+                type="number"
+                min={0}
+                max={result.maxScore}
+                step="0.5"
+                value={score}
+                onChange={(e) => setScore(e.target.value)}
+                aria-invalid={!!scoreError}
+              />
               {scoreError && <p className="text-xs text-destructive">{scoreError}</p>}
             </div>
           )}
           <div className="space-y-2">
             <Label htmlFor="kpi-reason">سبب التعديل</Label>
-            <Textarea id="kpi-reason" rows={3} maxLength={2000} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="مثال: تم احتساب منتجات أعيدت بسبب خطأ من المورد" />
+            <Textarea
+              id="kpi-reason"
+              rows={3}
+              maxLength={2000}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="مثال: تم احتساب منتجات أعيدت بسبب خطأ من المورد"
+            />
             {reason.length > 0 && reasonError && <p className="text-xs text-destructive">{reasonError}</p>}
           </div>
         </div>
@@ -152,7 +203,10 @@ function OverrideDialog({ result, open, onOpenChange }: { result: KpiResultRow; 
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={pending}>
             إلغاء
           </Button>
-          <Button disabled={pending || !!scoreError || !!reasonError} onClick={() => run(result.id, { score: restore ? null : n, reason: reason.trim() })}>
+          <Button
+            disabled={pending || !!scoreError || !!reasonError}
+            onClick={() => run(result.id, { score: restore ? null : n, reason: reason.trim() })}
+          >
             {pending && <Spinner />}
             {restore ? "استعادة وإعادة الحساب" : "حفظ التعديل"}
           </Button>
@@ -195,15 +249,18 @@ export function KpiResultsTable({ results, canEdit }: { results: KpiResultRow[];
                 <Fragment key={r.id}>
                   <TableRow className={cn(open && "bg-muted/30")}>
                     <TableCell>
-                      <Button size="icon-xs" variant="ghost" aria-label="عرض التفاصيل" aria-expanded={open} onClick={() => setExpanded(open ? null : r.id)}>
+                      <Button
+                        size="icon-xs"
+                        variant="ghost"
+                        aria-label="عرض التفاصيل"
+                        aria-expanded={open}
+                        onClick={() => setExpanded(open ? null : r.id)}
+                      >
                         <ChevronDown className={cn("transition-transform", open && "rotate-180")} />
                       </Button>
                     </TableCell>
                     <TableCell>
                       <div className="font-medium">{r.name}</div>
-                      <div className="text-[11px] text-muted-foreground" dir="ltr">
-                        {r.code}
-                      </div>
                     </TableCell>
                     <TableCell>
                       <EnumBadge map={KPI_CATEGORY_LABELS} value={r.category} />

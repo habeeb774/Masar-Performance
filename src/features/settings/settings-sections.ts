@@ -18,7 +18,7 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
   { href: "/settings/roles", label: "الأدوار", description: "أدوار المستخدمين وصلاحيات كل دور", icon: "roles", anyOf: [PERMISSIONS.ROLES_MANAGE] },
   { href: "/settings/permissions", label: "مصفوفة الصلاحيات", description: "تعديل صلاحيات جميع الأدوار في جدول واحد", icon: "permissions", anyOf: [PERMISSIONS.ROLES_MANAGE] },
   { href: "/settings/kpi-templates", label: "مؤشرات الأداء", description: "قوالب مؤشرات الأداء وطرق حسابها وأوزانها", icon: "kpis", anyOf: [PERMISSIONS.KPI_MANAGE] },
-  { href: "/settings/rating-scale", label: "سلم التقييم", description: "فئات التقدير (ممتاز، جيد جدًا…) وحدود كل فئة", icon: "ratingScale", anyOf: [PERMISSIONS.RATING_SCALE_MANAGE] },
+  { href: "/settings/rating-scale", label: "سلم التقييم", description: "فئات التقدير (متميز، ممتاز، جيد جدا…) وحدود كل فئة", icon: "ratingScale", anyOf: [PERMISSIONS.RATING_SCALE_MANAGE] },
   { href: "/employees", label: "المستخدمون والموظفون", description: "حسابات الدخول، الأدوار، وإعادة تعيين كلمات المرور", icon: "users", anyOf: [PERMISSIONS.USERS_MANAGE] },
 ];
 

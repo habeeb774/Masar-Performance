@@ -8,6 +8,7 @@ import { db } from "@/server/db";
 import { fromDateKey, monthEnd, monthLabel, monthStart } from "@/lib/dates";
 import { formatNumber, formatPct, num } from "@/lib/num";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
+import { dutyOf, groupByDuty } from "@/lib/duties";
 import { companyToday, distributionGoals, getNotionSourceOptions, getPlanDetail, monthPeriod, serializeGoal, weekColumns, weeklyTargetsMatrix } from "@/server/queries/plans";
 import { breakdownTotals, weightedProgress } from "@/server/queries/dashboard";
 import { Button } from "@/components/ui/button";
@@ -173,12 +174,20 @@ export default async function MyPlanPage({ searchParams }: { searchParams: Searc
             <Target className="size-4.5 text-primary" /> أهداف الشهر
           </CardTitle>
         </CardHeader>
-        <CardContent>
-          <ul className="divide-y">
-            {active.map((g) => (
-              <GoalLine key={g.id} name={g.name} achieved={g.achievedValue} target={g.targetValue} unit={g.unit} status={g.status} />
-            ))}
-          </ul>
+        <CardContent className="space-y-4">
+          {(() => {
+            const groups = groupByDuty(active, dutyOf);
+            return groups.map((group) => (
+              <section key={group.duty}>
+                {groups.length > 1 && <h3 className="text-xs font-semibold text-muted-foreground">{group.duty}</h3>}
+                <ul className="divide-y">
+                  {group.items.map((g) => (
+                    <GoalLine key={g.id} name={g.name} achieved={g.achievedValue} target={g.targetValue} unit={g.unit} status={g.status} />
+                  ))}
+                </ul>
+              </section>
+            ));
+          })()}
         </CardContent>
       </Card>
 

@@ -16,6 +16,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { Client } from "@notionhq/client";
 import { PrismaClient, type Prisma } from "../src/generated/prisma/client";
 import { DEFAULT_ROLE_PERMISSIONS, PERMISSION_CATALOG } from "../src/lib/permissions";
+import { HR_RATING_BANDS } from "../src/lib/kpi/rating-scale";
 import { matchPreset } from "../src/lib/notion/presets";
 
 const db = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL! }) });
@@ -210,13 +211,13 @@ async function main() {
       jobTitleId: jtProducts.id,
       name: "قالب مسؤول المنتجات والتصاميم",
       items: [
-        n("إضافة منتجات جديدة", 160, 30, "store", { unit: "منتج", priority: "HIGH" }),
-        n("تعديل منتجات سابقة", 40, 10, null, { unit: "منتج" }),
-        n("تجهيز صور المنتجات", 160, 20, "images", { unit: "صورة", priority: "HIGH" }),
-        n("تصميم بنرات", 8, 10, null, { unit: "بنر" }),
-        n("ربط المنتجات بمقاطع Instagram", 20, 10, null, { unit: "منتج" }),
-        n("تحسين واجهة المتجر", 1, 10, null, { goalType: "BOOLEAN", unit: "مهمة" }),
-        n("مهام إضافية", 100, 10, null, { goalType: "PERCENTAGE", unit: "%" }),
+        n("إضافة منتجات جديدة", 160, 30, "store", { unit: "منتج", priority: "HIGH", dutyName: "إضافة وتعديل المنتجات في المتجر" }),
+        n("تعديل منتجات سابقة", 40, 10, null, { unit: "منتج", dutyName: "إضافة وتعديل المنتجات في المتجر" }),
+        n("تجهيز صور المنتجات", 160, 20, "images", { unit: "صورة", priority: "HIGH", dutyName: "تجهيز صور المنتجات" }),
+        n("تصميم بنرات", 8, 10, null, { unit: "بنر", dutyName: "التصاميم" }),
+        n("ربط المنتجات بمقاطع Instagram", 20, 10, null, { unit: "منتج", dutyName: "التعديل وتطوير واجهة ومظهر المتجر" }),
+        n("تحسين واجهة المتجر", 1, 10, null, { goalType: "BOOLEAN", unit: "مهمة", dutyName: "التعديل وتطوير واجهة ومظهر المتجر" }),
+        n("مهام إضافية", 100, 10, null, { goalType: "PERCENTAGE", unit: "%", dutyName: "مهام مستجدة كُلّف بها خلال الشهر" }),
       ],
     },
     {
@@ -231,7 +232,7 @@ async function main() {
         n("الكلمات المفتاحية", 50, 5, null, { unit: "كلمة" }),
         n("رفع المحتوى للمتجر", 160, 10, null, { unit: "منتج" }),
         n("تقارير SEO", 1, 5, null, { goalType: "BOOLEAN", unit: "تقرير" }),
-        n("مهام إضافية", 100, 5, null, { goalType: "PERCENTAGE", unit: "%" }),
+        n("مهام إضافية", 100, 5, null, { goalType: "PERCENTAGE", unit: "%", dutyName: "مهام مستجدة كُلّف بها خلال الشهر" }),
       ],
     },
   ];
@@ -299,12 +300,7 @@ async function main() {
         companyId: company.id,
         bands: {
           create: [
-            { label: "متميز", minScore: 95, maxScore: 100, color: "emerald", sortOrder: 1 },
-            { label: "ممتاز", minScore: 90, maxScore: 94.99, color: "green", sortOrder: 2 },
-            { label: "جيد جدًا", minScore: 80, maxScore: 89.99, color: "blue", sortOrder: 3 },
-            { label: "جيد", minScore: 70, maxScore: 79.99, color: "sky", sortOrder: 4 },
-            { label: "مقبول", minScore: 60, maxScore: 69.99, color: "amber", sortOrder: 5 },
-            { label: "ضعيف", minScore: 0, maxScore: 59.99, color: "red", sortOrder: 6 },
+            ...HR_RATING_BANDS.map((b, i) => ({ ...b, sortOrder: i + 1 })),
           ],
         },
       },

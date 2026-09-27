@@ -1,5 +1,6 @@
 "use client";
 
+import { dutyOf, groupByDuty } from "@/lib/duties";
 import { Fragment, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, Ban, Check, CheckCircle2, ChevronDown, Pencil, Plus, Target, Trash2, X } from "lucide-react";
@@ -335,11 +336,19 @@ function SimpleGoalRow({ goal, today, dates, canEdit }: { goal: PlanGoalRow; tod
 export function PlanGoalsSummary({ goals, today, dates, canEdit }: { goals: PlanGoalRow[]; today: string; dates: { start: string; end: string }; canEdit: boolean }) {
   const active = goals.filter((g) => g.status !== "CANCELLED");
   if (active.length === 0) return <EmptyState icon={Target} title="لا توجد أهداف في هذه الخطة" className="py-6" />;
+  const groups = groupByDuty(active, dutyOf);
   return (
-    <ul className="divide-y">
-      {active.map((g) => (
-        <SimpleGoalRow key={`${g.id}:${g.name}:${g.targetValue}`} goal={g} today={today} dates={dates} canEdit={canEdit} />
+    <div className="space-y-4">
+      {groups.map((group) => (
+        <section key={group.duty}>
+          {groups.length > 1 && <h3 className="mb-1 text-xs font-semibold text-muted-foreground">{group.duty}</h3>}
+          <ul className="divide-y">
+            {group.items.map((g) => (
+              <SimpleGoalRow key={`${g.id}:${g.name}:${g.targetValue}`} goal={g} today={today} dates={dates} canEdit={canEdit} />
+            ))}
+          </ul>
+        </section>
       ))}
-    </ul>
+    </div>
   );
 }

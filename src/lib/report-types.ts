@@ -3,6 +3,8 @@ import type { ProgressBreakdown } from "./notion/progress";
 export interface ReportGoalLine {
   goalId: string;
   name: string;
+  /** older reports have none — grouped by category then */
+  dutyName?: string | null;
   unit: string;
   category: string;
   source: string;
