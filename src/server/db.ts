@@ -13,13 +13,13 @@ function createClient() {
 }
 
 function client(): PrismaClient {
-  // in dev the client survives hot reloads on globalThis; after `prisma generate` the class changes
-  // (new models), so a client built from the old class is replaced instead of missing the new tables
-  if (!(globalForPrisma.prisma instanceof PrismaClient)) {
-    const stale = globalForPrisma.prisma as { $disconnect?: () => Promise<void> } | undefined;
-    void stale?.$disconnect?.().catch(() => {});
-    globalForPrisma.prisma = createClient();
+  // Dev only: the client survives hot reloads on globalThis, and after `prisma generate` a client built
+  // from the old class lacks the new models — replace it. Never in production: bundles may carry several
+  // copies of the class, and the shared client must not be swapped or closed under running requests.
+  if (process.env.NODE_ENV === "development" && globalForPrisma.prisma && !(globalForPrisma.prisma instanceof PrismaClient)) {
+    globalForPrisma.prisma = undefined;
   }
+  globalForPrisma.prisma ??= createClient();
   return globalForPrisma.prisma;
 }
 
