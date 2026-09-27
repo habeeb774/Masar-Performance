@@ -29,13 +29,22 @@ export function cleanEnv(value: string | undefined): string | undefined {
 
 /**
  * Resolve the OAuth configuration. The redirect URI must match, character for
- * character, the one registered on the Notion integration.
+ * character, the one registered on the Notion integration — production's
+ * fixed value is https://m.leanpix.site/api/notion/oauth/callback.
+ *
+ * NOTION_REDIRECT_URI (or the legacy NOTION_OAUTH_REDIRECT_URI alias) is the
+ * one authoritative source and should be set explicitly in every environment
+ * that does real OAuth. APP_URL-derivation is kept only as a safety net for
+ * environments that set APP_URL but not a redirect URI — it never reads
+ * VERCEL_URL, a preview deployment URL, the request's Host header, or
+ * window.location: those all vary per-deployment/per-request, and Notion
+ * rejects any redirect_uri that isn't byte-for-byte the registered one.
  */
 export function resolveOAuthConfig(env: OAuthEnv): OAuthConfig | null {
   const clientId = cleanEnv(env.NOTION_OAUTH_CLIENT_ID) ?? cleanEnv(env.NOTION_CLIENT_ID);
   const clientSecret = cleanEnv(env.NOTION_OAUTH_CLIENT_SECRET) ?? cleanEnv(env.NOTION_CLIENT_SECRET);
   if (!clientId || !clientSecret) return null;
-  const explicit = cleanEnv(env.NOTION_OAUTH_REDIRECT_URI) ?? cleanEnv(env.NOTION_REDIRECT_URI);
+  const explicit = cleanEnv(env.NOTION_REDIRECT_URI) ?? cleanEnv(env.NOTION_OAUTH_REDIRECT_URI);
   const base = cleanEnv(env.APP_URL)?.replace(/\/+$/, "");
   const redirectUri = explicit || (base ? `${base}${OAUTH_CALLBACK_PATH}` : "");
   if (!redirectUri) return null;
@@ -73,7 +82,7 @@ export const OAUTH_RESULT_MESSAGES: Record<OAuthResult, { ok: boolean; message: 
   denied: { ok: false, message: "تم إلغاء الربط من صفحة Notion، لم يتغير شيء. يمكنك المحاولة مرة أخرى متى شئت." },
   state: { ok: false, message: "انتهت مهلة طلب الربط. اضغط «ربط Notion» مرة أخرى." },
   grant: { ok: false, message: "انتهت صلاحية طلب الربط قبل إكماله. اضغط «ربط Notion» مرة أخرى." },
-  config: { ok: false, message: "تعذر إكمال اتصال Notion. إعداد الاتصال يحتاج مراجعة من مسؤول النظام.", admin: true },
+  config: { ok: false, message: "إعداد ربط Notion غير مكتمل. راجع مسؤول النظام لإكمال الإعداد.", admin: true },
   credentials: { ok: false, message: "تعذر إكمال اتصال Notion. إعداد الاتصال يحتاج مراجعة من مسؤول النظام.", admin: true },
   exchange: { ok: false, message: "تعذر إكمال اتصال Notion الآن. حاول مرة أخرى بعد قليل." },
   forbidden: { ok: false, message: "ربط Notion متاح لمسؤولي النظام والمديرين المخوّلين فقط." },

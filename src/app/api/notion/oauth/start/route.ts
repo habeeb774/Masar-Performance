@@ -19,6 +19,8 @@ export async function GET(request: NextRequest) {
 
   const config = oauthConfig();
   if (!config) return back("config");
+  // TEMPORARY — remove once the production callback URL is confirmed in the logs (never a secret, just the redirect_uri).
+  console.log("[notion-oauth] redirect_uri:", config.redirectUri);
 
   // one-time state bound to this browser — verified in the callback to prevent CSRF
   const state = randomToken(24);

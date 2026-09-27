@@ -32,7 +32,10 @@ export async function GET(request: NextRequest) {
 
   const code = params.get("code");
   if (!code) return finish("state");
-  if (!oauthConfig()) return finish("config");
+  const config = oauthConfig();
+  if (!config) return finish("config");
+  // TEMPORARY — remove once the production callback URL is confirmed in the logs (never a secret, just the redirect_uri).
+  console.log("[notion-oauth] redirect_uri:", config.redirectUri);
 
   try {
     const connection = await completeOAuth(user, code);
