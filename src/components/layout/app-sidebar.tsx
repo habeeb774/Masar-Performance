@@ -1,10 +1,10 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Activity,
-  BarChart3,
   Bell,
   BookCheck,
   CalendarDays,
@@ -88,8 +88,8 @@ export function AppSidebar({ groups, badges }: { groups: NavGroup[]; badges: Rec
           className="flex items-center gap-2.5 rounded-lg px-1 py-1.5 transition-colors duration-150 [transition-timing-function:var(--ease-press)] hover:bg-sidebar-accent/50 active:scale-[0.98]"
           onClick={() => setOpenMobile(false)}
         >
-          <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground shadow-[var(--shadow-raised)]">
-            <BarChart3 className="size-4" />
+          <span className="grid size-8 shrink-0 place-items-center overflow-hidden rounded-lg bg-black shadow-[var(--shadow-raised)]">
+            <Image src="/logo.png" alt="" width={32} height={32} className="size-full object-cover" priority />
           </span>
           <span className="min-w-0 group-data-[collapsible=icon]:hidden">
             <span className="block truncate text-sm font-bold text-sidebar-foreground">مركز الإدارة والتقييم</span>

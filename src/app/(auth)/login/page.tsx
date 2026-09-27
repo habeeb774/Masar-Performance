@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import { redirect } from "next/navigation";
 import { BarChart3, CheckCircle2, RefreshCw, Target } from "lucide-react";
 import { LoginForm } from "./login-form";
@@ -16,8 +17,8 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
       <div className="flex items-center justify-center px-4 py-12">
         <div className="w-full max-w-sm">
           <div className="mb-8 flex items-center gap-3">
-            <span className="grid size-11 place-items-center rounded-xl bg-primary text-primary-foreground shadow-sm">
-              <Target className="size-5" />
+            <span className="grid size-11 shrink-0 place-items-center overflow-hidden rounded-xl bg-black shadow-sm">
+              <Image src="/logo.png" alt="" width={44} height={44} className="size-full object-cover" priority />
             </span>
             <div>
               <p className="text-lg font-bold">مركز الإدارة والتقييم</p>
