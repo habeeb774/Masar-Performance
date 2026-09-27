@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { requirePermission } from "@/server/auth/session";
 import { employeeOptions, listConnectionHealth } from "@/server/queries/notion";
-import { isOAuthConfigured } from "@/server/notion/oauth";
+import { isOAuthConfigured, oauthConfig } from "@/server/notion/oauth";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
 import { isOAuthResult, OAUTH_RESULT_MESSAGES } from "@/lib/notion/oauth";
 import { str, type SearchParams } from "@/lib/params";
@@ -34,6 +34,7 @@ export default async function NotionConnectPage({ searchParams }: { searchParams
         connections={connections.filter((c) => c.isActive)}
         initialConnectionId={str(sp.connection) ?? null}
         oauthEnabled={isOAuthConfigured()}
+        redirectUri={oauthConfig()?.redirectUri ?? ""}
         oauthResult={oauthResult ? { ok: oauthResult.ok, message: oauthResult.message, detail: adminDetail } : null}
         employees={employees}
         advanced={advanced}

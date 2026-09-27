@@ -260,6 +260,20 @@ export function OAuthDiagnostics({ redirectUri, configured }: { redirectUri: str
             <Copy />
           </Button>
         </div>
+        <p className="text-xs text-muted-foreground">
+          إن ظهرت رسالة «redirect_uri مفقود أو غير صالح» من Notion عند الضغط على «ربط Notion»، فهذا العنوان غير مضاف في إعدادات التكامل نفسه:
+        </p>
+        <ol className="list-decimal space-y-0.5 ps-4 text-xs text-muted-foreground">
+          <li>
+            افتح{" "}
+            <a href="https://www.notion.so/my-integrations" target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2">
+              notion.so/my-integrations
+            </a>{" "}
+            وافتح تكامل الربط نفسه.
+          </li>
+          <li>من تبويب Distribution (أو OAuth Domain &amp; URIs) أضف العنوان أعلاه إلى Redirect URIs.</li>
+          <li>احفظ، ثم عد إلى هنا واضغط «ربط Notion» من جديد.</li>
+        </ol>
       </div>
       <div className="flex flex-col items-start gap-3">
         <Button size="sm" variant="outline" disabled={check.pending} onClick={() => check.run().then((r) => r.ok && r.data && setResult(r.data.result))}>

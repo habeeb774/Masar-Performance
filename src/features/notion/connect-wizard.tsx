@@ -121,7 +121,7 @@ export function FailurePanel({ failure, onRetry }: { failure: NotionFailure; onR
   );
 }
 
-function ConnectStep({ oauthEnabled, advanced }: { oauthEnabled: boolean; advanced: boolean }) {
+function ConnectStep({ oauthEnabled, advanced, redirectUri }: { oauthEnabled: boolean; advanced: boolean; redirectUri: string }) {
   return (
     <Card className="overflow-hidden">
       <CardContent className="grid gap-8 p-6 sm:p-10 lg:grid-cols-5 lg:items-center">
@@ -134,11 +134,37 @@ function ConnectStep({ oauthEnabled, advanced }: { oauthEnabled: boolean; advanc
             ستنتقل إلى Notion لتختار مساحة العمل والصفحات التي تسمح لمسار الأداء بقراءتها، ثم تعود إلى هنا تلقائيًا لاختيار قاعدة البيانات.
           </p>
           {oauthEnabled ? (
-            <Button size="lg" asChild>
-              <a href={OAUTH_START}>
-                <Link2 /> ربط Notion
-              </a>
-            </Button>
+            <div className="space-y-3">
+              <Button size="lg" asChild>
+                <a href={OAUTH_START}>
+                  <Link2 /> ربط Notion
+                </a>
+              </Button>
+              {advanced && (
+                <details className="rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">
+                  <summary className="cursor-pointer font-medium text-foreground">
+                    ظهرت رسالة «redirect_uri مفقود أو غير صالح» من Notion؟
+                  </summary>
+                  <div className="mt-2 space-y-2">
+                    <p>هذا العنوان غير مضاف بعد في إعدادات تكامل Notion نفسه:</p>
+                    <code dir="ltr" className="block rounded-md bg-muted px-2 py-1.5 font-mono break-all">
+                      {redirectUri}
+                    </code>
+                    <ol className="list-decimal space-y-0.5 ps-4">
+                      <li>
+                        افتح{" "}
+                        <a href="https://www.notion.so/my-integrations" target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2">
+                          notion.so/my-integrations
+                        </a>{" "}
+                        وافتح تكامل الربط نفسه.
+                      </li>
+                      <li>من تبويب Distribution (أو OAuth Domain &amp; URIs) أضف العنوان أعلاه إلى Redirect URIs.</li>
+                      <li>احفظ، ثم اضغط «ربط Notion» من جديد.</li>
+                    </ol>
+                  </div>
+                </details>
+              )}
+            </div>
           ) : (
             <div className="space-y-2">
               <Alert>
@@ -436,6 +462,7 @@ export function ConnectWizard({
   connections,
   initialConnectionId,
   oauthEnabled,
+  redirectUri,
   oauthResult,
   employees,
   advanced,
@@ -445,6 +472,7 @@ export function ConnectWizard({
   connections: ConnectionInfo[];
   initialConnectionId: string | null;
   oauthEnabled: boolean;
+  redirectUri: string;
   oauthResult: { ok: boolean; message: string; detail?: string | null } | null;
   employees: Option[];
   advanced: boolean;
@@ -610,7 +638,7 @@ export function ConnectWizard({
         </p>
       )}
 
-      {step === "connect" && <ConnectStep oauthEnabled={oauthEnabled} advanced={advanced} />}
+      {step === "connect" && <ConnectStep oauthEnabled={oauthEnabled} advanced={advanced} redirectUri={redirectUri} />}
 
       {step !== "connect" && connection && (
         <ConnectionHeader connections={connections} connection={connection} onSwitch={(id) => {
