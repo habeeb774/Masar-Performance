@@ -214,7 +214,7 @@ export async function buildWeeklyContent(weeklyPlanId: string): Promise<WeeklyRe
 export function weeklyText(c: WeeklyReportContent): string {
   const lines: string[] = [];
   lines.push(`التقرير الأسبوعي — ${c.employee.name}${c.employee.jobTitle ? ` (${c.employee.jobTitle})` : ""}`);
-  lines.push(`الأسبوع ${c.week.index} من ${monthLabel(c.week.year, c.week.month)}: ${formatDateAr(c.week.start)} – ${formatDateAr(c.week.end)}`);
+  lines.push(`الفترة ${c.week.index} · ${formatDateAr(c.week.start)} – ${formatDateAr(c.week.end)} (خطة ${monthLabel(c.week.year, c.week.month)})`);
   lines.push("");
   lines.push(`نسبة الإنجاز الموزونة: ${formatPct(c.totals.weightedProgress)} — أهداف مكتملة ${c.totals.completedGoals} من ${c.totals.goalsCount}`);
   if (c.totals.worked > 0) {
@@ -612,7 +612,7 @@ export function monthlyText(c: MonthlyReportContent): string {
   if (c.weeks.length) {
     l.push("");
     l.push("الأسابيع");
-    c.weeks.forEach((w) => l.push(`• الأسبوع ${w.index}: ${formatPct(w.progressPct)}`));
+    c.weeks.forEach((w) => l.push(`• الفترة ${w.index} (${formatDateAr(w.start)} – ${formatDateAr(w.end)}): ${formatPct(w.progressPct)}`));
   }
   if (c.stageSummary.length) {
     l.push("");

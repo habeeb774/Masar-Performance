@@ -7,7 +7,7 @@ import { int, str } from "@/lib/params";
 import { employeeWhere, requirePermission } from "@/server/auth/session";
 import { db } from "@/server/db";
 import { canAccessEmployee, hasPermission, PERMISSIONS } from "@/lib/permissions";
-import { formatDateTimeAr, monthLabel } from "@/lib/dates";
+import { formatDateAr, formatDateTimeAr, monthLabel } from "@/lib/dates";
 import { formatNumber } from "@/lib/num";
 import { PLAN_STATUS_LABELS } from "@/lib/labels";
 import { getCompany } from "@/server/services/company";
@@ -116,9 +116,12 @@ export default async function WeeklyPlansPage({ searchParams }: { searchParams: 
             {plan.weeklyPlans.map((w) => (
               <div key={w.id} className="rounded-lg border bg-card p-3">
                 <div className="flex items-center justify-between text-sm font-semibold">
-                  الأسبوع {w.weekIndex}
+                  الفترة {w.weekIndex}
                   <span className="text-xs font-normal text-muted-foreground">إنجاز</span>
                 </div>
+                <p className="text-xs text-muted-foreground">
+                  {formatDateAr(w.startDate)} – {formatDateAr(w.endDate)}
+                </p>
                 <ProgressBar value={weekProgress(w)} showLabel size="sm" className="mt-2" />
               </div>
             ))}

@@ -89,7 +89,7 @@ export function WeeklyReportsQueue({ rows, canApprove }: { rows: Awaited<ReturnT
   return (
     <QueueList>
       {rows.map((r) => {
-        const subject = `تقرير ${r.employee} الأسبوعي — الأسبوع ${r.weekIndex}`;
+        const subject = `تقرير ${r.employee} الأسبوعي — الفترة ${r.weekIndex}`;
         return (
           <QueueRow
             key={r.id}

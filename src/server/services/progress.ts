@@ -7,6 +7,7 @@ import type { SystemStatus } from "@/lib/notion/status";
 import { monthEnd, monthStart, toDateKey, todayKey } from "@/lib/dates";
 import { deriveGoalStatus, deriveTaskStatus } from "@/lib/goal-status";
 import { num, pct } from "@/lib/num";
+import { planSpan } from "./periods";
 import { getCompanyFresh } from "./company";
 
 /** Per-run cache of evaluated items keyed by dataSource + stage. */
@@ -104,19 +105,25 @@ export async function recomputePlan(planId: string, cache = new ItemCache()) {
   if (!plan) return;
   const mStart = monthStart(plan.year, plan.month);
   const mEnd = monthEnd(plan.year, plan.month);
+  // the plan's real span follows its 7-day periods, so each day counts in one plan only
+  const { start: pStart, end: pEnd } = await planSpan(plan);
   const writes: Prisma.PrismaPromise<unknown>[] = [];
   const now = new Date();
 
   for (const goal of plan.goals) {
     const target = num(goal.targetValue);
-    const start = goal.startDate ? toDateKey(goal.startDate) : mStart;
+    // a goal keeps an explicit start/due date set inside the month; the default month bounds follow the periods
+    const customStart = goal.startDate && toDateKey(goal.startDate) > mStart ? toDateKey(goal.startDate) : null;
+    const customEnd = goal.dueDate && toDateKey(goal.dueDate) < mEnd ? toDateKey(goal.dueDate) : null;
+    const start = customStart && customStart > pStart ? customStart : pStart;
+    const end = customEnd ?? pEnd;
     const isNotion = goal.source === "NOTION" && goal.notionDataSourceId && goal.notionFilter;
     let achieved = num(goal.achievedValue);
     let breakdown: ProgressBreakdown | null = null;
 
     let sourceValue: number | null | undefined;
     if (isNotion) {
-      breakdown = await breakdownFor(goal, { start, end: mEnd }, target, cache);
+      breakdown = await breakdownFor(goal, { start, end }, target, cache);
       if (breakdown) achieved = sourceValue = breakdown.completed;
       // a manual override wins over Notion and is never replaced by a sync
       if (goal.overrideValue !== null) achieved = num(goal.overrideValue);
@@ -128,7 +135,7 @@ export async function recomputePlan(planId: string, cache = new ItemCache()) {
       current: goal.status,
       progressPct: progress,
       start,
-      end: goal.dueDate ? toDateKey(goal.dueDate) : mEnd,
+      end,
       today,
     });
     writes.push(

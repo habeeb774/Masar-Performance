@@ -161,7 +161,7 @@ export async function getAttentionFeed(user: AuthUser): Promise<{ items: Attenti
       type: "WEEKLY_REPORT_MISSING",
       severity: 500 + oldest,
       tone: "pending",
-      text: weeks.length === 1 ? `${name} لم يسلّم تقرير الأسبوع ${weeks[0].weekIndex}` : `${name} لم يسلّم ${weeks.length} تقارير أسبوعية`,
+      text: weeks.length === 1 ? `${name} لم يسلّم تقرير الفترة ${weeks[0].weekIndex}` : `${name} لم يسلّم ${weeks.length} تقارير أسبوعية`,
       href: `/review-center?tab=weekly`,
     });
   }

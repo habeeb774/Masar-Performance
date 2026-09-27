@@ -108,7 +108,7 @@ export function WeeklyDistributionEditor({
               <TableHead className="sticky start-0 z-10 min-w-48 bg-muted text-start text-xs">الهدف</TableHead>
               {weeks.map((w) => (
                 <TableHead key={w.index} className="min-w-28 py-2 text-center text-xs">
-                  <span className="block font-semibold text-foreground">الأسبوع {w.index}</span>
+                  <span className="block font-semibold text-foreground">الفترة {w.index}</span>
                   <span className="block font-normal">
                     {shortDate(w.start)} – {shortDate(w.end)}
                   </span>
@@ -146,7 +146,7 @@ export function WeeklyDistributionEditor({
                           setValues((m) => ({ ...m, [g.id]: { ...m[g.id], [String(w.index)]: v } }));
                         }}
                         className="h-8 text-center tabular-nums"
-                        aria-label={`${g.name} — الأسبوع ${w.index}`}
+                        aria-label={`${g.name} — الفترة ${w.index}`}
                       />
                     </TableCell>
                   ))}

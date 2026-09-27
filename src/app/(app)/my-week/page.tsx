@@ -112,7 +112,7 @@ export default async function MyWeekPage({ searchParams }: { searchParams: Searc
   return (
     <div className="space-y-5">
       <PageHeader
-        title={`الأسبوع ${week.weekIndex} — ${monthLabel(week.monthlyPlan.year, week.monthlyPlan.month)}`}
+        title={`الفترة ${week.weekIndex} — خطة ${monthLabel(week.monthlyPlan.year, week.monthlyPlan.month)}`}
         description={
           <span className="inline-flex flex-wrap items-center gap-2">
             {formatDateAr(week.startDate)} – {formatDateAr(week.endDate)} <EnumBadge map={WEEKLY_PLAN_STATUS_LABELS} value={week.status} />
@@ -123,7 +123,7 @@ export default async function MyWeekPage({ searchParams }: { searchParams: Searc
         actions={
           <>
             <div className="flex items-center gap-1 rounded-lg border bg-card p-0.5">
-              <Button variant="ghost" size="icon-sm" disabled={!prev} asChild={!!prev} aria-label="الأسبوع السابق">
+              <Button variant="ghost" size="icon-sm" disabled={!prev} asChild={!!prev} aria-label="الفترة السابقة">
                 {prev ? (
                   <Link href={`/my-week?week=${prev.id}`}>
                     <ChevronRight />
@@ -132,8 +132,8 @@ export default async function MyWeekPage({ searchParams }: { searchParams: Searc
                   <ChevronRight />
                 )}
               </Button>
-              <span className="min-w-24 text-center text-sm font-medium">الأسبوع {week.weekIndex}</span>
-              <Button variant="ghost" size="icon-sm" disabled={!next} asChild={!!next} aria-label="الأسبوع التالي">
+              <span className="min-w-24 text-center text-sm font-medium">الفترة {week.weekIndex}</span>
+              <Button variant="ghost" size="icon-sm" disabled={!next} asChild={!!next} aria-label="الفترة التالية">
                 {next ? (
                   <Link href={`/my-week?week=${next.id}`}>
                     <ChevronLeft />

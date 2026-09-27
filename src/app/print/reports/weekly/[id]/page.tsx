@@ -17,7 +17,7 @@ export default async function PrintWeeklyReportPage({ params }: { params: IdPara
   await requireEmployeeAccess(report.employeeId);
   const c = report.content;
   const period = c.week.index
-    ? `الأسبوع ${c.week.index} من ${monthLabel(c.week.year, c.week.month)} (${formatDateAr(report.weekStart)} – ${formatDateAr(report.weekEnd)})`
+    ? `الفترة ${c.week.index} · ${formatDateAr(report.weekStart)} – ${formatDateAr(report.weekEnd)} (خطة ${monthLabel(c.week.year, c.week.month)})`
     : `${formatDateAr(report.weekStart)} – ${formatDateAr(report.weekEnd)}`;
 
   return (

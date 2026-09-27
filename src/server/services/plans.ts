@@ -6,13 +6,14 @@ import { audit } from "@/server/audit";
 import { UserError } from "@/server/action";
 import { assertEmployeeAccess, type AuthUser } from "@/server/auth/session";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
-import { fromDateKey, getMonthWeeks, monthEnd, monthLabel, monthStart, toDateKey, todayKey } from "@/lib/dates";
+import { eachDay, fromDateKey, isWorkDay, monthEnd, monthLabel, monthStart, planWeekPeriods, toDateKey, todayKey, type MonthWeek } from "@/lib/dates";
 import { checkDistribution, suggestDailyTargets, suggestWeeklyTargets } from "@/lib/distribution";
 import { num } from "@/lib/num";
 import type { createPlanSchema, dailyDistributionSchema, monthlyGoalSchema, weeklyDistributionSchema } from "@/lib/validation";
 import { getCompany } from "./company";
 import { notifyUsers, managerUserIdsFor } from "./notifications";
 import { recomputePlan } from "./progress";
+import { firstPeriodStart } from "./periods";
 import { isNotionGoal, reconcileSourceChange } from "./manual";
 
 type GoalInput = z.infer<typeof monthlyGoalSchema>;
@@ -250,16 +251,26 @@ export async function setPlanStatus(user: AuthUser, planId: string, status: "IN_
 }
 
 /**
- * Create the month's working weeks and a weekly goal per monthly goal with an
- * automatic, work-day-proportional suggestion. Existing rows are preserved.
+ * Create the plan's periods (7 full days each, see planWeekPeriods) and a weekly
+ * goal per monthly goal with an automatic, work-day-proportional suggestion.
+ * Periods are generated once: a plan that already has weekly plans keeps them
+ * exactly as stored (including plans made before this rule), so re-running this
+ * only adds weekly goals for new monthly goals.
  */
 export async function ensureWeeklyPlans(planId: string) {
   const company = await getCompany();
   const plan = await db.monthlyPlan.findUniqueOrThrow({
     where: { id: planId },
-    include: { goals: true, weeklyPlans: { include: { goals: true } } },
+    include: { goals: true, weeklyPlans: { include: { goals: true }, orderBy: { weekIndex: "asc" } } },
   });
-  const weeks = getMonthWeeks(plan.year, plan.month, company.weekStartDay, company.workDays);
+  const weeks: MonthWeek[] =
+    plan.weeklyPlans.length > 0
+      ? plan.weeklyPlans.map((w) => {
+          const start = toDateKey(w.startDate);
+          const end = toDateKey(w.endDate);
+          return { index: w.weekIndex, start, end, workDays: eachDay(start, end).filter((d) => isWorkDay(d, company.workDays)) };
+        })
+      : planWeekPeriods(await firstPeriodStart(plan.employeeId, plan.year, plan.month), monthEnd(plan.year, plan.month), company.workDays);
   const existing = new Map(plan.weeklyPlans.map((w) => [w.weekIndex, w]));
 
   await db.$transaction(async (tx) => {
@@ -310,9 +321,8 @@ export async function autoDistributePlan(planId: string, userId: string) {
     where: { monthlyPlanId: planId },
     include: { goals: { include: { monthlyGoal: true, dailyTasks: { where: { source: "DISTRIBUTED" }, select: { id: true } } } } },
   });
-  const ops: Prisma.PrismaPromise<unknown>[] = [];
+  const tasks: Prisma.DailyTaskCreateManyInput[] = [];
   for (const week of weeks) {
-    if (week.status === "DRAFT") ops.push(db.weeklyPlan.update({ where: { id: week.id }, data: { status: "ACTIVE" } }));
     if (week.status === "CLOSED" || toDateKey(week.endDate) < today) continue;
     const days: string[] = [];
     for (let d = toDateKey(week.startDate); d <= toDateKey(week.endDate); d = toDateKey(new Date(fromDateKey(d).getTime() + 86_400_000))) {
@@ -327,25 +337,25 @@ export async function autoDistributePlan(planId: string, userId: string) {
       const split = repeat ? days.map(() => target) : suggestDailyTargets(target, days.length);
       days.forEach((day, i) => {
         if (!(split[i] > 0)) return;
-        ops.push(
-          db.dailyTask.create({
-            data: {
-              employeeId: week.employeeId,
-              weeklyGoalId: wg.id,
-              monthlyGoalId: wg.monthlyGoalId,
-              title: wg.monthlyGoal.name,
-              date: fromDateKey(day),
-              target: split[i],
-              source: "DISTRIBUTED",
-              priority: wg.monthlyGoal.priority,
-              createdById: userId,
-            },
-          }),
-        );
+        tasks.push({
+          employeeId: week.employeeId,
+          weeklyGoalId: wg.id,
+          monthlyGoalId: wg.monthlyGoalId,
+          title: wg.monthlyGoal.name,
+          date: fromDateKey(day),
+          target: split[i],
+          source: "DISTRIBUTED",
+          priority: wg.monthlyGoal.priority,
+          createdById: userId,
+        });
       });
     }
   }
-  if (ops.length) await db.$transaction(ops);
+  // a handful of bulk statements instead of one insert per task: a full template plan is hundreds of
+  // tasks, and one-by-one inserts in a single transaction ran past the 30s limit on serverless Postgres
+  const ops: Prisma.PrismaPromise<unknown>[] = [db.weeklyPlan.updateMany({ where: { monthlyPlanId: planId, status: "DRAFT" }, data: { status: "ACTIVE" } })];
+  for (let i = 0; i < tasks.length; i += 500) ops.push(db.dailyTask.createMany({ data: tasks.slice(i, i + 500) }));
+  await db.$transaction(ops);
 }
 
 async function assertCanDistribute(user: AuthUser, employeeId: string) {

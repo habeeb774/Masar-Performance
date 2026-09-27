@@ -12,7 +12,7 @@ import { recomputePlan } from "@/server/services/progress";
 import { generateWeeklyReport } from "@/server/services/reports";
 import { adjustReview, approveReview, calculateReview } from "@/server/services/performance";
 import { rebuildStages } from "@/server/notion/sync";
-import { getMonthWeeks } from "@/lib/dates";
+import { monthEnd, monthStart, planWeekPeriods } from "@/lib/dates";
 import { num } from "@/lib/num";
 
 const YEAR = 2031;
@@ -80,7 +80,7 @@ beforeAll(async () => {
   });
 
   // 15 completed, 4 pending, 2 needing revision in batch 65 during week 2; 3 completed in batch 64
-  const week2Day = getMonthWeeks(YEAR, MONTH, 6, [6, 0, 1, 2, 3])[1].workDays[0];
+  const week2Day = planWeekPeriods(monthStart(YEAR, MONTH), monthEnd(YEAR, MONTH), [6, 0, 1, 2, 3])[1].workDays[0];
   const rows = [
     ...Array.from({ length: 15 }, () => ({ status: "مضاف نهائي", batch: 65 })),
     ...Array.from({ length: 4 }, () => ({ status: "مضاف ومخفي", batch: 65 })),
@@ -179,7 +179,7 @@ describe("planning → progress → report → evaluation", () => {
   it("approval generates working weeks whose targets sum to the monthly target", async () => {
     await plans.approvePlan(manager, planId, "معتمد");
     const weeks = await db.weeklyPlan.findMany({ where: { monthlyPlanId: planId }, include: { goals: true } });
-    expect(weeks.length).toBe(getMonthWeeks(YEAR, MONTH, 6, [6, 0, 1, 2, 3]).length);
+    expect(weeks.length).toBe(planWeekPeriods(monthStart(YEAR, MONTH), monthEnd(YEAR, MONTH), [6, 0, 1, 2, 3]).length);
     const goal = await db.monthlyGoal.findFirstOrThrow({ where: { planId, source: "NOTION" } });
     const sum = weeks.flatMap((w) => w.goals).filter((g) => g.monthlyGoalId === goal.id).reduce((a, g) => a + num(g.targetValue), 0);
     expect(sum).toBe(25);

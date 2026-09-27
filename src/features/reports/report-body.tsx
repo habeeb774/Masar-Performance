@@ -401,7 +401,7 @@ export function MonthlyReportBody({ content }: { content: MonthlyReportContent }
             {content.weeks.map((w) => (
               <div key={w.index} className="rounded-lg border p-3 break-inside-avoid">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-sm font-semibold">الأسبوع {w.index}</span>
+                  <span className="text-sm font-semibold">الفترة {w.index}</span>
                   {w.reportStatus ? (
                     <EnumBadge map={REPORT_STATUS_LABELS} value={w.reportStatus} />
                   ) : (
@@ -482,7 +482,7 @@ export function MonthlyReportBody({ content }: { content: MonthlyReportContent }
           <div className="space-y-3">
             {content.weeklyNotes.map((n) => (
               <div key={n.week} className="rounded-lg border p-3 break-inside-avoid">
-                <p className="mb-2 text-sm font-semibold">الأسبوع {n.week}</p>
+                <p className="mb-2 text-sm font-semibold">الفترة {n.week}</p>
                 <div className="grid gap-2 md:grid-cols-2">
                   <NoteBlock label="أبرز الإنجازات" value={n.highlights} />
                   <NoteBlock label="أسباب عدم الإنجاز" value={n.blockers} />

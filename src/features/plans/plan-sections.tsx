@@ -184,7 +184,7 @@ export function WeeksOverview({ plan, workDays, distributeHref, weekHref }: { pl
               const body = (
                 <div className="h-full rounded-lg border p-3 transition-colors hover:bg-muted/40">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-semibold">الأسبوع {w.weekIndex}</span>
+                    <span className="text-sm font-semibold">الفترة {w.weekIndex}</span>
                     <EnumBadge map={WEEKLY_PLAN_STATUS_LABELS} value={w.status} />
                   </div>
                   <p className="mt-1 text-xs text-muted-foreground">

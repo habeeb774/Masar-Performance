@@ -393,7 +393,7 @@ export async function getPerformanceAnalytics(user: AuthUser, year: number, mont
   const weeklySeries = individual ? withWeeks.map((e, i) => ({ key: `e${i}`, label: e.name })) : [{ key: "avg", label: "متوسط الفريق" }];
   const weekly = Array.from({ length: maxWeeks }, (_, i) => {
     const index = i + 1;
-    const row: Record<string, string | number | null> = { label: `الأسبوع ${index}` };
+    const row: Record<string, string | number | null> = { label: `الفترة ${index}` };
     if (individual) withWeeks.forEach((e, k) => (row[`e${k}`] = e.weeks.find((w) => w.index === index)?.progress ?? null));
     else row.avg = avg(withWeeks.map((e) => e.weeks.find((w) => w.index === index)?.progress ?? null));
     return row;

@@ -32,7 +32,7 @@ export default async function WeeklyReportPage({ params }: { params: IdParams })
   const editable = isOwner && (report.status === "DRAFT" || report.status === "RETURNED");
   const canReview = !isOwner && hasPermission(user, PERMISSIONS.REPORTS_REVIEW) && (report.status === "SUBMITTED" || report.status === "REVIEWED");
   const period = c.week.index
-    ? `الأسبوع ${c.week.index} من ${monthLabel(c.week.year, c.week.month)} (${formatDateAr(report.weekStart)} – ${formatDateAr(report.weekEnd)})`
+    ? `الفترة ${c.week.index} · ${formatDateAr(report.weekStart)} – ${formatDateAr(report.weekEnd)} (خطة ${monthLabel(c.week.year, c.week.month)})`
     : `${formatDateAr(report.weekStart)} – ${formatDateAr(report.weekEnd)}`;
 
   return (

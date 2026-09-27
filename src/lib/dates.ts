@@ -99,9 +99,9 @@ export function isWorkDay(key: DateKey, workDays: number[]): boolean {
 
 export interface MonthWeek {
   index: number;
-  /** first day of the week clamped to the month */
+  /** first day (getMonthWeeks: clamped to the month; planWeekPeriods: not clamped) */
   start: DateKey;
-  /** last day of the week clamped to the month */
+  /** last day (getMonthWeeks: clamped to the month; planWeekPeriods: may be in the next month) */
   end: DateKey;
   workDays: DateKey[];
 }
@@ -129,6 +129,26 @@ export function getMonthWeeks(
       weeks.push({ index: weeks.length + 1, start, end, workDays: days });
     }
     cursor = addDays(cursor, 7);
+  }
+  return weeks;
+}
+
+/**
+ * Plan periods («الفترات»): consecutive blocks of exactly 7 calendar days, the
+ * first starting on `start`, each next one on the day after the previous ends,
+ * for as long as a new period would still begin on or before `end`.
+ * The calendar week grid plays no part, and a period is never cut at the month
+ * boundary — the last one normally runs a few days into the next month.
+ * Only a plan whose whole span is under 7 days (an explicit short range) gets a
+ * single shorter period matching that span.
+ */
+export function planWeekPeriods(start: DateKey, end: DateKey, workDays: number[]): MonthWeek[] {
+  const weeks: MonthWeek[] = [];
+  const shortPlan = diffDays(end, start) + 1 < 7;
+  for (let cursor = start; cursor <= end; ) {
+    const periodEnd = shortPlan ? end : addDays(cursor, 6);
+    weeks.push({ index: weeks.length + 1, start: cursor, end: periodEnd, workDays: eachDay(cursor, periodEnd).filter((d) => isWorkDay(d, workDays)) });
+    cursor = addDays(periodEnd, 1);
   }
   return weeks;
 }

@@ -111,12 +111,19 @@ export default async function MyPlanPage({ searchParams }: { searchParams: Searc
   const syncIssue = firstSyncIssue(goals, access);
   const running = plan.status === "APPROVED" || plan.status === "IN_PROGRESS" || plan.status === "COMPLETED";
 
-  const currentWeek = running
+  // the running period: in the first days of a month it may still belong to the previous month's plan
+  const viewingToday = monthStart(year, month) <= now.today && now.today <= monthEnd(year, month);
+  const runningPeriod = running
     ? await db.weeklyPlan.findFirst({
-        where: { monthlyPlanId: plan.id, startDate: { lte: fromDateKey(now.today) }, endDate: { gte: fromDateKey(now.today) } },
-        include: { goals: { include: { monthlyGoal: { select: { name: true, unit: true, status: true, sortOrder: true } } } } },
+        where: { employeeId: plan.employeeId, startDate: { lte: fromDateKey(now.today) }, endDate: { gte: fromDateKey(now.today) } },
+        include: {
+          monthlyPlan: { select: { year: true, month: true } },
+          goals: { include: { monthlyGoal: { select: { name: true, unit: true, status: true, sortOrder: true } } } },
+        },
       })
     : null;
+  const currentWeek = runningPeriod && (runningPeriod.monthlyPlanId === plan.id || viewingToday) ? runningPeriod : null;
+  const fromOtherPlan = currentWeek && currentWeek.monthlyPlanId !== plan.id ? currentWeek.monthlyPlan : null;
   const weekGoals = (currentWeek?.goals ?? []).filter((g) => g.monthlyGoal.status !== "CANCELLED").sort((a, b) => a.monthlyGoal.sortOrder - b.monthlyGoal.sortOrder);
 
   const [sources, batches] = await Promise.all([getNotionSourceOptions(), getEmployeeBatches(user.employeeId, year, month)]);
@@ -176,10 +183,16 @@ export default async function MyPlanPage({ searchParams }: { searchParams: Searc
       {currentWeek && weekGoals.length > 0 && (
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-2">
-            <CardTitle className="text-base">هذا الأسبوع</CardTitle>
+            <div className="min-w-0">
+              <CardTitle className="text-base">الفترة الحالية</CardTitle>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                الفترة {currentWeek.weekIndex} · {formatDateAr(currentWeek.startDate)} – {formatDateAr(currentWeek.endDate)}
+                {fromOtherPlan && ` · من خطة ${monthLabel(fromOtherPlan.year, fromOtherPlan.month)}`}
+              </p>
+            </div>
             <Button variant="ghost" size="sm" asChild>
               <Link href={`/my-week?week=${currentWeek.id}`}>
-                أيام الأسبوع <ArrowLeft />
+                أيام الفترة <ArrowLeft />
               </Link>
             </Button>
           </CardHeader>
