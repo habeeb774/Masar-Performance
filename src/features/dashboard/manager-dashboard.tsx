@@ -10,8 +10,7 @@ import {
   Lock,
   RotateCcw,
   TrendingDown,
-  Users,
-} from "lucide-react";
+  Users, BellRing } from "lucide-react";
 import { PackageSearch, PenLine } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { BatchCard } from "@/features/notion/batch-card";
@@ -42,7 +41,17 @@ const ATTENTION_ICONS: Record<AttentionItem["type"], LucideIcon> = {
   MANUAL_OVERRIDE: PenLine,
 };
 
-export function ManagerDashboard({ name, data, batches = [] }: { name: string; data: Data; batches?: Awaited<ReturnType<typeof getTeamBatchOverview>> }) {
+export function ManagerDashboard({
+  name,
+  data,
+  batches = [],
+  dueReminders = 0,
+}: {
+  name: string;
+  data: Data;
+  batches?: Awaited<ReturnType<typeof getTeamBatchOverview>>;
+  dueReminders?: number;
+}) {
   const { stats } = data;
   const stageRows = Object.values(
     data.stages.reduce<Record<string, { label: string; [k: string]: string | number }>>((acc, s) => {
@@ -63,7 +72,14 @@ export function ManagerDashboard({ name, data, batches = [] }: { name: string; d
             {formatDayAr(data.today)} — متابعة فريق المتجر لشهر {monthLabel(data.year, data.month)}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          {dueReminders > 0 && (
+            <Button variant="ghost" asChild>
+              <Link href="/reminders">
+                <BellRing className="text-primary" /> {formatNumber(dueReminders)} تذكيرات حان موعدها
+              </Link>
+            </Button>
+          )}
           <Button variant="outline" asChild>
             <Link href="/review-center">
               <ClipboardCheck /> بانتظارك

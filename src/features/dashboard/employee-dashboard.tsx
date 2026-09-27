@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { AlarmClock, ArrowLeft, CheckCircle2, ChevronDown, MessageSquareQuote, Play, RotateCcw } from "lucide-react";
+import { AlarmClock, BellRing, ArrowLeft, CheckCircle2, ChevronDown, MessageSquareQuote, Play, RotateCcw } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/shared/page";
@@ -39,12 +39,14 @@ export function EmployeeDashboard({
   data,
   batches,
   syncIssue,
+  dueReminders = 0,
 }: {
   name: string;
   userId: string;
   data: Data;
   batches?: Awaited<ReturnType<typeof getEmployeeBatches>>;
   syncIssue?: boolean;
+  dueReminders?: number;
 }) {
   const { stats, week } = data;
   const next = nextTask(data.todayTaskRows, data.adHocRows, data.today);
@@ -53,6 +55,7 @@ export function EmployeeDashboard({
   const alerts = [
     stats.delayed > 0 && { icon: AlarmClock, tone: "text-danger", text: `${formatNumber(stats.delayed)} مهام متأخرة`, href: "/my-tasks" },
     stats.needsRevision > 0 && { icon: RotateCcw, tone: "text-warning", text: `${formatNumber(stats.needsRevision)} عناصر تحتاج تحسين`, href: "/my-plan" },
+    dueReminders > 0 && { icon: BellRing, tone: "text-primary", text: `${formatNumber(dueReminders)} تذكيرات حان موعدها`, href: "/reminders" },
   ].filter((a): a is { icon: typeof AlarmClock; tone: string; text: string; href: string } => !!a);
 
   return (

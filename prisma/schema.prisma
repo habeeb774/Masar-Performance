@@ -293,6 +293,7 @@ model User {
   attachments    Attachment[]
 
   @@index([roleId])
+  reminders     Reminder[]
 }
 
 model Session {
@@ -411,6 +412,7 @@ model Employee {
   @@index([departmentId])
   @@index([jobTitleId])
   manualBatches ManualBatch[]
+  reminders     Reminder[]
 }
 
 // ---------------------------------------------------------------------
@@ -633,6 +635,7 @@ model AdHocTask {
 
   @@index([employeeId, assignedDate])
   @@index([status])
+  reminder      Reminder?
 }
 
 // ---------------------------------------------------------------------
@@ -1075,4 +1078,41 @@ model ManualBatch {
 
   @@unique([employeeId, number])
   @@index([weekStart])
+}
+
+enum ReminderPriority {
+  NORMAL
+  IMPORTANT
+}
+
+enum ReminderStatus {
+  OPEN
+  POSTPONED
+  APPROVED
+  CANCELLED
+}
+
+/**
+ * «ملاحظات وتذكيرات»: ideas / proposed tasks not approved yet. Never part of plans, tasks,
+ * progress, reports, performance or the HR export until converted into a task by hand.
+ */
+model Reminder {
+  id          String           @id @default(cuid())
+  title       String
+  details     String?
+  remindOn    DateTime         @db.Date
+  priority    ReminderPriority @default(NORMAL)
+  status      ReminderStatus   @default(OPEN)
+  ownerId     String
+  employeeId  String?
+  /** the task created when the note was approved */
+  adHocTaskId String?          @unique
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  owner       User             @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  employee    Employee?        @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  adHocTask   AdHocTask?       @relation(fields: [adHocTaskId], references: [id], onDelete: SetNull)
+
+  @@index([ownerId, status])
+  @@index([employeeId])
 }

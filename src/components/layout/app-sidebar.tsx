@@ -28,8 +28,7 @@ import {
   Users,
   Workflow,
   LayoutTemplate,
-  type LucideIcon,
-} from "lucide-react";
+  type LucideIcon, NotebookPen } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -72,6 +71,7 @@ const ICONS: Record<NavIcon, LucideIcon> = {
   settings: Settings,
   audit: ScrollText,
   templates: LayoutTemplate,
+  reminders: NotebookPen,
 };
 
 export function AppSidebar({ groups, badges }: { groups: NavGroup[]; badges: Record<string, number> }) {

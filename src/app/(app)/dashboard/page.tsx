@@ -6,6 +6,7 @@ import { getEmployeeBatches } from "@/server/queries/batches";
 import { isNotionGoal, unhealthySourceIds } from "@/server/services/manual";
 import { EmployeeDashboard } from "@/features/dashboard/employee-dashboard";
 import { getTeamBatchOverview } from "@/server/queries/batches";
+import { overdueReminderCount } from "@/server/queries/reminders";
 import { ManagerDashboard } from "@/features/dashboard/manager-dashboard";
 import { EmptyState, PageHeader } from "@/components/shared/page";
 import { UserX } from "lucide-react";
@@ -15,8 +16,8 @@ export const metadata: Metadata = { title: "لوحة التحكم" };
 export default async function DashboardPage() {
   const user = await requireUser();
   if (hasPermission(user, PERMISSIONS.EMPLOYEES_VIEW_ALL)) {
-    const [data, batches] = await Promise.all([getManagerDashboard(user), getTeamBatchOverview(user).catch(() => [])]);
-    return <ManagerDashboard name={user.employeeName ?? user.name} data={data} batches={batches} />;
+    const [data, batches, reminders] = await Promise.all([getManagerDashboard(user), getTeamBatchOverview(user).catch(() => []), overdueReminderCount(user).catch(() => 0)]);
+    return <ManagerDashboard name={user.employeeName ?? user.name} data={data} batches={batches} dueReminders={reminders} />;
   }
   if (!user.employeeId) {
     return (
@@ -29,9 +30,10 @@ export default async function DashboardPage() {
   const data = await getEmployeeDashboard(user);
   const running = data.plan?.status === "APPROVED" || data.plan?.status === "IN_PROGRESS";
   const autoSources = running ? [...new Set((data.plan?.goals ?? []).filter((g) => g.status !== "CANCELLED" && isNotionGoal(g)).map((g) => g.notionDataSourceId!))] : [];
-  const [batches, unhealthy] = await Promise.all([
+  const [batches, unhealthy, reminders] = await Promise.all([
     getEmployeeBatches(user.employeeId, data.year, data.month),
     autoSources.length ? unhealthySourceIds(autoSources).catch(() => new Set<string>()) : new Set<string>(),
+    overdueReminderCount(user).catch(() => 0),
   ]);
-  return <EmployeeDashboard name={user.employeeName ?? user.name} userId={user.id} data={data} batches={batches} syncIssue={unhealthy.size > 0} />;
+  return <EmployeeDashboard name={user.employeeName ?? user.name} userId={user.id} data={data} batches={batches} syncIssue={unhealthy.size > 0} dueReminders={reminders} />;
 }

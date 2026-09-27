@@ -109,7 +109,8 @@ afterAll(async () => {
   await db.performanceReview.deleteMany({ where: { employeeId: employee.employeeId!, year: YEAR, month: MONTH } });
   await db.monthlyPlan.deleteMany({ where: { employeeId: employee.employeeId!, year: YEAR, month: MONTH } });
   await db.notionConnection.deleteMany({ where: { id: connectionId } });
-  await db.$disconnect();
+  // `db` is the app's shared singleton (see src/server/db.ts) — never disconnect it here,
+  // it would break any other suite that happens to run in the same worker process.
 });
 
 describe("planning → progress → report → evaluation", () => {

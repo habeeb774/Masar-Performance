@@ -27,6 +27,7 @@ export function GlobalSearch() {
   const [query, setQuery] = useState("");
   const [groups, setGroups] = useState<SearchResultGroup[]>([]);
   const [loading, setLoading] = useState(false);
+  const [failed, setFailed] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -46,9 +47,13 @@ export function GlobalSearch() {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
       setLoading(true);
+      setFailed(false);
       globalSearchAction(q)
         .then((res) => setGroups(res))
-        .catch(() => setGroups([]))
+        .catch(() => {
+          setGroups([]);
+          setFailed(true);
+        })
         .finally(() => setLoading(false));
     }, 250);
     return () => {
@@ -62,6 +67,7 @@ export function GlobalSearch() {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setGroups([]);
       setLoading(false);
+      setFailed(false);
     }
   }, [q]);
 
@@ -98,7 +104,8 @@ export function GlobalSearch() {
               <Loader2 className="size-4 animate-spin" /> جارٍ البحث…
             </div>
           )}
-          {!loading && query.trim().length >= 2 && groups.length === 0 && <CommandEmpty>لا توجد نتائج مطابقة</CommandEmpty>}
+          {!loading && failed && groups.length === 0 && <CommandEmpty>تعذر تحميل بعض نتائج البحث، حاول مرة أخرى.</CommandEmpty>}
+          {!loading && !failed && query.trim().length >= 2 && groups.length === 0 && <CommandEmpty>لا توجد نتائج مطابقة</CommandEmpty>}
           {!loading && query.trim().length < 2 && (
             <div className="py-6 text-center text-sm text-muted-foreground">اكتب حرفين على الأقل لبدء البحث</div>
           )}

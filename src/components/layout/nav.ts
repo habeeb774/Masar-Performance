@@ -25,7 +25,8 @@ export type NavIcon =
   | "notifications"
   | "settings"
   | "audit"
-  | "templates";
+  | "templates"
+  | "reminders";
 
 export interface NavItem {
   href: string;
@@ -50,6 +51,7 @@ export const NAV: NavGroup[] = [
       { href: "/my-plan", label: "خطتي", icon: "month", requiresEmployee: true },
       { href: "/my-reports", label: "تقاريري", icon: "reports", requiresEmployee: true },
       { href: "/my-performance", label: "أدائي", icon: "performance", requiresEmployee: true, anyOf: [PERMISSIONS.PERFORMANCE_VIEW_OWN] },
+      { href: "/reminders", label: "ملاحظات وتذكيرات", icon: "reminders" },
     ],
   },
   {

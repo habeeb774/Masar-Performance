@@ -426,3 +426,13 @@ export const statusMappingsSchema = z.object({
     )
     .max(200),
 });
+
+// ---- reminders («ملاحظات وتذكيرات») -----------------------------------------------------
+
+export const reminderSchema = z.object({
+  title: nameSchema,
+  details: optionalText(2000),
+  remindOn: dateKeySchema,
+  priority: z.enum(["NORMAL", "IMPORTANT"]).default("NORMAL"),
+  employeeId: optionalId,
+});

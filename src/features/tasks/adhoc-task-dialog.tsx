@@ -6,6 +6,7 @@ import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { z } from "zod";
 import { Plus } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -19,6 +20,7 @@ import { createAdHocAction, updateAdHocAction } from "@/actions/tasks";
 import { adHocTaskSchema } from "@/lib/validation";
 import { PRIORITIES, PRIORITY_LABELS } from "@/lib/labels";
 import type { AdHocTaskRow, EmployeeOption } from "@/server/queries/tasks";
+import type { ActionResult } from "@/server/action";
 
 type FormIn = z.input<typeof adHocTaskSchema>;
 type FormOut = z.output<typeof adHocTaskSchema>;
@@ -66,6 +68,7 @@ export function AdHocTaskDialog({
   open: openProp,
   onOpenChange,
   autoOpenParam = false,
+  fromNote,
 }: {
   today: string;
   employees: EmployeeOption[];
@@ -73,6 +76,13 @@ export function AdHocTaskDialog({
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   autoOpenParam?: boolean;
+  /** «اعتماد وتحويل إلى مهمة»: prefilled from a reminder note; the task is created only on confirm */
+  fromNote?: {
+    initial: Partial<FormIn>;
+    submit: (payload: FormOut) => Promise<ActionResult<unknown>>;
+    /** a self-task from one's own note: employee fixed, not part of the evaluation */
+    selfOnly?: boolean;
+  };
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -105,10 +115,11 @@ export function AdHocTaskDialog({
   const form = useForm<FormIn, unknown, FormOut>({ resolver: zodResolver(adHocTaskSchema), defaultValues: defaults(today, task) });
   const create = useServerAction(createAdHocAction, { onSuccess: () => done() });
   const update = useServerAction(updateAdHocAction, { onSuccess: () => done() });
-  const pending = create.pending || update.pending;
+  const fromNotePending = useServerActionShim();
+  const pending = create.pending || update.pending || fromNotePending.pending;
 
   useEffect(() => {
-    if (open) form.reset(defaults(today, task));
+    if (open) form.reset({ ...defaults(today, task), ...(fromNote?.initial ?? {}) });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
@@ -135,7 +146,8 @@ export function AdHocTaskDialog({
 
   const onSubmit = form.handleSubmit((values) => {
     const payload = { ...values, compensatesGoalId: wantsCompensation ? values.compensatesGoalId : null };
-    return (task ? update.run(task.id, payload) : create.run(payload)).then((r) => {
+    const run = fromNote ? fromNotePending.wrap(() => fromNote.submit(payload), done) : task ? update.run(task.id, payload) : create.run(payload);
+    return run.then((r) => {
       if (!r.ok && r.fieldErrors) {
         for (const [k, msgs] of Object.entries(r.fieldErrors)) form.setError(k as keyof FormIn, { message: msgs[0] });
       }
@@ -146,7 +158,7 @@ export function AdHocTaskDialog({
 
   return (
     <>
-      {openProp === undefined && (
+      {openProp === undefined && !fromNote && (
         <Button size="lg" onClick={() => setOpen(true)}>
           <Plus /> تكليف جديد
         </Button>
@@ -154,8 +166,10 @@ export function AdHocTaskDialog({
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-xl">
           <DialogHeader>
-            <DialogTitle>{task ? "تعديل التكليف" : "تكليف مستجد"}</DialogTitle>
-            <DialogDescription>مهمة خارج التوزيع الأصلي تُرسل للموظف مع إشعار، ويمكن احتسابها في تقييم الشهر.</DialogDescription>
+            <DialogTitle>{fromNote ? "اعتماد وتحويل إلى مهمة" : task ? "تعديل التكليف" : "تكليف مستجد"}</DialogTitle>
+            <DialogDescription>
+              {fromNote ? "راجع التفاصيل ثم أكّد. لن تُنشأ المهمة إلا بعد التأكيد." : "مهمة خارج التوزيع الأصلي تُرسل للموظف مع إشعار، ويمكن احتسابها في تقييم الشهر."}
+            </DialogDescription>
           </DialogHeader>
           <form id="adhoc-form" onSubmit={onSubmit} className="space-y-4" noValidate>
             <Field data-invalid={!!err.employeeId}>
@@ -170,7 +184,7 @@ export function AdHocTaskDialog({
                       field.onChange(v);
                       form.setValue("compensatesGoalId", "");
                     }}
-                    disabled={!!task}
+                    disabled={!!task || !!fromNote?.selfOnly}
                   >
                     <SelectTrigger className="w-full" aria-invalid={!!err.employeeId}>
                       <SelectValue placeholder="اختر الموظف" />
@@ -231,6 +245,7 @@ export function AdHocTaskDialog({
               </Field>
             </div>
 
+            {!fromNote?.selfOnly && (
             <div className="space-y-3 rounded-lg border bg-muted/30 p-3">
               <Controller
                 control={form.control}
@@ -288,6 +303,7 @@ export function AdHocTaskDialog({
                 </Field>
               )}
             </div>
+            )}
 
             <Field data-invalid={!!err.notes}>
               <FieldLabel htmlFor="ah-notes">ملاحظات</FieldLabel>
@@ -300,11 +316,33 @@ export function AdHocTaskDialog({
               إلغاء
             </Button>
             <Button type="submit" form="adhoc-form" disabled={pending}>
-              {pending && <Spinner />} {task ? "حفظ التعديلات" : "إرسال التكليف"}
+              {pending && <Spinner />} {fromNote ? "تأكيد وإنشاء المهمة" : task ? "حفظ التعديلات" : "إرسال التكليف"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
     </>
   );
+}
+
+/** Pending state + toasts for the note-conversion submit, mirroring useServerAction. */
+function useServerActionShim() {
+  const [pending, setPending] = useState(false);
+  const wrap = async (fn: () => Promise<ActionResult<unknown>>, onSuccess: () => void) => {
+    setPending(true);
+    try {
+      const r = await fn();
+      if (r.ok) {
+        toast.success(r.message ?? "تم الحفظ بنجاح");
+        onSuccess();
+      } else toast.error(r.error);
+      return r;
+    } catch {
+      toast.error("تعذر الاتصال بالخادم");
+      return { ok: false, error: "تعذر الاتصال بالخادم" } as ActionResult<unknown>;
+    } finally {
+      setPending(false);
+    }
+  };
+  return { pending, wrap };
 }
