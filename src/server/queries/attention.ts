@@ -9,8 +9,9 @@ import { getCompany } from "@/server/services/company";
 import type { Tone } from "@/lib/labels";
 import { STALE_DAYS } from "@/lib/notion/batches";
 import { getBatchAlerts } from "./batches";
+import { pendingOverrides } from "@/server/services/manual";
 
-export type AttentionType = "OVERDUE_EMPLOYEE" | "GOAL_AT_RISK" | "TASK_BLOCKED" | "WEEKLY_REPORT_MISSING" | "PENDING_APPROVAL" | "BATCH_BOTTLENECK";
+export type AttentionType = "OVERDUE_EMPLOYEE" | "GOAL_AT_RISK" | "TASK_BLOCKED" | "WEEKLY_REPORT_MISSING" | "PENDING_APPROVAL" | "BATCH_BOTTLENECK" | "MANUAL_OVERRIDE";
 
 export interface AttentionItem {
   id: string;
@@ -83,6 +84,12 @@ export async function getAttentionFeed(user: AuthUser): Promise<{ items: Attenti
     getReviewCounts(user),
     getBatchAlerts(user).catch(() => []),
   ]);
+  let overrides: Awaited<ReturnType<typeof pendingOverrides>> = [];
+  try {
+    overrides = await pendingOverrides(user);
+  } catch {
+    overrides = [];
+  }
 
   const overdueMap = new Map<string, number>();
   for (const r of [...overdueDaily, ...overdueAdHoc]) overdueMap.set(r.employeeId, (overdueMap.get(r.employeeId) ?? 0) + r._count._all);
@@ -221,6 +228,16 @@ export async function getAttentionFeed(user: AuthUser): Promise<{ items: Attenti
         href: "/review-center?tab=batches",
       });
   }
+
+  if (overrides.length > 0)
+    items.push({
+      id: "manual-overrides",
+      type: "MANUAL_OVERRIDE",
+      severity: 450 + overrides.length,
+      tone: "pending",
+      text: `${overrides.length} أهداف عليها تعديل يدوي بانتظار المراجعة`,
+      href: `/monthly-plans/${overrides[0].planId}`,
+    });
 
   items.sort((a, b) => b.severity - a.severity);
   return { items: items.slice(0, FEED_LIMIT), total: items.length };

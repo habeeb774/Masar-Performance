@@ -13,6 +13,7 @@ import type { createPlanSchema, dailyDistributionSchema, monthlyGoalSchema, week
 import { getCompany } from "./company";
 import { notifyUsers, managerUserIdsFor } from "./notifications";
 import { recomputePlan } from "./progress";
+import { isNotionGoal, reconcileSourceChange } from "./manual";
 
 type GoalInput = z.infer<typeof monthlyGoalSchema>;
 
@@ -145,7 +146,10 @@ export async function updateGoal(user: AuthUser, goalId: string, input: GoalInpu
   assertCanEditGoals(user, before.plan);
   const after = await db.monthlyGoal.update({ where: { id: goalId }, data: goalData(input) });
   await audit({ user, action: "goal.update", entityType: "MonthlyGoal", entityId: goalId, before, after, diff: true });
-  if (before.plan.status === "APPROVED" || before.plan.status === "IN_PROGRESS") await recomputePlan(before.planId);
+  if (before.plan.status === "APPROVED" || before.plan.status === "IN_PROGRESS") {
+    if (isNotionGoal(before) !== isNotionGoal(after)) await reconcileSourceChange(user, goalId, isNotionGoal(before), num(before.achievedValue));
+    else await recomputePlan(before.planId);
+  }
   return after;
 }
 

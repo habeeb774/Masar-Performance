@@ -12,7 +12,7 @@ import {
   TrendingDown,
   Users,
 } from "lucide-react";
-import { PackageSearch } from "lucide-react";
+import { PackageSearch, PenLine } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { BatchCard } from "@/features/notion/batch-card";
 import type { getTeamBatchOverview } from "@/server/queries/batches";
@@ -39,6 +39,7 @@ const ATTENTION_ICONS: Record<AttentionItem["type"], LucideIcon> = {
   WEEKLY_REPORT_MISSING: FileClock,
   PENDING_APPROVAL: Hourglass,
   BATCH_BOTTLENECK: PackageSearch,
+  MANUAL_OVERRIDE: PenLine,
 };
 
 export function ManagerDashboard({ name, data, batches = [] }: { name: string; data: Data; batches?: Awaited<ReturnType<typeof getTeamBatchOverview>> }) {
@@ -120,8 +121,8 @@ export function ManagerDashboard({ name, data, batches = [] }: { name: string; d
           <h2 className="text-base font-semibold">الدفعة الحالية</h2>
           <div className="grid gap-3 md:grid-cols-2">
             {batches.map((b) => (
-              <BatchCard key={b.batch.key} batch={b.batch} pace={b.pace} subtitle={`الأسبوع ${formatDateAr(b.week.start)}–${formatDateAr(b.week.end)}`}>
-                {b.batch.images.waiting + b.batch.images.edited > 0 && (
+              <BatchCard key={"manualId" in b.batch && b.batch.manualId ? b.batch.manualId : `n-${b.batch.key}`} batch={b.batch} pace={b.pace} subtitle={`الأسبوع ${formatDateAr(b.week.start)}–${formatDateAr(b.week.end)}`}>
+                {!("manualId" in b.batch && b.batch.manualId) && b.batch.images.waiting + b.batch.images.edited > 0 && (
                   <div className="flex justify-end">
                     <Button variant="ghost" size="sm" asChild>
                       <Link href="/review-center?tab=batches">

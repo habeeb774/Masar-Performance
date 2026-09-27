@@ -85,6 +85,14 @@ const planInclude = {
   },
 } satisfies Prisma.MonthlyPlanInclude;
 
+/** Manual mode: the goal's daily tasks plus what was entered by hand. */
+export function manualAchieved(goalType: string, dailyTasks: { achieved: unknown; status: string }[], adjust: number) {
+  const tasks = dailyTasks.filter((t) => t.status !== "CANCELLED");
+  const fromTasks = goalType === "BOOLEAN" ? (tasks.some((t) => t.status === "COMPLETED") ? 1 : 0) : tasks.reduce((a, t) => a + num(t.achieved), 0);
+  const total = fromTasks + adjust;
+  return Math.max(goalType === "BOOLEAN" ? Math.min(total, 1) : total, 0);
+}
+
 /**
  * Recompute achievement for every goal, weekly goal and daily task of a plan.
  * Notion-synced goals are derived from synced items; manual goals from their tasks.
@@ -106,16 +114,14 @@ export async function recomputePlan(planId: string, cache = new ItemCache()) {
     let achieved = num(goal.achievedValue);
     let breakdown: ProgressBreakdown | null = null;
 
+    let sourceValue: number | null | undefined;
     if (isNotion) {
       breakdown = await breakdownFor(goal, { start, end: mEnd }, target, cache);
-      if (breakdown) achieved = breakdown.completed;
+      if (breakdown) achieved = sourceValue = breakdown.completed;
+      // a manual override wins over Notion and is never replaced by a sync
+      if (goal.overrideValue !== null) achieved = num(goal.overrideValue);
     } else {
-      const tasks = goal.dailyTasks.filter((t) => t.status !== "CANCELLED");
-      if (tasks.length > 0) {
-        achieved = goal.goalType === "BOOLEAN"
-          ? tasks.some((t) => t.status === "COMPLETED") ? 1 : 0
-          : tasks.reduce((a, t) => a + num(t.achieved), 0);
-      }
+      achieved = manualAchieved(goal.goalType, goal.dailyTasks, num(goal.manualAdjust));
     }
     const progress = pct(achieved, target);
     const status = deriveGoalStatus({
@@ -133,6 +139,7 @@ export async function recomputePlan(planId: string, cache = new ItemCache()) {
           progressPct: Math.min(progress, 999),
           status,
           breakdown: (breakdown ?? undefined) as Prisma.InputJsonValue | undefined,
+          sourceValue,
           lastComputedAt: now,
         },
       }),
@@ -154,8 +161,7 @@ export async function recomputePlan(planId: string, cache = new ItemCache()) {
         breakdown = await breakdownFor(goal, { start: wStart, end: wEnd }, target, cache);
         if (breakdown) achieved = breakdown.completed;
       } else {
-        const tasks = wg.dailyTasks.filter((t) => t.status !== "CANCELLED");
-        if (tasks.length > 0) achieved = tasks.reduce((a, t) => a + num(t.achieved), 0);
+        achieved = manualAchieved("NUMERIC", wg.dailyTasks, num(wg.manualAdjust));
       }
       writes.push(
         db.weeklyGoal.update({

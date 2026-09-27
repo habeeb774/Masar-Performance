@@ -5,13 +5,13 @@ import type { SearchParams } from "@/lib/params";
 import { int } from "@/lib/params";
 import { requireUser, type AuthUser } from "@/server/auth/session";
 import { db } from "@/server/db";
-import { fromDateKey, monthEnd, monthLabel, monthStart } from "@/lib/dates";
+import { formatDateAr, fromDateKey, getMonthWeeks, monthEnd, monthLabel, monthStart } from "@/lib/dates";
 import { formatNumber, formatPct, num } from "@/lib/num";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
-import { dutyOf, groupByDuty } from "@/lib/duties";
 import { companyToday, distributionGoals, getNotionSourceOptions, getPlanDetail, monthPeriod, serializeGoal, weekColumns, weeklyTargetsMatrix } from "@/server/queries/plans";
 import { getEmployeeBatches } from "@/server/queries/batches";
 import { BatchCard } from "@/features/notion/batch-card";
+import { AddManualBatchButton, ManualBatchInlineEditor } from "@/features/batches/manual-batch-editor";
 import { breakdownTotals, weightedProgress } from "@/server/queries/dashboard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,9 +20,10 @@ import { EmptyState, PageHeader } from "@/components/shared/page";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { ProgressBar } from "@/components/shared/progress-bar";
 import { MonthPicker } from "@/components/shared/url-filters";
-import { PlanGoalsTable } from "@/features/plans/plan-goals-table";
+import { PlanGoalsSummary, PlanGoalsTable } from "@/features/plans/plan-goals-table";
+import { SyncFailureNotice } from "@/features/plans/goal-achievement";
 import { WeeklyDistributionEditor } from "@/features/plans/weekly-distribution-editor";
-import { ManagerNotes, PlanWorkflowActions, WeeksOverview, planCapabilities } from "@/features/plans/plan-sections";
+import { ManagerNotes, PlanWorkflowActions, WeeksOverview, firstSyncIssue, manualAccess, planCapabilities } from "@/features/plans/plan-sections";
 
 export const metadata: Metadata = { title: "خطتي" };
 
@@ -106,6 +107,8 @@ export default async function MyPlanPage({ searchParams }: { searchParams: Searc
   const active = goals.filter((g) => g.status !== "CANCELLED");
   const progress = weightedProgress(plan.goals);
   const cap = planCapabilities(user, plan);
+  const access = await manualAccess(user, plan, goals);
+  const syncIssue = firstSyncIssue(goals, access);
   const running = plan.status === "APPROVED" || plan.status === "IN_PROGRESS" || plan.status === "COMPLETED";
 
   const currentWeek = running
@@ -118,6 +121,24 @@ export default async function MyPlanPage({ searchParams }: { searchParams: Searc
 
   const [sources, batches] = await Promise.all([getNotionSourceOptions(), getEmployeeBatches(user.employeeId, year, month)]);
   const weekBatch = batches?.current && batches.currentWeek && batches.currentWeek.start <= now.today && now.today <= batches.currentWeek.end ? batches.current : null;
+  // Manual batches (no Notion workflow): entered and updated here by hand.
+  const manual = batches?.manual ?? false;
+  const monthWeeks = getMonthWeeks(year, month, now.company.weekStartDay, now.company.workDays);
+  const weekOptions = monthWeeks.map((w) => ({ start: w.start, label: `الأسبوع ${w.index} · ${formatDateAr(w.start)}` }));
+  const thisWeekStart = monthWeeks.find((w) => w.start <= now.today && now.today <= w.end)?.start;
+  const nextBatchNumber = Math.max(0, ...(batches?.month ?? []).map((b) => b.number ?? 0)) + 1;
+  const addBatch = manual ? <AddManualBatchButton employeeId={plan.employeeId} weeks={weekOptions} defaultWeek={thisWeekStart} nextNumber={nextBatchNumber} /> : null;
+  const batchEditor = weekBatch?.manualId ? (
+    <ManualBatchInlineEditor key={`${weekBatch.manualId}-${weekBatch.images.approved}-${weekBatch.store.added}-${weekBatch.images.needsImprovement}-${weekBatch.images.waiting}`} batch={{ ...weekBatch, manualId: weekBatch.manualId }} employeeId={plan.employeeId} />
+  ) : null;
+  // employees who already work in manual batches get this week's «إضافة دفعة» up front
+  const addWeekBatch =
+    manual && addBatch && batches?.current && !weekBatch && thisWeekStart ? (
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-dashed p-3">
+        <p className="text-sm text-muted-foreground">لا توجد دفعة لهذا الأسبوع بعد.</p>
+        {addBatch}
+      </div>
+    ) : null;
   const totals = breakdownTotals(plan.goals);
   const weeks = weekColumns(plan.weeklyPlans, now.company.workDays);
   const varianceNote = plan.weeklyPlans.find((w) => w.varianceNote)?.varianceNote ?? null;
@@ -134,6 +155,7 @@ export default async function MyPlanPage({ searchParams }: { searchParams: Searc
           <AlertDescription>بعد الاعتماد تُوزَّع الأهداف على الأسابيع تلقائيًا.</AlertDescription>
         </Alert>
       )}
+      {syncIssue && <SyncFailureNotice goal={syncIssue} />}
       {plan.status === "DRAFT" && <PlanWorkflowActions plan={plan} user={user} />}
 
       <Card>
@@ -162,7 +184,12 @@ export default async function MyPlanPage({ searchParams }: { searchParams: Searc
             </Button>
           </CardHeader>
           <CardContent>
-            {weekBatch && <BatchCard batch={weekBatch} subtitle="دفعة هذا الأسبوع" className="mb-3 bg-muted/20 shadow-none" />}
+            {addWeekBatch}
+            {weekBatch && (
+              <BatchCard batch={weekBatch} subtitle="دفعة هذا الأسبوع" className="mb-3 bg-muted/20 shadow-none">
+                {batchEditor}
+              </BatchCard>
+            )}
             <ul className="divide-y">
               {weekGoals.map((g) => (
                 <GoalLine key={g.id} name={g.monthlyGoal.name} achieved={num(g.achievedValue)} target={num(g.targetValue)} unit={g.monthlyGoal.unit} />
@@ -172,7 +199,12 @@ export default async function MyPlanPage({ searchParams }: { searchParams: Searc
         </Card>
       )}
 
-      {weekBatch && !(currentWeek && weekGoals.length > 0) && <BatchCard batch={weekBatch} subtitle="دفعة هذا الأسبوع" />}
+      {addWeekBatch && !(currentWeek && weekGoals.length > 0) && addWeekBatch}
+      {weekBatch && !(currentWeek && weekGoals.length > 0) && (
+        <BatchCard batch={weekBatch} subtitle="دفعة هذا الأسبوع">
+          {batchEditor}
+        </BatchCard>
+      )}
 
       <Card>
         <CardHeader>
@@ -180,20 +212,8 @@ export default async function MyPlanPage({ searchParams }: { searchParams: Searc
             <Target className="size-4.5 text-primary" /> أهداف الشهر
           </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
-          {(() => {
-            const groups = groupByDuty(active, dutyOf);
-            return groups.map((group) => (
-              <section key={group.duty}>
-                {groups.length > 1 && <h3 className="text-xs font-semibold text-muted-foreground">{group.duty}</h3>}
-                <ul className="divide-y">
-                  {group.items.map((g) => (
-                    <GoalLine key={g.id} name={g.name} achieved={g.achievedValue} target={g.targetValue} unit={g.unit} status={g.status} />
-                  ))}
-                </ul>
-              </section>
-            ));
-          })()}
+        <CardContent>
+          <PlanGoalsSummary goals={goals} today={now.today} dates={{ start: monthStart(year, month), end: monthEnd(year, month) }} canEdit={false} access={access} />
         </CardContent>
       </Card>
 
@@ -216,18 +236,56 @@ export default async function MyPlanPage({ searchParams }: { searchParams: Searc
               </div>
             ))}
           </dl>
+          {manual && batches?.month.length === 0 && (
+            <section className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-dashed p-3">
+              <div>
+                <h3 className="text-sm font-semibold">دفعات الشهر</h3>
+                <p className="text-xs text-muted-foreground">لا توجد دفعات بعد. أضف أول دفعة لهذا الشهر.</p>
+              </div>
+              {addBatch}
+            </section>
+          )}
           {batches && batches.month.length > 0 && (
             <section className="space-y-2">
-              <h3 className="text-sm font-semibold">دفعات الشهر</h3>
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold">دفعات الشهر</h3>
+                {addBatch}
+              </div>
               <ul className="divide-y rounded-lg border text-sm">
-                {batches.month.map((b) => (
-                  <li key={b.key} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 px-3 py-2">
-                    <span className="font-medium">{b.label}</span>
-                    <span className="text-xs text-muted-foreground tabular-nums">
-                      {formatNumber(b.total)} منتج · صور معتمدة {formatNumber(b.images.approved)} · أضيفت للمتجر {formatNumber(b.store.added)}
-                    </span>
-                  </li>
-                ))}
+                {batches.month.map((b) => {
+                  const line = (
+                    <>
+                      <span className="font-medium">{b.label}</span>
+                      <span className="text-xs text-muted-foreground tabular-nums">
+                        {formatNumber(b.total)} منتج · صور معتمدة {formatNumber(b.images.approved)} · أضيفت للمتجر {formatNumber(b.store.added)}
+                      </span>
+                    </>
+                  );
+                  if (!b.manualId) {
+                    return (
+                      <li key={b.key} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 px-3 py-2">
+                        {line}
+                      </li>
+                    );
+                  }
+                  return (
+                    <li key={b.key}>
+                      <details className="group/batch">
+                        <summary className="flex cursor-pointer list-none flex-wrap items-baseline justify-between gap-x-3 gap-y-1 px-3 py-2 hover:bg-accent/40">
+                          {line}
+                          <span className="text-xs text-primary group-open/batch:hidden">تحديث</span>
+                        </summary>
+                        <div className="px-3 pb-3">
+                          <ManualBatchInlineEditor
+                            key={`${b.manualId}-${b.images.approved}-${b.store.added}-${b.images.needsImprovement}-${b.images.waiting}`}
+                            batch={{ ...b, manualId: b.manualId }}
+                            employeeId={plan.employeeId}
+                          />
+                        </div>
+                      </details>
+                    </li>
+                  );
+                })}
                 <li className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 bg-muted/40 px-3 py-2 font-semibold">
                   <span>مجموع الشهر</span>
                   <span className="text-xs tabular-nums">

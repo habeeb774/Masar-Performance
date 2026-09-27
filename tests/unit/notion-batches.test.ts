@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { batchPace, itemQuality, pct, resolveCycleStages, summarizeBatches, type CycleItem, type StageEvent } from "@/lib/notion/batches";
+import { batchPace, itemQuality, manualBatchSummary, mergeManualBatches, pct, resolveCycleStages, summarizeBatches, type CycleItem, type StageEvent } from "@/lib/notion/batches";
 import type { SystemStatus } from "@/lib/notion/status";
 
 const NOW = new Date("2026-09-24T12:00:00Z");
@@ -110,5 +110,20 @@ describe("batchPace", () => {
   it("compares additions with the elapsed share of the week", () => {
     expect(batchPace(b, "2026-09-21", "2026-09-25", "2026-09-21")).toBe("ahead");
     expect(batchPace(b, "2026-09-21", "2026-09-25", "2026-09-25")).toBe("behind");
+  });
+});
+
+describe("manual batches (no Notion)", () => {
+  const m = manualBatchSummary({ id: "mb1", number: 65, total: 40, weekStart: "2026-09-21", imagesApproved: 30, added: 24, needsImprovement: 4, waiting: 6 });
+  it("maps the entered numbers to the same batch summary", () => {
+    expect(m).toMatchObject({ label: "دفعة 65", total: 40, store: { added: 24 }, readyToAdd: 6, anchorDate: "2026-09-21" });
+    expect(m.images).toMatchObject({ approved: 30, needsImprovement: 4, waiting: 6, inProgress: 0 });
+    expect(m.stale).toEqual({ waitingTooLong: 0, improvementNotDone: 0, approvedNotAdded: 0 });
+  });
+  it("a Notion batch with the same number wins; otherwise both are listed, newest first", () => {
+    const [notion] = summarizeBatches([item(65, "COMPLETED", "COMPLETED")], NOW);
+    expect(mergeManualBatches([notion], [m])).toEqual([notion]);
+    const m66 = manualBatchSummary({ id: "mb2", number: 66, total: 10, weekStart: "2026-09-28", imagesApproved: 0, added: 0, needsImprovement: 0, waiting: 0 });
+    expect(mergeManualBatches([notion], [m66]).map((b) => b.label)).toEqual(["دفعة 66", "دفعة 65"]);
   });
 });

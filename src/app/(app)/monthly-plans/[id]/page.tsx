@@ -18,7 +18,7 @@ import { EnumBadge } from "@/components/shared/status-badge";
 import { ProgressBar } from "@/components/shared/progress-bar";
 import { PlanGoalsSummary, PlanGoalsTable } from "@/features/plans/plan-goals-table";
 import { WeeklyDistributionEditor } from "@/features/plans/weekly-distribution-editor";
-import { ManagerNotes, PlanSummaryCard, PlanWorkflowActions, WeeksOverview, planCapabilities } from "@/features/plans/plan-sections";
+import { ManagerNotes, PlanSummaryCard, PlanWorkflowActions, WeeksOverview, manualAccess, planCapabilities } from "@/features/plans/plan-sections";
 
 export const metadata: Metadata = { title: "تفاصيل الخطة الشهرية" };
 
@@ -37,6 +37,7 @@ export default async function MonthlyPlanPage({ params }: { params: IdParams }) 
   ]);
   const cap = planCapabilities(user, plan);
   const goals = plan.goals.map(serializeGoal);
+  const access = await manualAccess(user, plan, goals);
   const active = goals.filter((g) => g.status !== "CANCELLED");
   const progress = weightedProgress(plan.goals);
   const managerView = cap.canManage || cap.canApprove;
@@ -88,7 +89,7 @@ export default async function MonthlyPlanPage({ params }: { params: IdParams }) 
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <PlanGoalsSummary goals={goals} today={now.today} dates={dates} canEdit={cap.canEdit} />
+          <PlanGoalsSummary goals={goals} today={now.today} dates={dates} canEdit={cap.canEdit} access={access} />
         </CardContent>
       </Card>
 

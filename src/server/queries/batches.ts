@@ -5,7 +5,18 @@ import { getCompany } from "@/server/services/company";
 import { fromDateKey, getMonthWeeks, monthEnd, monthStart, todayKey } from "@/lib/dates";
 import { valueToStrings, type NormalizedValue } from "@/lib/notion/properties";
 import type { SystemStatus } from "@/lib/notion/status";
-import { batchKeyOf, batchPace, itemQuality, resolveCycleStages, summarizeBatches, type BatchSummary, type CycleItem } from "@/lib/notion/batches";
+import { toDateKey } from "@/lib/dates";
+import {
+  batchKeyOf,
+  batchPace,
+  itemQuality,
+  manualBatchSummary,
+  mergeManualBatches,
+  resolveCycleStages,
+  summarizeBatches,
+  type BatchSummary,
+  type CycleItem,
+} from "@/lib/notion/batches";
 
 /**
  * Read-only views of the store's weekly batches built from synced Notion data.
@@ -113,6 +124,24 @@ async function weekOf(dateKey: string) {
 }
 
 const DAY = 86_400_000;
+
+type Summary = BatchSummary & { manualId?: string };
+
+/** Batches entered by hand (no Notion workflow) for some employees since a date. */
+async function manualBatches(employeeIds: "ALL" | string[], since: Date) {
+  const rows = await db.manualBatch.findMany({
+    where: { weekStart: { gte: since }, ...(employeeIds === "ALL" ? {} : { employeeId: { in: employeeIds } }) },
+    orderBy: { number: "desc" },
+  });
+  return rows.map((r) => ({ employeeId: r.employeeId, summary: manualBatchSummary({ ...r, weekStart: toDateKey(r.weekStart) }) }));
+}
+
+/** Does this employee have a Notion product workflow? Without one, batches are entered by hand. */
+async function hasNotionWorkflow(employeeId: string) {
+  const sources = await cycleSources();
+  if (sources.some((s) => s.owners.includes(employeeId))) return true;
+  return (await db.notionSyncedItem.count({ where: { employeeId, dataSourceId: { in: sources.map((s) => s.id) } }, take: 1 })) > 0;
+}
 const lookback = (days: number) => new Date(Date.now() - days * DAY);
 
 export type ProductNeedingWork = { id: string; title: string; url: string | null; batch: string; note: string | null; since: string };
@@ -120,9 +149,10 @@ export type ProductNeedingWork = { id: string; title: string; url: string | null
 /** «دفعتي»: the employee's current batch, the month's batches and what needs their action now. */
 export async function getEmployeeBatches(employeeId: string, year: number, month: number) {
   const since = new Date(fromDateKey(monthStart(year, month)).getTime() - 21 * DAY);
-  const items = await loadCycleItems({ kind: "employee", employeeId }, since < lookback(60) ? since : lookback(60));
-  if (items.length === 0) return null;
-  const batches = summarizeBatches(items);
+  const from = since < lookback(60) ? since : lookback(60);
+  const [items, manual, notion] = await Promise.all([loadCycleItems({ kind: "employee", employeeId }, from), manualBatches([employeeId], from), hasNotionWorkflow(employeeId)]);
+  const batches: Summary[] = mergeManualBatches(summarizeBatches(items), manual.map((m) => m.summary));
+  if (batches.length === 0 && notion) return null;
   const [start, end] = [monthStart(year, month), monthEnd(year, month)];
   const current = batches[0] ?? null;
   const open = items.filter((i) => batchKeyOf(i));
@@ -140,20 +170,23 @@ export async function getEmployeeBatches(employeeId: string, year: number, month
     currentWeek: current ? await weekOf(current.anchorDate) : null,
     month: batches.filter((b) => b.anchorDate >= start && b.anchorDate <= end).sort((a, b) => a.anchorDate.localeCompare(b.anchorDate)),
     needsImprovement,
-    readyToAdd,
+    readyToAdd: readyToAdd + (current?.manualId ? current.readyToAdd : 0),
     quality,
+    /** no Notion workflow → the employee / manager enters batches by hand */
+    manual: !notion,
   };
 }
 
 /** Manager overview: the latest batch of each workflow source, its pace and bottlenecks. */
 export async function getTeamBatchOverview(user: AuthUser) {
-  const items = await loadCycleItems({ kind: "team", ids: employeeIdScope(user) }, lookback(45));
-  if (items.length === 0) return [];
+  const scope = employeeIdScope(user);
+  const [items, manual] = await Promise.all([loadCycleItems({ kind: "team", ids: scope }, lookback(45)), manualBatches(scope, lookback(45))]);
+  if (items.length === 0 && manual.length === 0) return [];
   const company = await getCompany();
   const today = todayKey(company.timezone);
   const bySource = new Map<string, typeof items>();
   for (const i of items) bySource.set(i.sourceId, [...(bySource.get(i.sourceId) ?? []), i]);
-  const out: { batch: BatchSummary; pace: ReturnType<typeof batchPace>; week: { start: string; end: string }; previousStale: BatchSummary["stale"] }[] = [];
+  const out: { batch: Summary; pace: ReturnType<typeof batchPace>; week: { start: string; end: string }; previousStale: BatchSummary["stale"] }[] = [];
   for (const list of bySource.values()) {
     const batches = summarizeBatches(list);
     const [latest, ...older] = batches;
@@ -164,6 +197,13 @@ export async function getTeamBatchOverview(user: AuthUser) {
       { waitingTooLong: 0, improvementNotDone: 0, approvedNotAdded: 0 },
     );
     out.push({ batch: latest, pace: batchPace(latest, week.start, week.end, today), week, previousStale });
+  }
+  // employees working without Notion: their latest manual batch
+  const latestManual = new Map<string, Summary>();
+  for (const m of manual) if (!latestManual.has(m.employeeId)) latestManual.set(m.employeeId, m.summary);
+  for (const batch of latestManual.values()) {
+    const week = await weekOf(batch.anchorDate);
+    out.push({ batch, pace: batchPace(batch, week.start, week.end, today), week, previousStale: { waitingTooLong: 0, improvementNotDone: 0, approvedNotAdded: 0 } });
   }
   return out;
 }
@@ -196,8 +236,9 @@ export async function getBatchReviewQueue(user: AuthUser) {
 
 /** Batches of an employee whose anchor day falls inside a period (reports). */
 export async function batchesForPeriod(employeeId: string, start: string, end: string) {
-  const items = await loadCycleItems({ kind: "employee", employeeId }, new Date(fromDateKey(start).getTime() - 21 * DAY));
-  return summarizeBatches(items)
+  const since = new Date(fromDateKey(start).getTime() - 21 * DAY);
+  const [items, manual] = await Promise.all([loadCycleItems({ kind: "employee", employeeId }, since), manualBatches([employeeId], since)]);
+  return mergeManualBatches(summarizeBatches(items), manual.map((m) => m.summary))
     .filter((b) => b.anchorDate >= start && b.anchorDate <= end)
     .sort((a, b) => a.anchorDate.localeCompare(b.anchorDate));
 }

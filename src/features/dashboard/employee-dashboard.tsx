@@ -8,6 +8,8 @@ import { ProgressBar } from "@/components/shared/progress-bar";
 import { DashboardTodayTasks } from "@/features/tasks/dashboard-today-tasks";
 import { BatchCard } from "@/features/notion/batch-card";
 import { BatchWorkNow } from "@/features/notion/batch-work";
+import { ManualBatchInlineEditor } from "@/features/batches/manual-batch-editor";
+import { SyncFailureNotice } from "@/features/plans/goal-achievement";
 import type { getEmployeeBatches } from "@/server/queries/batches";
 import type { getEmployeeDashboard } from "@/server/queries/dashboard";
 import type { AdHocTaskRow, DailyTaskRow } from "@/server/queries/tasks";
@@ -31,7 +33,19 @@ function nextTask(daily: DailyTaskRow[], adHoc: AdHocTaskRow[], today: string) {
   return candidates.sort((a, b) => Number(b.overdue) - Number(a.overdue) || RANK[a.priority] - RANK[b.priority])[0] ?? null;
 }
 
-export function EmployeeDashboard({ name, userId, data, batches }: { name: string; userId: string; data: Data; batches?: Awaited<ReturnType<typeof getEmployeeBatches>> }) {
+export function EmployeeDashboard({
+  name,
+  userId,
+  data,
+  batches,
+  syncIssue,
+}: {
+  name: string;
+  userId: string;
+  data: Data;
+  batches?: Awaited<ReturnType<typeof getEmployeeBatches>>;
+  syncIssue?: boolean;
+}) {
   const { stats, week } = data;
   const next = nextTask(data.todayTaskRows, data.adHocRows, data.today);
   const allDone = stats.todayCount > 0 && stats.todayDone >= stats.todayCount;
@@ -47,6 +61,8 @@ export function EmployeeDashboard({ name, userId, data, batches }: { name: strin
         <h1 className="text-xl font-bold md:text-2xl">السلام عليكم، {name}</h1>
         <p className="text-sm text-muted-foreground">{formatDayAr(data.today)}</p>
       </div>
+
+      {syncIssue && <SyncFailureNotice href="/my-plan" />}
 
       <Card className="overflow-hidden">
         <CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center">
@@ -86,7 +102,11 @@ export function EmployeeDashboard({ name, userId, data, batches }: { name: strin
 
       {batches?.current && (
         <BatchCard batch={batches.current}>
-          <BatchWorkNow needsImprovement={batches.needsImprovement} readyToAdd={batches.readyToAdd} />
+          {batches.current.manualId && data.plan?.employeeId ? (
+            <ManualBatchInlineEditor key={`${batches.current.manualId}-${batches.current.images.approved}-${batches.current.store.added}-${batches.current.images.needsImprovement}-${batches.current.images.waiting}`} batch={{ ...batches.current, manualId: batches.current.manualId }} employeeId={data.plan.employeeId} />
+          ) : (
+            <BatchWorkNow needsImprovement={batches.needsImprovement} readyToAdd={batches.readyToAdd} />
+          )}
         </BatchCard>
       )}
 

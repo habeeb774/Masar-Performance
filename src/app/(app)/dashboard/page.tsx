@@ -3,6 +3,7 @@ import { requireUser } from "@/server/auth/session";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
 import { getEmployeeDashboard, getManagerDashboard } from "@/server/queries/dashboard";
 import { getEmployeeBatches } from "@/server/queries/batches";
+import { isNotionGoal, unhealthySourceIds } from "@/server/services/manual";
 import { EmployeeDashboard } from "@/features/dashboard/employee-dashboard";
 import { getTeamBatchOverview } from "@/server/queries/batches";
 import { ManagerDashboard } from "@/features/dashboard/manager-dashboard";
@@ -26,6 +27,11 @@ export default async function DashboardPage() {
     );
   }
   const data = await getEmployeeDashboard(user);
-  const batches = await getEmployeeBatches(user.employeeId, data.year, data.month);
-  return <EmployeeDashboard name={user.employeeName ?? user.name} userId={user.id} data={data} batches={batches} />;
+  const running = data.plan?.status === "APPROVED" || data.plan?.status === "IN_PROGRESS";
+  const autoSources = running ? [...new Set((data.plan?.goals ?? []).filter((g) => g.status !== "CANCELLED" && isNotionGoal(g)).map((g) => g.notionDataSourceId!))] : [];
+  const [batches, unhealthy] = await Promise.all([
+    getEmployeeBatches(user.employeeId, data.year, data.month),
+    autoSources.length ? unhealthySourceIds(autoSources).catch(() => new Set<string>()) : new Set<string>(),
+  ]);
+  return <EmployeeDashboard name={user.employeeName ?? user.name} userId={user.id} data={data} batches={batches} syncIssue={unhealthy.size > 0} />;
 }

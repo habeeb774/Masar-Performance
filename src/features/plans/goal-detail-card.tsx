@@ -1,13 +1,13 @@
 import { CalendarClock } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { NotionSyncedTag } from "@/components/shared/page";
 import { EnumBadge, StatusBadge } from "@/components/shared/status-badge";
 import { ProgressBar } from "@/components/shared/progress-bar";
 import { formatDateAr, formatDateTimeAr } from "@/lib/dates";
 import { formatNumber, formatPct } from "@/lib/num";
 import { DATE_BASIS_LABELS } from "@/lib/notion/filter-rule";
-import { GOAL_SOURCE_LABELS, GOAL_STATUS_LABELS, GOAL_TYPE_LABELS, KPI_CATEGORY_LABELS, PRIORITY_LABELS } from "@/lib/labels";
+import { GOAL_STATUS_LABELS, GOAL_TYPE_LABELS, KPI_CATEGORY_LABELS, PRIORITY_LABELS } from "@/lib/labels";
 import { NotionBreakdownGrid, NotionQualityGrid } from "./notion-breakdown";
+import { GoalAchievementControls, type ManualAccess } from "./goal-achievement";
 import type { PlanGoalRow } from "./types";
 
 function Metric({ label, value }: { label: string; value: string }) {
@@ -20,7 +20,7 @@ function Metric({ label, value }: { label: string; value: string }) {
 }
 
 /** Full detail of one monthly goal: progress, numbers, and Notion productivity vs quality. */
-export function GoalDetailCard({ goal, today }: { goal: PlanGoalRow; today: string }) {
+export function GoalDetailCard({ goal, today, access }: { goal: PlanGoalRow; today: string; access?: ManualAccess }) {
   const remaining = Math.max(goal.targetValue - goal.achievedValue, 0);
   const overdue = goal.dueDate && goal.dueDate < today && goal.status !== "COMPLETED" && goal.status !== "CANCELLED";
   return (
@@ -36,8 +36,8 @@ export function GoalDetailCard({ goal, today }: { goal: PlanGoalRow; today: stri
           <StatusBadge tone="neutral" dot={false}>
             {GOAL_TYPE_LABELS[goal.goalType]} · الوزن {formatNumber(goal.weight, 2)}%
           </StatusBadge>
-          {goal.source === "NOTION" ? <NotionSyncedTag /> : <StatusBadge tone="neutral" dot={false}>{GOAL_SOURCE_LABELS[goal.source]}</StatusBadge>}
         </div>
+        <p className="text-[11px] text-muted-foreground">{goal.auto ? "تلقائي من Notion" : "يدوي"}</p>
         {goal.description && <p className="text-xs text-muted-foreground">{goal.description}</p>}
       </CardHeader>
       <CardContent className="space-y-4">
@@ -47,11 +47,12 @@ export function GoalDetailCard({ goal, today }: { goal: PlanGoalRow; today: stri
           <Metric label="المنجز" value={formatNumber(goal.achievedValue, 2)} />
           <Metric label="المتبقي" value={formatNumber(remaining, 2)} />
         </div>
+        {access && <GoalAchievementControls goal={goal} access={access} />}
         <p className={`flex items-center gap-1.5 text-xs ${overdue ? "text-danger" : "text-muted-foreground"}`}>
           <CalendarClock className="size-3.5" />
           {formatDateAr(goal.startDate)} – {formatDateAr(goal.dueDate)} {overdue && "· تجاوز موعد التسليم"}
         </p>
-        {goal.source === "NOTION" &&
+        {goal.auto &&
           (goal.breakdown ? (
             <div className="space-y-3 border-t pt-3">
               <div className="flex flex-wrap justify-between gap-2 text-[11px] text-muted-foreground">

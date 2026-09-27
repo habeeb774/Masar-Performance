@@ -66,6 +66,44 @@ export interface BatchSummary {
   quality: { approved: number; firstPass: number; firstPassRate: number | null; reworked: number; rejections: number };
 }
 
+/** A batch entered by hand (no Notion): aggregate counts only, no per-product history. */
+export interface ManualBatchRow {
+  id: string;
+  number: number;
+  total: number;
+  weekStart: string;
+  imagesApproved: number;
+  added: number;
+  needsImprovement: number;
+  waiting: number;
+}
+
+export function manualBatchSummary(b: ManualBatchRow): BatchSummary & { manualId: string } {
+  const other = Math.max(b.total - b.imagesApproved - b.needsImprovement - b.waiting, 0);
+  return {
+    manualId: b.id,
+    key: String(b.number),
+    label: `دفعة ${b.number}`,
+    number: b.number,
+    total: b.total,
+    excluded: 0,
+    images: { approved: b.imagesApproved, waiting: b.waiting, edited: 0, needsImprovement: b.needsImprovement, inProgress: other, notStarted: 0, unknown: 0 },
+    store: { added: b.added },
+    readyToAdd: Math.max(b.imagesApproved - b.added, 0),
+    anchorDate: b.weekStart,
+    firstDate: b.weekStart,
+    lastDate: b.weekStart,
+    stale: { waitingTooLong: 0, improvementNotDone: 0, approvedNotAdded: 0 },
+    quality: { approved: 0, firstPass: 0, firstPassRate: null, reworked: 0, rejections: 0 },
+  };
+}
+
+/** Notion batches win over a manual batch with the same number; newest first. */
+export function mergeManualBatches<T extends BatchSummary>(notion: T[], manual: (BatchSummary & { manualId: string })[]): (T | (BatchSummary & { manualId: string }))[] {
+  const keys = new Set(notion.map((b) => b.key));
+  return [...notion, ...manual.filter((m) => !keys.has(m.key))].sort((a, b) => (b.number ?? -Infinity) - (a.number ?? -Infinity) || b.anchorDate.localeCompare(a.anchorDate));
+}
+
 export const STALE_DAYS = 2;
 const DAY = 86_400_000;
 

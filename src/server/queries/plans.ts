@@ -1,4 +1,5 @@
 import "server-only";
+import { isNotionGoal } from "@/server/services/manual";
 import { db } from "@/server/db";
 import type { AuthUser } from "@/server/auth/session";
 import { employeeIdScope } from "@/server/auth/session";
@@ -85,6 +86,10 @@ type GoalRecord = {
   lastComputedAt: Date | null;
   isAdHoc: boolean;
   notionDataSource?: { name: string } | null;
+  sourceValue?: unknown;
+  overrideValue?: unknown;
+  overrideReason?: string | null;
+  overrideKeptAt?: Date | null;
 };
 
 export function serializeGoal(g: GoalRecord): PlanGoalRow {
@@ -111,6 +116,11 @@ export function serializeGoal(g: GoalRecord): PlanGoalRow {
     breakdown: readBreakdown(g.breakdown),
     lastComputedAt: g.lastComputedAt ? g.lastComputedAt.toISOString() : null,
     isAdHoc: g.isAdHoc,
+    auto: isNotionGoal(g),
+    sourceValue: g.sourceValue === null || g.sourceValue === undefined ? null : num(g.sourceValue),
+    overrideValue: g.overrideValue === null || g.overrideValue === undefined ? null : num(g.overrideValue),
+    overrideReason: g.overrideReason ?? null,
+    overrideKept: !!g.overrideKeptAt,
   };
 }
 

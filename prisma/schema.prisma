@@ -410,6 +410,7 @@ model Employee {
   @@index([managerId])
   @@index([departmentId])
   @@index([jobTitleId])
+  manualBatches ManualBatch[]
 }
 
 // ---------------------------------------------------------------------
@@ -507,6 +508,17 @@ model MonthlyGoal {
   progressPct    Decimal      @default(0) @db.Decimal(7, 2)
   breakdown      Json? // cached Notion breakdown {worked, completed, pendingApproval, ...}
   lastComputedAt DateTime?
+  /** manual mode: added to the sum of the goal's daily tasks (entering «المحقق = 85» stores the difference) */
+  manualAdjust   Decimal      @default(0) @db.Decimal(12, 2)
+  /** last value computed from Notion — kept even when a manual override wins */
+  sourceValue    Decimal?     @db.Decimal(12, 2)
+  /** manual override of a Notion goal; never replaced by a sync */
+  overrideValue  Decimal?     @db.Decimal(12, 2)
+  overrideReason String?
+  overrideById   String?
+  overrideAt     DateTime?
+  /** the admin reviewed the override and chose to keep it */
+  overrideKeptAt DateTime?
   isAdHoc        Boolean      @default(false)
   sortOrder      Int          @default(0)
   createdAt      DateTime     @default(now())
@@ -555,6 +567,7 @@ model WeeklyGoal {
   progressPct    Decimal     @default(0) @db.Decimal(7, 2)
   breakdown      Json?
   lastComputedAt DateTime?
+  manualAdjust   Decimal     @default(0) @db.Decimal(12, 2)
   weeklyPlan     WeeklyPlan  @relation(fields: [weeklyPlanId], references: [id], onDelete: Cascade)
   monthlyGoal    MonthlyGoal @relation(fields: [monthlyGoalId], references: [id], onDelete: Cascade)
   dailyTasks     DailyTask[]
@@ -1042,4 +1055,24 @@ model AuditLog {
   @@index([entityType, entityId])
   @@index([userId])
   @@index([createdAt])
+}
+
+/** A weekly product batch entered by hand when there is no Notion workflow (aggregate counts only). */
+model ManualBatch {
+  id               String   @id @default(cuid())
+  employeeId       String
+  number           Int
+  total            Int
+  weekStart        DateTime @db.Date
+  imagesApproved   Int      @default(0)
+  added            Int      @default(0)
+  needsImprovement Int      @default(0)
+  waiting          Int      @default(0)
+  createdById      String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  employee         Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, number])
+  @@index([weekStart])
 }

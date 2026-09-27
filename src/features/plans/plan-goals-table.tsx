@@ -23,6 +23,7 @@ import { cn } from "@/lib/utils";
 import type { NotionSourceOption, TestPeriod } from "@/features/goals/types";
 import { GoalForm, goalFormDefaults } from "./goal-form";
 import { NotionBreakdownGrid, NotionQualityGrid } from "./notion-breakdown";
+import { GoalAchievementControls, type ManualAccess } from "./goal-achievement";
 import type { PlanGoalRow } from "./types";
 
 export function WeightTotalBadge({ goals }: { goals: { weight: number; status: string }[] }) {
@@ -114,7 +115,7 @@ export function PlanGoalsTable({
               <TableBody>
                 {goals.map((g) => {
                   const cancelled = g.status === "CANCELLED";
-                  const canExpand = g.source === "NOTION";
+                  const canExpand = g.auto;
                   const open = expanded.has(g.id);
                   return (
                     <Fragment key={g.id}>
@@ -136,7 +137,7 @@ export function PlanGoalsTable({
                         </TableCell>
                         <TableCell className="py-2.5 text-start">
                           <p className="text-xs">{GOAL_TYPE_LABELS[g.goalType]}</p>
-                          <div className="mt-1">{g.source === "NOTION" ? <NotionSyncedTag /> : <span className="text-xs text-muted-foreground">{GOAL_SOURCE_LABELS[g.source]}</span>}</div>
+                          <div className="mt-1">{g.auto ? <NotionSyncedTag /> : <span className="text-xs text-muted-foreground">{g.source === "NOTION" ? "يدوي" : GOAL_SOURCE_LABELS[g.source]}</span>}</div>
                         </TableCell>
                         <TableCell className="py-2.5 text-start tabular-nums">
                           {formatNumber(g.targetValue, 2)} <span className="text-xs text-muted-foreground">{g.unit}</span>
@@ -247,7 +248,7 @@ function goalState(goal: PlanGoalRow, today: string): "done" | "late" | null {
   return null;
 }
 
-function SimpleGoalRow({ goal, today, dates, canEdit }: { goal: PlanGoalRow; today: string; dates: { start: string; end: string }; canEdit: boolean }) {
+function SimpleGoalRow({ goal, today, dates, canEdit, access }: { goal: PlanGoalRow; today: string; dates: { start: string; end: string }; canEdit: boolean; access?: ManualAccess }) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(goal.name);
@@ -328,12 +329,25 @@ function SimpleGoalRow({ goal, today, dates, canEdit }: { goal: PlanGoalRow; tod
         </span>
       </div>
       <ProgressBar value={goal.progressPct} showLabel size="sm" />
+      {access && <GoalAchievementControls goal={goal} access={access} />}
     </li>
   );
 }
 
 /** Plain goal list for the plan page: name, target, achieved, progress, and a status word only when it matters. */
-export function PlanGoalsSummary({ goals, today, dates, canEdit }: { goals: PlanGoalRow[]; today: string; dates: { start: string; end: string }; canEdit: boolean }) {
+export function PlanGoalsSummary({
+  goals,
+  today,
+  dates,
+  canEdit,
+  access,
+}: {
+  goals: PlanGoalRow[];
+  today: string;
+  dates: { start: string; end: string };
+  canEdit: boolean;
+  access?: ManualAccess;
+}) {
   const active = goals.filter((g) => g.status !== "CANCELLED");
   if (active.length === 0) return <EmptyState icon={Target} title="لا توجد أهداف في هذه الخطة" className="py-6" />;
   const groups = groupByDuty(active, dutyOf);
@@ -344,7 +358,7 @@ export function PlanGoalsSummary({ goals, today, dates, canEdit }: { goals: Plan
           {groups.length > 1 && <h3 className="mb-1 text-xs font-semibold text-muted-foreground">{group.duty}</h3>}
           <ul className="divide-y">
             {group.items.map((g) => (
-              <SimpleGoalRow key={`${g.id}:${g.name}:${g.targetValue}`} goal={g} today={today} dates={dates} canEdit={canEdit} />
+              <SimpleGoalRow key={`${g.id}:${g.name}:${g.targetValue}:${g.achievedValue}`} goal={g} today={today} dates={dates} canEdit={canEdit} access={access} />
             ))}
           </ul>
         </section>

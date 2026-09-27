@@ -26,6 +26,12 @@ export interface PlanGoalRow {
   breakdown: ProgressBreakdown | null;
   lastComputedAt: string | null;
   isAdHoc: boolean;
+  /** achievement comes automatically from Notion */
+  auto: boolean;
+  sourceValue: number | null;
+  overrideValue: number | null;
+  overrideReason: string | null;
+  overrideKept: boolean;
 }
 
 /** A week column for the weekly distribution matrix. */

@@ -13,6 +13,9 @@ import { formatNumber } from "@/lib/num";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
 import { PLAN_STATUS_LABELS, REPORT_STATUS_LABELS, WEEKLY_PLAN_STATUS_LABELS } from "@/lib/labels";
 import type { AuthUser } from "@/server/auth/session";
+import { canResolveOverrides, unhealthySourceIds } from "@/server/services/manual";
+import type { ManualAccess } from "./goal-achievement";
+import type { PlanGoalRow } from "./types";
 import { weekProgress, weekWorkDays, type PlanDetail } from "@/server/queries/plans";
 
 export function planCapabilities(user: AuthUser, plan: { employeeId: string; status: string }) {
@@ -31,6 +34,20 @@ export function planCapabilities(user: AuthUser, plan: { employeeId: string; sta
     canCancel: canManage && !early,
     canDistribute: distributable && (canManage || (isOwner && hasPermission(user, PERMISSIONS.PLANS_DISTRIBUTE_OWN))),
   };
+}
+
+/** Who may enter achievement by hand on this plan, and which automatic sources are currently not updating. */
+export async function manualAccess(user: AuthUser, plan: { employeeId: string; status: string }, goals: PlanGoalRow[]): Promise<ManualAccess> {
+  const running = plan.status === "APPROVED" || plan.status === "IN_PROGRESS";
+  const ids = [...new Set(goals.filter((g) => g.auto && g.status !== "CANCELLED" && g.notionDataSourceId).map((g) => g.notionDataSourceId!))];
+  const unhealthy = running && ids.length ? await unhealthySourceIds(ids).catch(() => new Set<string>()) : new Set<string>();
+  const cap = planCapabilities(user, plan);
+  return { running, canUpdate: cap.isOwner || cap.canManage, canManage: cap.canManage, canResolve: canResolveOverrides(user), unhealthySources: [...unhealthy] };
+}
+
+/** First running automatic goal whose source is not updating. */
+export function firstSyncIssue(goals: PlanGoalRow[], access: ManualAccess) {
+  return access.running ? goals.find((g) => g.auto && g.status !== "CANCELLED" && g.notionDataSourceId && access.unhealthySources.includes(g.notionDataSourceId)) : undefined;
 }
 
 /** Workflow buttons for the plan's current status. */
