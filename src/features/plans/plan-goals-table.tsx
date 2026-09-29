@@ -249,6 +249,36 @@ function goalState(goal: PlanGoalRow, today: string): "done" | "late" | null {
   return null;
 }
 
+/** Compact, reusable disclosure for the optional details of any monthly goal. */
+function GoalDescription({ description }: { description: string }) {
+  const parts = description
+    .split(/\r?\n(?=\s*\d+[.)]\s*)/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const numbered = parts.length > 1 && parts.slice(1).every((part) => /^\d+[.)]\s*/.test(part));
+  const intro = numbered ? parts[0] : null;
+  const items = numbered ? parts.slice(1).map((part) => part.replace(/^\d+[.)]\s*/, "").trim()) : [];
+
+  return (
+    <details className="mt-1.5 text-xs text-muted-foreground">
+      <summary className="w-fit cursor-pointer select-none text-xs font-medium text-muted-foreground hover:text-foreground">
+        عرض التفاصيل
+      </summary>
+      <div className="mt-2 rounded-lg bg-muted/30 px-3 py-2.5 leading-6">
+        <p className="mb-1 text-xs font-semibold text-foreground">تفاصيل الهدف</p>
+        {intro && <p className="whitespace-pre-wrap">{intro}</p>}
+        {numbered ? (
+          <ol className="list-decimal space-y-0.5 ps-5">
+            {items.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}
+          </ol>
+        ) : (
+          <p className="whitespace-pre-wrap">{description}</p>
+        )}
+      </div>
+    </details>
+  );
+}
+
 function SimpleGoalRow({ goal, today, dates, canEdit, access }: { goal: PlanGoalRow; today: string; dates: { start: string; end: string }; canEdit: boolean; access?: ManualAccess }) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
@@ -329,6 +359,7 @@ function SimpleGoalRow({ goal, today, dates, canEdit, access }: { goal: PlanGoal
           )}
         </span>
       </div>
+      {goal.description?.trim() && <GoalDescription description={goal.description.trim()} />}
       <ProgressBar value={goal.progressPct} showLabel size="sm" />
       {access && <GoalAchievementControls goal={goal} access={access} />}
     </li>
