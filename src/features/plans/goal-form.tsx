@@ -18,6 +18,8 @@ import { addGoalAction, updateGoalAction } from "@/actions/plans";
 import { monthlyGoalSchema } from "@/lib/validation";
 import { formatNumber } from "@/lib/num";
 import {
+  DISTRIBUTION_MODE_LABELS,
+  DISTRIBUTION_MODES,
   GOAL_SOURCE_LABELS,
   GOAL_SOURCES,
   GOAL_TYPE_LABELS,
@@ -40,6 +42,7 @@ export function goalFormDefaults(goal: PlanGoalRow | undefined, dates: { start: 
     dutyName: goal?.dutyName ?? "",
     description: goal?.description ?? "",
     goalType: goal?.goalType ?? "NUMERIC",
+    distributionMode: goal?.distributionMode ?? "DISTRIBUTED",
     targetValue: goal?.targetValue ?? 0,
     unit: goal?.unit ?? "عنصر",
     weight: goal?.weight ?? 0,
@@ -91,7 +94,7 @@ function GoalFormBody({
       else add.run(planId, payload);
     },
     (errs) => {
-      if (errs.weight || errs.goalType || errs.category || errs.priority || errs.source || errs.startDate || errs.dueDate || errs.notionDataSourceId || errs.notionFilter) setAdvanced(true);
+      if (errs.weight || errs.goalType || errs.distributionMode || errs.category || errs.priority || errs.source || errs.startDate || errs.dueDate || errs.notionDataSourceId || errs.notionFilter) setAdvanced(true);
     },
   );
 
@@ -163,6 +166,28 @@ function GoalFormBody({
                   </Select>
                 )}
               />
+            </Field>
+            <Field data-invalid={!!errors.distributionMode}>
+              <FieldLabel>طريقة توزيع الهدف</FieldLabel>
+              <Controller
+                control={control}
+                name="distributionMode"
+                render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger className="w-full" aria-invalid={!!errors.distributionMode}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {DISTRIBUTION_MODES.map((mode) => (
+                        <SelectItem key={mode} value={mode}>
+                          {mode === "DISTRIBUTED" ? "توزيع على الأيام" : DISTRIBUTION_MODE_LABELS[mode].label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+              <FieldError errors={[errors.distributionMode]} />
             </Field>
             <Field>
               <FieldLabel>التصنيف</FieldLabel>

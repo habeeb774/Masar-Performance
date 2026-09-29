@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { checkDistribution, distributeProportional, suggestDailyTargets, suggestWeeklyTargets } from "@/lib/distribution";
 import { getMonthWeeks } from "@/lib/dates";
+import { distributionProgress } from "@/lib/distribution-progress";
 
 describe("distributeProportional", () => {
   it("splits evenly when weights are equal", () => {
@@ -41,6 +42,26 @@ describe("weekly and daily suggestions", () => {
   });
   it("distributes 40 over 5 days as 8 each", () => {
     expect(suggestDailyTargets(40, 5)).toEqual([8, 8, 8, 8, 8]);
+  });
+  it("puts a one-time goal only in its due-date week", () => {
+    const dueDate = weeks[1].workDays[0];
+    const targets = suggestWeeklyTargets({ goalType: "NUMERIC", distributionMode: "ONE_TIME", targetValue: 1, dueDate }, weeks);
+    expect(targets[1]).toBe(1);
+    expect(targets.filter((value) => value > 0)).toHaveLength(1);
+  });
+  it("uses each week's working-day count for a daily goal", () => {
+    expect(suggestWeeklyTargets({ goalType: "BOOLEAN", distributionMode: "DAILY", targetValue: 1 }, weeks)).toEqual(weeks.map((week) => week.workDays.length));
+  });
+});
+
+describe("distribution progress", () => {
+  it("computes daily progress from completed days", () => {
+    const tasks = Array.from({ length: 5 }, (_, index) => ({ achieved: index < 3 ? 1 : 0, status: index < 3 ? "COMPLETED" : "NOT_STARTED", source: "DISTRIBUTED" }));
+    expect(distributionProgress("DAILY", "BOOLEAN", 1, tasks)).toEqual({ achieved: 3, progress: 60 });
+  });
+  it("caps one-time semantics at complete or incomplete", () => {
+    expect(distributionProgress("ONE_TIME", "NUMERIC", 1, [{ achieved: 8, status: "COMPLETED" }])).toEqual({ achieved: 1, progress: 100 });
+    expect(distributionProgress("ONE_TIME", "NUMERIC", 1, [{ achieved: 8, status: "IN_PROGRESS" }])).toEqual({ achieved: 0, progress: 0 });
   });
 });
 

@@ -16,7 +16,8 @@ import { recomputePlan } from "./progress";
 import { firstPeriodStart } from "./periods";
 import { isNotionGoal, reconcileSourceChange } from "./manual";
 
-type GoalInput = z.infer<typeof monthlyGoalSchema>;
+type ParsedGoalInput = z.output<typeof monthlyGoalSchema>;
+type GoalInput = Omit<ParsedGoalInput, "distributionMode"> & { distributionMode?: ParsedGoalInput["distributionMode"] };
 
 export async function getPlanOrThrow(planId: string) {
   const plan = await db.monthlyPlan.findUnique({
@@ -45,6 +46,7 @@ function goalData(input: GoalInput) {
     dutyName: input.dutyName?.trim() || null,
     description: input.description,
     goalType: input.goalType,
+    distributionMode: input.distributionMode ?? "DISTRIBUTED",
     targetValue: input.targetValue,
     unit: input.unit,
     weight: input.weight,
@@ -298,11 +300,18 @@ export async function ensureWeeklyPlans(planId: string) {
     for (const goal of plan.goals) {
       if (goal.status === "CANCELLED") continue;
       const suggestion = suggestWeeklyTargets(
-        { goalType: goal.goalType, targetValue: num(goal.targetValue), dueDate: goal.dueDate ? toDateKey(goal.dueDate) : null },
+        {
+          goalType: goal.goalType,
+          distributionMode: goal.distributionMode,
+          targetValue: num(goal.targetValue),
+          startDate: goal.startDate ? toDateKey(goal.startDate) : null,
+          dueDate: goal.dueDate ? toDateKey(goal.dueDate) : null,
+        },
         weeks,
       );
       const rows = weeks
         .map((_, i) => ({ weeklyPlanId: weekIds[i], monthlyGoalId: goal.id, targetValue: suggestion[i] ?? 0 }))
+        .filter((r) => !["ONE_TIME", "DAILY"].includes(goal.distributionMode) || num(r.targetValue) > 0)
         .filter((r) => !has.has(`${r.weeklyPlanId}:${r.monthlyGoalId}`));
       if (rows.length) await tx.weeklyGoal.createMany({ data: rows });
     }
@@ -319,33 +328,61 @@ export async function autoDistributePlan(planId: string, userId: string) {
   const today = todayKey(company.timezone);
   const weeks = await db.weeklyPlan.findMany({
     where: { monthlyPlanId: planId },
-    include: { goals: { include: { monthlyGoal: true, dailyTasks: { where: { source: "DISTRIBUTED" }, select: { id: true } } } } },
+    include: { goals: { include: { monthlyGoal: true } } },
+    orderBy: { weekIndex: "asc" },
   });
+  const existingTasks = await db.dailyTask.findMany({
+    where: { source: "DISTRIBUTED", monthlyGoal: { planId } },
+    select: { id: true, employeeId: true, monthlyGoalId: true, date: true, status: true },
+  });
+  const existingKeys = new Set(existingTasks.filter((t) => t.monthlyGoalId).map((t) => `${t.employeeId}:${t.monthlyGoalId}:${toDateKey(t.date)}`));
+  const goalsWithTask = new Set(existingTasks.flatMap((t) => (t.monthlyGoalId ? [t.monthlyGoalId] : [])));
+  const completedGoals = new Set(existingTasks.filter((t) => t.status === "COMPLETED").flatMap((t) => (t.monthlyGoalId ? [t.monthlyGoalId] : [])));
   const tasks: Prisma.DailyTaskCreateManyInput[] = [];
   for (const week of weeks) {
-    if (week.status === "CLOSED" || toDateKey(week.endDate) < today) continue;
-    const days: string[] = [];
+    if (week.status === "CLOSED") continue;
+    const allWorkDays: string[] = [];
     for (let d = toDateKey(week.startDate); d <= toDateKey(week.endDate); d = toDateKey(new Date(fromDateKey(d).getTime() + 86_400_000))) {
-      if (d >= today && company.workDays.includes(fromDateKey(d).getUTCDay())) days.push(d);
+      if (company.workDays.includes(fromDateKey(d).getUTCDay())) allWorkDays.push(d);
     }
-    if (days.length === 0) continue;
     for (const wg of week.goals) {
-      if (wg.dailyTasks.length > 0 || wg.monthlyGoal.status === "CANCELLED") continue;
+      const goal = wg.monthlyGoal;
+      if (goal.status === "CANCELLED") continue;
       const target = num(wg.targetValue);
       if (target <= 0) continue;
-      const repeat = wg.monthlyGoal.goalType === "PERCENTAGE" || wg.monthlyGoal.goalType === "BOOLEAN";
-      const split = repeat ? days.map(() => target) : suggestDailyTargets(target, days.length);
+      const goalStart = goal.startDate ? toDateKey(goal.startDate) : null;
+      const goalEnd = goal.dueDate ? toDateKey(goal.dueDate) : null;
+      let days = allWorkDays.filter((d) => (!goalStart || d >= goalStart) && (!goalEnd || d <= goalEnd));
+      let split: number[];
+      if (goal.distributionMode === "ONE_TIME") {
+        if (goalsWithTask.has(goal.id) || completedGoals.has(goal.id)) continue;
+        const start = toDateKey(week.startDate);
+        const end = toDateKey(week.endDate);
+        const due = goal.dueDate ? toDateKey(goal.dueDate) : null;
+        const begins = goal.startDate ? toDateKey(goal.startDate) : null;
+        const chosen = due && due >= start && due <= end ? due : begins && begins >= start && begins <= end ? begins : days[0];
+        days = chosen ? [chosen] : [];
+        split = [target];
+      } else if (goal.distributionMode === "DAILY") {
+        split = days.map(() => 1);
+      } else {
+        days = days.filter((d) => d >= today);
+        split = suggestDailyTargets(target, days.length);
+      }
       days.forEach((day, i) => {
         if (!(split[i] > 0)) return;
+        const key = `${week.employeeId}:${goal.id}:${day}`;
+        if (existingKeys.has(key)) return;
+        existingKeys.add(key);
         tasks.push({
           employeeId: week.employeeId,
           weeklyGoalId: wg.id,
           monthlyGoalId: wg.monthlyGoalId,
-          title: wg.monthlyGoal.name,
+          title: goal.name,
           date: fromDateKey(day),
           target: split[i],
           source: "DISTRIBUTED",
-          priority: wg.monthlyGoal.priority,
+          priority: goal.priority,
           createdById: userId,
         });
       });
@@ -382,12 +419,13 @@ export async function saveWeeklyDistribution(user: AuthUser, input: z.infer<type
     const row = input.targets[goal.id];
     if (!row || goal.status === "CANCELLED") continue;
     const parts = plan.weeklyPlans.map((w) => Number(row[String(w.weekIndex)] ?? 0));
-    if (goal.goalType !== "PERCENTAGE") {
+    if (goal.distributionMode !== "DAILY" && goal.goalType !== "PERCENTAGE") {
       const check = checkDistribution(parts, num(goal.targetValue));
       if (!check.ok) mismatches.push({ goal: goal.name, diff: check.diff });
     }
     for (const w of plan.weeklyPlans) {
       const value = Number(row[String(w.weekIndex)] ?? 0);
+      if (goal.distributionMode === "ONE_TIME" && value <= 0) continue;
       updates.push(
         db.weeklyGoal.upsert({
           where: { weeklyPlanId_monthlyGoalId: { weeklyPlanId: w.id, monthlyGoalId: goal.id } },
@@ -464,10 +502,14 @@ export async function suggestDailySplit(weeklyPlanId: string) {
     days,
     suggestions: Object.fromEntries(
       week.goals.map((g) => {
-        // percentage / boolean goals are not quantities to sum — repeat the same target every day
-        const split =
-          g.monthlyGoal.goalType === "PERCENTAGE" || g.monthlyGoal.goalType === "BOOLEAN"
-            ? days.map(() => num(g.targetValue))
+        const mode = g.monthlyGoal.distributionMode;
+        const due = g.monthlyGoal.dueDate ? toDateKey(g.monthlyGoal.dueDate) : null;
+        const begins = g.monthlyGoal.startDate ? toDateKey(g.monthlyGoal.startDate) : null;
+        const chosen = due && days.includes(due) ? due : begins && days.includes(begins) ? begins : days[0];
+        const split = mode === "ONE_TIME"
+          ? days.map((d) => d === chosen ? num(g.targetValue) : 0)
+          : mode === "DAILY"
+            ? days.map(() => 1)
             : suggestDailyTargets(num(g.targetValue), days.length);
         return [g.id, Object.fromEntries(days.map((d, i) => [d, split[i] ?? 0]))];
       }),
@@ -492,7 +534,7 @@ export async function saveDailyDistribution(user: AuthUser, input: z.infer<typeo
     if (!row) continue;
     const entries = Object.entries(row).filter(([d]) => d >= startKey && d <= endKey);
     const check = checkDistribution(entries.map(([, v]) => v), num(wg.targetValue));
-    const sumless = wg.monthlyGoal.goalType === "PERCENTAGE" || wg.monthlyGoal.goalType === "BOOLEAN";
+    const sumless = wg.monthlyGoal.distributionMode === "DAILY";
     if (!check.ok && !sumless) warnings.push(`${wg.monthlyGoal.name}: الفرق ${check.diff}`);
     const existing = new Map(
       wg.dailyTasks.filter((t) => t.source === "DISTRIBUTED").map((t) => [toDateKey(t.date), t]),
@@ -503,6 +545,7 @@ export async function saveDailyDistribution(user: AuthUser, input: z.infer<typeo
         if (target === 0 && num(task.achieved) === 0) ops.push(db.dailyTask.delete({ where: { id: task.id } }));
         else ops.push(db.dailyTask.update({ where: { id: task.id }, data: { target } }));
       } else if (target > 0) {
+        if (wg.monthlyGoal.distributionMode === "ONE_TIME" && existing.size > 0) continue;
         ops.push(
           db.dailyTask.create({
             data: {

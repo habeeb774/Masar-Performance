@@ -7,6 +7,7 @@ import type { SystemStatus } from "@/lib/notion/status";
 import { monthEnd, monthStart, toDateKey, todayKey } from "@/lib/dates";
 import { deriveGoalStatus, deriveTaskStatus } from "@/lib/goal-status";
 import { num, pct } from "@/lib/num";
+import { distributionProgress, manualAchieved } from "@/lib/distribution-progress";
 import { planSpan } from "./periods";
 import { getCompanyFresh } from "./company";
 
@@ -78,7 +79,7 @@ export async function breakdownFor(
 }
 
 const planInclude = {
-  goals: { include: { dailyTasks: { select: { achieved: true, status: true, weeklyGoalId: true } } } },
+  goals: { include: { dailyTasks: { select: { achieved: true, status: true, source: true, weeklyGoalId: true } } } },
   weeklyPlans: {
     include: {
       goals: { include: { dailyTasks: true } },
@@ -86,13 +87,6 @@ const planInclude = {
   },
 } satisfies Prisma.MonthlyPlanInclude;
 
-/** Manual mode: the goal's daily tasks plus what was entered by hand. */
-export function manualAchieved(goalType: string, dailyTasks: { achieved: unknown; status: string }[], adjust: number) {
-  const tasks = dailyTasks.filter((t) => t.status !== "CANCELLED");
-  const fromTasks = goalType === "BOOLEAN" ? (tasks.some((t) => t.status === "COMPLETED") ? 1 : 0) : tasks.reduce((a, t) => a + num(t.achieved), 0);
-  const total = fromTasks + adjust;
-  return Math.max(goalType === "BOOLEAN" ? Math.min(total, 1) : total, 0);
-}
 
 /**
  * Recompute achievement for every goal, weekly goal and daily task of a plan.
@@ -122,15 +116,21 @@ export async function recomputePlan(planId: string, cache = new ItemCache()) {
     let breakdown: ProgressBreakdown | null = null;
 
     let sourceValue: number | null | undefined;
-    if (isNotion) {
+    let progress: number;
+    if (goal.distributionMode !== "DISTRIBUTED") {
+      const result = distributionProgress(goal.distributionMode, goal.goalType, target, goal.dailyTasks, num(goal.manualAdjust));
+      achieved = result.achieved;
+      progress = result.progress;
+    } else if (isNotion) {
       breakdown = await breakdownFor(goal, { start, end }, target, cache);
       if (breakdown) achieved = sourceValue = breakdown.completed;
       // a manual override wins over Notion and is never replaced by a sync
       if (goal.overrideValue !== null) achieved = num(goal.overrideValue);
+      progress = pct(achieved, target);
     } else {
       achieved = manualAchieved(goal.goalType, goal.dailyTasks, num(goal.manualAdjust));
+      progress = pct(achieved, target);
     }
-    const progress = pct(achieved, target);
     const status = deriveGoalStatus({
       current: goal.status,
       progressPct: progress,
@@ -143,7 +143,7 @@ export async function recomputePlan(planId: string, cache = new ItemCache()) {
         where: { id: goal.id },
         data: {
           achievedValue: achieved,
-          progressPct: Math.min(progress, 999),
+          progressPct: Math.min(progress, 100),
           status,
           breakdown: (breakdown ?? undefined) as Prisma.InputJsonValue | undefined,
           sourceValue,
@@ -164,18 +164,25 @@ export async function recomputePlan(planId: string, cache = new ItemCache()) {
       const isNotion = goal.source === "NOTION" && goal.notionDataSourceId && goal.notionFilter;
       let achieved = num(wg.achievedValue);
       let breakdown: ProgressBreakdown | null = null;
-      if (isNotion) {
+      let progress: number;
+      if (goal.distributionMode !== "DISTRIBUTED") {
+        const result = distributionProgress(goal.distributionMode, goal.goalType, target, wg.dailyTasks, num(wg.manualAdjust));
+        achieved = result.achieved;
+        progress = result.progress;
+      } else if (isNotion) {
         breakdown = await breakdownFor(goal, { start: wStart, end: wEnd }, target, cache);
         if (breakdown) achieved = breakdown.completed;
+        progress = pct(achieved, target);
       } else {
         achieved = manualAchieved("NUMERIC", wg.dailyTasks, num(wg.manualAdjust));
+        progress = pct(achieved, target);
       }
       writes.push(
         db.weeklyGoal.update({
           where: { id: wg.id },
           data: {
             achievedValue: achieved,
-            progressPct: Math.min(pct(achieved, target), 999),
+            progressPct: Math.min(progress, 100),
             breakdown: (breakdown ?? undefined) as Prisma.InputJsonValue | undefined,
             lastComputedAt: now,
           },

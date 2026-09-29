@@ -87,7 +87,13 @@ export function WeeklyDistributionEditor({
     setValues(
       Object.fromEntries(
         goals.map((g) => {
-          const split = suggestWeeklyTargets({ goalType: g.goalType, targetValue: g.targetValue, dueDate: g.dueDate }, weeks);
+          const split = suggestWeeklyTargets({
+            goalType: g.goalType,
+            distributionMode: g.distributionMode,
+            targetValue: g.targetValue,
+            startDate: g.startDate,
+            dueDate: g.dueDate,
+          }, weeks);
           return [g.id, Object.fromEntries(weeks.map((w, i) => [String(w.index), String(split[i] ?? 0)]))];
         }),
       ),

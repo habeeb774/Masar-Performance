@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { isDateKey } from "./dates";
 import {
+  DISTRIBUTION_MODES,
   GOAL_SOURCES,
   GOAL_TYPES,
   KPI_CATEGORIES,
@@ -158,6 +159,7 @@ export const goalTemplateSchema = z.object({
 
 export const monthlyGoalSchema = goalBase
   .extend({
+    distributionMode: z.enum(DISTRIBUTION_MODES).default("DISTRIBUTED"),
     startDate: optionalDateKey,
     dueDate: optionalDateKey,
   })

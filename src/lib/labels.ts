@@ -15,6 +15,14 @@ export const GOAL_TYPE_LABELS: Record<GoalTypeKey, string> = {
   NOTION_SYNCED: "مرتبط بـ Notion",
 };
 
+export const DISTRIBUTION_MODES = ["DISTRIBUTED", "ONE_TIME", "DAILY"] as const;
+export type DistributionModeKey = (typeof DISTRIBUTION_MODES)[number];
+export const DISTRIBUTION_MODE_LABELS: LabelMap<DistributionModeKey> = {
+  DISTRIBUTED: { label: "موزع", tone: "info" },
+  ONE_TIME: { label: "مرة واحدة", tone: "primary" },
+  DAILY: { label: "يومي", tone: "pending" },
+};
+
 export const PRIORITIES = ["LOW", "MEDIUM", "HIGH", "URGENT"] as const;
 export type PriorityKey = (typeof PRIORITIES)[number];
 export const PRIORITY_LABELS: LabelMap<PriorityKey> = {

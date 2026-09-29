@@ -8,7 +8,7 @@ import { eachDay, isWorkDay, monthEnd, monthLabel, monthStart, toDateKey, todayK
 import { num } from "@/lib/num";
 import { normalizeRule, readBreakdown, type NotionSourceOption, type TestPeriod } from "@/features/goals/types";
 import type { DistributionGoal, PlanGoalRow, WeekColumn } from "@/features/plans/types";
-import type { GoalSourceKey, GoalStatusKey, GoalTypeKey, KpiCategoryKey, PriorityKey } from "@/lib/labels";
+import type { DistributionModeKey, GoalSourceKey, GoalStatusKey, GoalTypeKey, KpiCategoryKey, PriorityKey } from "@/lib/labels";
 import { weightedProgress } from "./dashboard";
 
 /** Current year/month + today in the company timezone. */
@@ -69,6 +69,7 @@ type GoalRecord = {
   dutyName?: string | null;
   description: string | null;
   goalType: string;
+  distributionMode: string;
   targetValue: unknown;
   achievedValue: unknown;
   progressPct: unknown;
@@ -99,6 +100,7 @@ export function serializeGoal(g: GoalRecord): PlanGoalRow {
     dutyName: g.dutyName ?? null,
     description: g.description,
     goalType: g.goalType as GoalTypeKey,
+    distributionMode: g.distributionMode as DistributionModeKey,
     targetValue: num(g.targetValue),
     achievedValue: num(g.achievedValue),
     progressPct: num(g.progressPct),
@@ -199,5 +201,14 @@ export async function templateOptions() {
 export function distributionGoals(plan: PlanDetail): DistributionGoal[] {
   return plan.goals
     .filter((g) => g.status !== "CANCELLED")
-    .map((g) => ({ id: g.id, name: g.name, goalType: g.goalType as GoalTypeKey, targetValue: num(g.targetValue), unit: g.unit, dueDate: g.dueDate ? toDateKey(g.dueDate) : null }));
+    .map((g) => ({
+      id: g.id,
+      name: g.name,
+      goalType: g.goalType as GoalTypeKey,
+      distributionMode: g.distributionMode as DistributionModeKey,
+      targetValue: num(g.targetValue),
+      unit: g.unit,
+      startDate: g.startDate ? toDateKey(g.startDate) : null,
+      dueDate: g.dueDate ? toDateKey(g.dueDate) : null,
+    }));
 }

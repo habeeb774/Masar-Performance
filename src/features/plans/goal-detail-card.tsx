@@ -5,7 +5,7 @@ import { ProgressBar } from "@/components/shared/progress-bar";
 import { formatDateAr, formatDateTimeAr } from "@/lib/dates";
 import { formatNumber, formatPct } from "@/lib/num";
 import { DATE_BASIS_LABELS } from "@/lib/notion/filter-rule";
-import { GOAL_STATUS_LABELS, GOAL_TYPE_LABELS, KPI_CATEGORY_LABELS, PRIORITY_LABELS } from "@/lib/labels";
+import { DISTRIBUTION_MODE_LABELS, GOAL_STATUS_LABELS, GOAL_TYPE_LABELS, KPI_CATEGORY_LABELS, PRIORITY_LABELS } from "@/lib/labels";
 import { NotionBreakdownGrid, NotionQualityGrid } from "./notion-breakdown";
 import { GoalAchievementControls, type ManualAccess } from "./goal-achievement";
 import type { PlanGoalRow } from "./types";
@@ -33,6 +33,7 @@ export function GoalDetailCard({ goal, today, access }: { goal: PlanGoalRow; tod
         <div className="flex flex-wrap items-center gap-1.5">
           <EnumBadge map={KPI_CATEGORY_LABELS} value={goal.category} />
           <EnumBadge map={PRIORITY_LABELS} value={goal.priority} />
+          <EnumBadge map={DISTRIBUTION_MODE_LABELS} value={goal.distributionMode} />
           <StatusBadge tone="neutral" dot={false}>
             {GOAL_TYPE_LABELS[goal.goalType]} · الوزن {formatNumber(goal.weight, 2)}%
           </StatusBadge>

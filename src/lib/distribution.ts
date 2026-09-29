@@ -35,6 +35,8 @@ export type DistributableGoalType =
   | "MANUAL"
   | "NOTION_SYNCED";
 
+export type DistributionMode = "DISTRIBUTED" | "ONE_TIME" | "DAILY";
+
 /** Goal types whose monthly target is split into weekly/daily quantities. */
 export function isSplittable(goalType: DistributableGoalType): boolean {
   return goalType === "NUMERIC" || goalType === "NOTION_SYNCED" || goalType === "RECURRING";
@@ -47,10 +49,27 @@ export function isSplittable(goalType: DistributableGoalType): boolean {
  * - Boolean / manual goals land in the week containing the due date (or the last week).
  */
 export function suggestWeeklyTargets(
-  goal: { goalType: DistributableGoalType; targetValue: number; dueDate?: string | null },
+  goal: {
+    goalType: DistributableGoalType;
+    distributionMode?: DistributionMode;
+    targetValue: number;
+    startDate?: string | null;
+    dueDate?: string | null;
+  },
   weeks: MonthWeek[],
 ): number[] {
   if (weeks.length === 0) return [];
+  const mode = goal.distributionMode ?? "DISTRIBUTED";
+  if (mode === "ONE_TIME") {
+    let idx = goal.dueDate ? weeks.findIndex((w) => goal.dueDate! >= w.start && goal.dueDate! <= w.end) : -1;
+    if (idx < 0 && goal.startDate) idx = weeks.findIndex((w) => goal.startDate! >= w.start && goal.startDate! <= w.end);
+    if (idx < 0) idx = weeks.findIndex((w) => w.workDays.length > 0);
+    if (idx < 0) idx = 0;
+    return weeks.map((_, i) => (i === idx ? goal.targetValue : 0));
+  }
+  if (mode === "DAILY") {
+    return weeks.map((week) => week.workDays.filter((day) => (!goal.startDate || day >= goal.startDate) && (!goal.dueDate || day <= goal.dueDate)).length);
+  }
   if (isSplittable(goal.goalType)) {
     return distributeProportional(
       goal.targetValue,

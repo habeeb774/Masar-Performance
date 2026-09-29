@@ -18,7 +18,7 @@ import { useServerAction } from "@/hooks/use-server-action";
 import { formatDateAr, formatDateTimeAr } from "@/lib/dates";
 import { formatNumber } from "@/lib/num";
 import { DATE_BASIS_LABELS } from "@/lib/notion/filter-rule";
-import { GOAL_SOURCE_LABELS, GOAL_STATUS_LABELS, GOAL_TYPE_LABELS, KPI_CATEGORY_LABELS, PRIORITY_LABELS } from "@/lib/labels";
+import { DISTRIBUTION_MODE_LABELS, GOAL_SOURCE_LABELS, GOAL_STATUS_LABELS, GOAL_TYPE_LABELS, KPI_CATEGORY_LABELS, PRIORITY_LABELS } from "@/lib/labels";
 import { cn } from "@/lib/utils";
 import type { NotionSourceOption, TestPeriod } from "@/features/goals/types";
 import { GoalForm, goalFormDefaults } from "./goal-form";
@@ -131,6 +131,7 @@ export function PlanGoalsTable({
                           <p className={cn("font-medium", cancelled && "line-through")}>{g.name}</p>
                           <div className="mt-1 flex flex-wrap items-center gap-1">
                             <EnumBadge map={KPI_CATEGORY_LABELS} value={g.category} />
+                            <EnumBadge map={DISTRIBUTION_MODE_LABELS} value={g.distributionMode} />
                             {g.isAdHoc && <StatusBadge tone="primary">مستجد</StatusBadge>}
                           </div>
                           {g.description && <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{g.description}</p>}

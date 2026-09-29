@@ -42,6 +42,12 @@ enum GoalType {
   NOTION_SYNCED
 }
 
+enum DistributionMode {
+  DISTRIBUTED
+  ONE_TIME
+  DAILY
+}
+
 enum GoalSource {
   MANUAL
   NOTION
@@ -495,6 +501,7 @@ model MonthlyGoal {
   dutyName       String?
   description    String?
   goalType       GoalType     @default(NUMERIC)
+  distributionMode DistributionMode @default(DISTRIBUTED)
   targetValue    Decimal      @default(0) @db.Decimal(12, 2)
   unit           String       @default("عنصر")
   weight         Decimal      @default(0) @db.Decimal(6, 2)

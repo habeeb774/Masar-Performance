@@ -1,6 +1,6 @@
 import type { NotionFilterRule } from "@/lib/notion/filter-rule";
 import type { ProgressBreakdown } from "@/lib/notion/progress";
-import type { GoalSourceKey, GoalStatusKey, GoalTypeKey, KpiCategoryKey, PriorityKey } from "@/lib/labels";
+import type { DistributionModeKey, GoalSourceKey, GoalStatusKey, GoalTypeKey, KpiCategoryKey, PriorityKey } from "@/lib/labels";
 
 /** Serializable monthly goal passed to client components. */
 export interface PlanGoalRow {
@@ -9,6 +9,7 @@ export interface PlanGoalRow {
   dutyName: string | null;
   description: string | null;
   goalType: GoalTypeKey;
+  distributionMode: DistributionModeKey;
   targetValue: number;
   achievedValue: number;
   progressPct: number;
@@ -47,7 +48,9 @@ export interface DistributionGoal {
   id: string;
   name: string;
   goalType: GoalTypeKey;
+  distributionMode: DistributionModeKey;
   targetValue: number;
   unit: string;
   dueDate: string | null;
+  startDate: string | null;
 }
