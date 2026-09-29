@@ -27,7 +27,7 @@ export default async function PrintLayout({ children }: { children: React.ReactN
         <header className="mb-6 flex items-end justify-between gap-4 border-b-2 border-zinc-900 pb-3">
           <div>
             <p className="text-lg font-bold">{company.name}</p>
-            <p className="text-xs text-zinc-500">مركز الإدارة والتقييم</p>
+            <p className="text-xs text-zinc-500">مسار الأداء</p>
           </div>
           <p className="text-[11px] text-zinc-500">
             طُبع بواسطة {user.employeeName ?? user.name} — {formatDateTimeAr(new Date(), company.timezone)}

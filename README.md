@@ -1,4 +1,4 @@
-# مركز الإدارة والتقييم — Store Performance Hub
+# مسار الأداء — Masar Performance
 
 نظام ويب داخلي لإدارة أهداف ومهام وأداء فريق المتجر الإلكتروني، مرتبط بـ Notion، يلغي تكرار العمل بين OneNote وNotion وExcel.
 

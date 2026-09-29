@@ -1,4 +1,4 @@
-# Engineering conventions — مركز الإدارة والتقييم
+# Engineering conventions — مسار الأداء
 
 Read this before adding a page, action or service.
 

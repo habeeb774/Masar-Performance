@@ -29,7 +29,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
               <Image src="/logo.png" alt="" width={44} height={44} className="size-full object-cover" priority />
             </span>
             <div>
-              <p className="text-lg font-bold">مركز الإدارة والتقييم</p>
+              <p className="text-lg font-bold">مسار الأداء</p>
               <p className="text-xs text-muted-foreground">إدارة المتجر الإلكتروني</p>
             </div>
           </div>

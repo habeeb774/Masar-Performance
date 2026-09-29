@@ -11,7 +11,7 @@ const tajawal = Tajawal({
 });
 
 export const metadata: Metadata = {
-  title: { default: "مركز الإدارة والتقييم", template: "%s | مركز الإدارة والتقييم" },
+  title: { default: "مسار الأداء", template: "%s | مسار الأداء" },
   description: "نظام إدارة أهداف ومهام وأداء فريق المتجر الإلكتروني",
   robots: { index: false, follow: false },
 };

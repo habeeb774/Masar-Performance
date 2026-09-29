@@ -20,7 +20,7 @@ export default async function SetupPage() {
               <ShieldCheck className="size-5" />
             </span>
             <div>
-              <p className="text-lg font-bold">مركز الإدارة والتقييم</p>
+              <p className="text-lg font-bold">مسار الأداء</p>
               <p className="text-xs text-muted-foreground">إعداد النظام لأول مرة</p>
             </div>
           </div>

@@ -92,7 +92,7 @@ export function AppSidebar({ groups, badges }: { groups: NavGroup[]; badges: Rec
             <Image src="/logo.png" alt="" width={32} height={32} className="size-full object-cover" priority />
           </span>
           <span className="min-w-0 group-data-[collapsible=icon]:hidden">
-            <span className="block truncate text-sm font-bold text-sidebar-foreground">مركز الإدارة والتقييم</span>
+            <span className="block truncate text-sm font-bold text-sidebar-foreground">مسار الأداء</span>
             <span className="block truncate text-[11px] text-sidebar-foreground/60">إدارة المتجر الإلكتروني</span>
           </span>
         </Link>
