@@ -124,7 +124,10 @@ export default async function MyPlanPage({ searchParams }: { searchParams: Searc
     : null;
   const currentWeek = runningPeriod && (runningPeriod.monthlyPlanId === plan.id || viewingToday) ? runningPeriod : null;
   const fromOtherPlan = currentWeek && currentWeek.monthlyPlanId !== plan.id ? currentWeek.monthlyPlan : null;
-  const weekGoals = (currentWeek?.goals ?? []).filter((g) => g.monthlyGoal.status !== "CANCELLED").sort((a, b) => a.monthlyGoal.sortOrder - b.monthlyGoal.sortOrder);
+  const weekGoals = (currentWeek?.goals ?? [])
+    .filter((g) => g.monthlyGoal.status !== "CANCELLED")
+    .filter((g) => num(g.targetValue) > 0 || num(g.achievedValue) > 0)
+    .sort((a, b) => a.monthlyGoal.sortOrder - b.monthlyGoal.sortOrder);
 
   const [sources, batches] = await Promise.all([getNotionSourceOptions(), getEmployeeBatches(user.employeeId, year, month)]);
   const weekBatch = batches?.current && batches.currentWeek && batches.currentWeek.start <= now.today && now.today <= batches.currentWeek.end ? batches.current : null;
