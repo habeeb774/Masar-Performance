@@ -59,6 +59,7 @@ export function ManualAchievementDialog({ goal, open, onOpenChange }: { goal: Pl
     },
   });
   const extra = { date: date || null, note: note.trim() || null };
+  const needsAchievementDate = goal.distributionMode === "DISTRIBUTED";
   const boolean = goal.goalType === "BOOLEAN";
   const done = goal.achievedValue >= 1;
 
@@ -101,7 +102,7 @@ export function ManualAchievementDialog({ goal, open, onOpenChange }: { goal: Pl
               <span className="min-w-0 truncate text-muted-foreground">
                 من {qty(goal.targetValue)} {goal.unit}
               </span>
-              <Button type="submit" size="sm" className="ms-auto" disabled={pending || value === ""}>
+              <Button type="submit" size="sm" className="ms-auto" disabled={pending || value === "" || (needsAchievementDate && !date)}>
                 {pending ? <Spinner /> : "حفظ"}
               </Button>
             </form>
@@ -114,24 +115,36 @@ export function ManualAchievementDialog({ goal, open, onOpenChange }: { goal: Pl
             >
               <Plus className="size-4 shrink-0 text-muted-foreground" />
               <Input type="number" step="any" inputMode="decimal" placeholder="العدد" value={delta} onChange={(e) => setDelta(e.target.value)} className="w-24 bg-background tabular-nums" disabled={pending} />
-              <Button type="submit" size="sm" variant="outline" className="ms-auto" disabled={pending || !Number(delta)}>
+              <Button type="submit" size="sm" variant="outline" className="ms-auto" disabled={pending || !Number(delta) || (needsAchievementDate && !date)}>
                 إضافة إنجاز
               </Button>
             </form>
           </div>
         )}
 
-        {more ? (
-          <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
-            <Textarea placeholder="ملاحظة (اختياري)" value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} rows={2} disabled={pending} />
-            <label className="space-y-1 text-xs text-muted-foreground">
-              <span>التاريخ</span>
-              <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} disabled={pending} />
+        {needsAchievementDate && (
+          <div className="rounded-lg border border-warning/30 bg-warning-soft/20 p-2.5">
+            <label className="space-y-1 text-xs">
+              <span className="font-medium">تاريخ الإنجاز</span>
+              <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} disabled={pending} required />
+              <span className="block text-muted-foreground">يُستخدم التاريخ لإسناد الإنجاز إلى الأسبوع الصحيح.</span>
             </label>
+          </div>
+        )}
+
+        {more ? (
+          <div className={needsAchievementDate ? "grid gap-2" : "grid gap-2 sm:grid-cols-[1fr_auto]"}>
+            <Textarea placeholder="ملاحظة (اختياري)" value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} rows={2} disabled={pending} />
+            {!needsAchievementDate && (
+              <label className="space-y-1 text-xs text-muted-foreground">
+                <span>التاريخ</span>
+                <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} disabled={pending} />
+              </label>
+            )}
           </div>
         ) : (
           <button type="button" className="self-start text-xs text-muted-foreground underline-offset-4 hover:underline" onClick={() => setMore(true)}>
-            إضافة ملاحظة أو تاريخ
+            {needsAchievementDate ? "إضافة ملاحظة" : "إضافة ملاحظة أو تاريخ"}
           </button>
         )}
       </DialogContent>
