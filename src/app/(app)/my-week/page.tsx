@@ -78,7 +78,9 @@ export default async function MyWeekPage({ searchParams }: { searchParams: Searc
   });
 
   const days = weekWorkDays(week.startDate, week.endDate, company.workDays);
-  const activeGoals = week.goals.filter((g) => g.monthlyGoal.status !== "CANCELLED");
+  const activeGoals = week.goals
+    .filter((g) => g.monthlyGoal.status !== "CANCELLED")
+    .filter((g) => num(g.targetValue) > 0 || num(g.achievedValue) > 0);
   const dailyGoals: DailyGoalRow[] = activeGoals.map((g) => ({
     id: g.id,
     name: g.monthlyGoal.name,
