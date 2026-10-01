@@ -28,7 +28,7 @@ export default async function Page({ searchParams }: { searchParams: SearchParam
 
   return (
     <>
-      <PageHeader title="التقارير الشهرية" description="التقارير الشهرية للفريق: الإنجاز الموزون، جودة Notion، والتكليفات." />
+      <PageHeader title="التقارير الشهرية" description="التقارير الشهرية للفريق: إنجاز الخطة، التقييم الرسمي، جودة Notion، والتكليفات." />
       <nav className="mb-4 flex w-full gap-1 rounded-lg bg-muted p-1 sm:w-fit" aria-label="نوع التقرير">
         <Link href="/reports/weekly" className="rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground hover:text-foreground">
           الأسبوعية
@@ -42,7 +42,12 @@ export default async function Page({ searchParams }: { searchParams: SearchParam
         <SelectFilter param="employee" placeholder="الموظف" allLabel="كل الموظفين" options={employees} />
         <SelectFilter param="month" placeholder="الشهر" allLabel="كل الشهور" options={months} />
       </FilterBar>
-      <ReportListTable rows={list.rows} emptyTitle={status || employeeId || month ? "لا توجد تقارير مطابقة للفلترة" : "لا توجد تقارير بعد"} />
+      <ReportListTable
+        rows={list.rows}
+        progressHeader="إنجاز الخطة"
+        showOfficialEvaluation
+        emptyTitle={status || employeeId || month ? "لا توجد تقارير مطابقة للفلترة" : "لا توجد تقارير بعد"}
+      />
       <Pager page={page} pageSize={pageSize} total={list.total} />
     </>
   );
