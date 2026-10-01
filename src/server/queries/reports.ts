@@ -19,6 +19,10 @@ export interface ReportListRow {
   periodDetail?: string;
   status: ReportStatusKey;
   progress: number | null;
+  /** Monthly report only: the separate official performance evaluation, if one exists. */
+  evaluationId?: string | null;
+  evaluationScore?: number | null;
+  evaluationRating?: string | null;
   /** weekly: the live numbers differ from the report's snapshot, or were refreshed after it was sent */
   progressUpdated?: boolean;
   submittedAt: string | null;
@@ -136,6 +140,7 @@ export async function listMonthlyReports(user: AuthUser, f: ReportListFilters, o
       where,
       select: {
         id: true,
+        employeeId: true,
         status: true,
         content: true,
         year: true,
@@ -151,19 +156,38 @@ export async function listMonthlyReports(user: AuthUser, f: ReportListFilters, o
     }),
     db.monthlyReport.count({ where }),
   ]);
+  const evaluationPairs = Array.from(new Map(rows.map((r) => [`${r.year}-${r.month}`, { year: r.year, month: r.month }])).values());
+  const evaluations =
+    rows.length === 0
+      ? []
+      : await db.performanceEvaluation.findMany({
+          where: {
+            employeeId: { in: Array.from(new Set(rows.map((r) => r.employeeId))) },
+            OR: evaluationPairs,
+          },
+          select: { id: true, employeeId: true, year: true, month: true, finalScore: true, ratingLabel: true },
+        });
+  const evaluationOf = new Map(evaluations.map((e) => [`${e.employeeId}:${e.year}:${e.month}`, e]));
+
   return {
     total,
-    rows: rows.map<ReportListRow>((r) => ({
-      id: r.id,
-      href: `/reports/monthly/${r.id}`,
-      employeeName: r.employee.fullName,
-      period: `خطة ${monthLabel(r.year, r.month)}`,
-      periodDetail: executionLabel(r.monthlyPlan),
-      status: r.status,
-      progress: contentProgress(r.content),
-      submittedAt: r.submittedAt?.toISOString() ?? null,
-      reviewedAt: r.reviewedAt?.toISOString() ?? null,
-    })),
+    rows: rows.map<ReportListRow>((r) => {
+      const evaluation = evaluationOf.get(`${r.employeeId}:${r.year}:${r.month}`);
+      return {
+        id: r.id,
+        href: `/reports/monthly/${r.id}`,
+        employeeName: r.employee.fullName,
+        period: `خطة ${monthLabel(r.year, r.month)}`,
+        periodDetail: executionLabel(r.monthlyPlan),
+        status: r.status,
+        progress: contentProgress(r.content),
+        evaluationId: evaluation?.id ?? null,
+        evaluationScore: evaluation ? Number(evaluation.finalScore) : null,
+        evaluationRating: evaluation?.ratingLabel ?? null,
+        submittedAt: r.submittedAt?.toISOString() ?? null,
+        reviewedAt: r.reviewedAt?.toISOString() ?? null,
+      };
+    }),
   };
 }
 
