@@ -6,15 +6,27 @@ import { audit } from "@/server/audit";
 import { UserError } from "@/server/action";
 import { assertEmployeeAccess, type AuthUser } from "@/server/auth/session";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
-import { eachDay, fromDateKey, isWorkDay, monthEnd, monthLabel, monthStart, planWeekPeriods, toDateKey, todayKey, type MonthWeek } from "@/lib/dates";
+import { eachDay, executionEndDate, fromDateKey, isWorkDay, monthEnd, monthLabel, monthStart, planWeekPeriods, toDateKey, todayKey, type MonthWeek } from "@/lib/dates";
 import { checkDistribution, suggestDailyTargets, suggestWeeklyTargets } from "@/lib/distribution";
 import { num } from "@/lib/num";
 import type { createPlanSchema, dailyDistributionSchema, monthlyGoalSchema, weeklyDistributionSchema } from "@/lib/validation";
 import { getCompany } from "./company";
 import { notifyUsers, managerUserIdsFor } from "./notifications";
 import { recomputePlan } from "./progress";
-import { firstPeriodStart } from "./periods";
+import { assertNoPlanOverlap, firstPeriodStart, lockEmployeePeriods, planSpan } from "./periods";
 import { isNotionGoal, reconcileSourceChange } from "./manual";
+import { rebuildPlanPeriods } from "./rebuild-plan-periods";
+
+export async function updatePlanPeriod(user: AuthUser, planId: string, input: { executionStartDate: string; weeksCount: number; confirmed: boolean }) {
+  const plan = await getPlanOrThrow(planId);
+  assertEmployeeAccess(user, plan.employeeId);
+  if (!canManagePlans(user)) throw new UserError("تغيير فترة التنفيذ متاح للمدير فقط");
+  if (!["DRAFT", "SUBMITTED"].includes(plan.status) && !input.confirmed) throw new UserError("تغيير فترة الخطة سيؤثر على الأسابيع والمهام اليومية. أكّد التغيير أولًا");
+  const company = await getCompany();
+  await rebuildPlanPeriods(planId, input.executionStartDate, input.weeksCount, company.workDays);
+  await audit({ user, action: "plan.period", entityType: "MonthlyPlan", entityId: planId, before: plan, after: input });
+  await recomputePlan(planId);
+}
 
 type ParsedGoalInput = z.output<typeof monthlyGoalSchema>;
 type GoalInput = Omit<ParsedGoalInput, "distributionMode"> & { distributionMode?: ParsedGoalInput["distributionMode"] };
@@ -60,7 +72,7 @@ function goalData(input: GoalInput) {
   };
 }
 
-export async function createMonthlyPlan(user: AuthUser, input: z.infer<typeof createPlanSchema>) {
+export async function createMonthlyPlan(user: AuthUser, input: Omit<z.infer<typeof createPlanSchema>, "executionStartDate"> & { executionStartDate?: string | null }) {
   assertEmployeeAccess(user, input.employeeId);
   if (!canManagePlans(user) && input.employeeId !== user.employeeId) throw new UserError("لا يمكنك إنشاء خطة لموظف آخر");
   const employee = await db.employee.findUniqueOrThrow({ where: { id: input.employeeId } });
@@ -81,14 +93,22 @@ export async function createMonthlyPlan(user: AuthUser, input: z.infer<typeof cr
           })
         : null;
 
-  const start = fromDateKey(monthStart(input.year, input.month));
-  const end = fromDateKey(monthEnd(input.year, input.month));
   const plan = await db.$transaction(async (tx) => {
+    await lockEmployeePeriods(tx, input.employeeId);
+    const startKey = input.executionStartDate || await firstPeriodStart(input.employeeId, input.year, input.month, tx);
+    const weeksCount = input.weeksCount ?? 4;
+    const endKey = executionEndDate(startKey, weeksCount);
+    await assertNoPlanOverlap(tx, input.employeeId, startKey, endKey);
+    const start = fromDateKey(startKey);
+    const end = fromDateKey(endKey);
     const created = await tx.monthlyPlan.create({
       data: {
         employeeId: input.employeeId,
         year: input.year,
         month: input.month,
+        executionStartDate: start,
+        executionEndDate: end,
+        weeksCount,
         templateId: template?.id ?? null,
         createdById: user.id,
         goals: {
@@ -131,8 +151,8 @@ export async function addGoal(user: AuthUser, planId: string, input: GoalInput) 
       ...goalData(input),
       planId,
       employeeId: plan.employeeId,
-      startDate: input.startDate ? fromDateKey(input.startDate) : fromDateKey(monthStart(plan.year, plan.month)),
-      dueDate: input.dueDate ? fromDateKey(input.dueDate) : fromDateKey(monthEnd(plan.year, plan.month)),
+      startDate: input.startDate ? fromDateKey(input.startDate) : plan.executionStartDate ?? fromDateKey(monthStart(plan.year, plan.month)),
+      dueDate: input.dueDate ? fromDateKey(input.dueDate) : plan.executionEndDate ?? fromDateKey(monthEnd(plan.year, plan.month)),
       sortOrder: count,
     },
   });
@@ -173,6 +193,8 @@ export async function cancelGoal(user: AuthUser, goalId: string, reason: string)
   assertEmployeeAccess(user, goal.employeeId);
   await db.monthlyGoal.update({ where: { id: goalId }, data: { status: "CANCELLED" } });
   await audit({ user, action: "goal.update", entityType: "MonthlyGoal", entityId: goalId, before: { status: goal.status }, after: { status: "CANCELLED" }, reason });
+  // weekly / monthly progress and stored reports drop the cancelled goal
+  if (goal.plan.status === "APPROVED" || goal.plan.status === "IN_PROGRESS") await recomputePlan(goal.planId);
 }
 
 export async function submitPlan(user: AuthUser, planId: string) {
@@ -272,7 +294,7 @@ export async function ensureWeeklyPlans(planId: string) {
           const end = toDateKey(w.endDate);
           return { index: w.weekIndex, start, end, workDays: eachDay(start, end).filter((d) => isWorkDay(d, company.workDays)) };
         })
-      : planWeekPeriods(await firstPeriodStart(plan.employeeId, plan.year, plan.month), monthEnd(plan.year, plan.month), company.workDays);
+      : planWeekPeriods(plan.executionStartDate ? toDateKey(plan.executionStartDate) : await firstPeriodStart(plan.employeeId, plan.year, plan.month), plan.weeksCount ?? 4, company.workDays);
   const existing = new Map(plan.weeklyPlans.map((w) => [w.weekIndex, w]));
 
   await db.$transaction(async (tx) => {
@@ -326,13 +348,15 @@ export async function ensureWeeklyPlans(planId: string) {
 export async function autoDistributePlan(planId: string, userId: string) {
   const company = await getCompany();
   const today = todayKey(company.timezone);
+  const plan = await db.monthlyPlan.findUniqueOrThrow({ where: { id: planId }, include: { weeklyPlans: true } });
+  const span = await planSpan(plan);
   const weeks = await db.weeklyPlan.findMany({
     where: { monthlyPlanId: planId },
     include: { goals: { include: { monthlyGoal: true } } },
     orderBy: { weekIndex: "asc" },
   });
   const existingTasks = await db.dailyTask.findMany({
-    where: { source: "DISTRIBUTED", monthlyGoal: { planId } },
+    where: { source: "DISTRIBUTED", status: { not: "CANCELLED" }, monthlyGoal: { planId } },
     select: { id: true, employeeId: true, monthlyGoalId: true, date: true, status: true },
   });
   const existingKeys = new Set(existingTasks.filter((t) => t.monthlyGoalId).map((t) => `${t.employeeId}:${t.monthlyGoalId}:${toDateKey(t.date)}`));
@@ -352,15 +376,13 @@ export async function autoDistributePlan(planId: string, userId: string) {
       if (target <= 0) continue;
       const goalStart = goal.startDate ? toDateKey(goal.startDate) : null;
       const goalEnd = goal.dueDate ? toDateKey(goal.dueDate) : null;
-      let days = allWorkDays.filter((d) => (!goalStart || d >= goalStart) && (!goalEnd || d <= goalEnd));
+      let days = allWorkDays.filter((d) => d >= span.start && d <= span.end && (!goalStart || d >= goalStart) && (!goalEnd || d <= goalEnd));
       let split: number[];
       if (goal.distributionMode === "ONE_TIME") {
         if (goalsWithTask.has(goal.id) || completedGoals.has(goal.id)) continue;
-        const start = toDateKey(week.startDate);
-        const end = toDateKey(week.endDate);
         const due = goal.dueDate ? toDateKey(goal.dueDate) : null;
         const begins = goal.startDate ? toDateKey(goal.startDate) : null;
-        const chosen = due && due >= start && due <= end ? due : begins && begins >= start && begins <= end ? begins : days[0];
+        const chosen = due && days.includes(due) ? due : begins && days.includes(begins) ? begins : days[0];
         days = chosen ? [chosen] : [];
         split = [target];
       } else if (goal.distributionMode === "DAILY") {
@@ -370,6 +392,7 @@ export async function autoDistributePlan(planId: string, userId: string) {
         split = suggestDailyTargets(target, days.length);
       }
       days.forEach((day, i) => {
+        if (day < span.start || day > span.end) return;
         if (!(split[i] > 0)) return;
         const key = `${week.employeeId}:${goal.id}:${day}`;
         if (existingKeys.has(key)) return;
@@ -524,6 +547,11 @@ export async function saveDailyDistribution(user: AuthUser, input: z.infer<typeo
     include: { goals: { include: { monthlyGoal: true, dailyTasks: true } } },
   });
   await assertCanDistribute(user, week.employeeId);
+  const parent = await db.monthlyPlan.findUniqueOrThrow({ where: { id: week.monthlyPlanId }, include: { weeklyPlans: true } });
+  const span = await planSpan(parent);
+  if (Object.values(input.targets).some((row) => Object.entries(row).some(([day, value]) => value > 0 && (day < span.start || day > span.end)))) {
+    throw new UserError("تاريخ المهمة خارج فترة تنفيذ الخطة");
+  }
   const warnings: string[] = [];
   const ops: Prisma.PrismaPromise<unknown>[] = [];
   const startKey = toDateKey(week.startDate);

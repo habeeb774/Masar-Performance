@@ -6,7 +6,8 @@ import { employeeIdScope, employeeWhere } from "@/server/auth/session";
 import { toDateKey } from "@/lib/dates";
 import { num } from "@/lib/num";
 import { ensureDueReports } from "@/server/services/reports";
-import { contentProgress } from "./reports";
+import { contentProgress, liveWeeklyProgress } from "./reports";
+import { getWeeklyReportMetricsMany } from "@/server/services/weekly-report-metrics";
 import { getBatchReviewQueue } from "./batches";
 
 export { getBatchReviewQueue };
@@ -112,6 +113,7 @@ export async function getWeeklyReportsQueue(user: AuthUser) {
     orderBy: [{ status: "asc" }, { submittedAt: "asc" }],
     take: 200,
   });
+  const live = await getWeeklyReportMetricsMany(rows.map((r) => r.weeklyPlanId));
   return rows.map((r) => ({
     id: r.id,
     employeeId: r.employee.id,
@@ -122,7 +124,7 @@ export async function getWeeklyReportsQueue(user: AuthUser) {
     weekEnd: toDateKey(r.weekEnd),
     status: r.status,
     submittedAt: r.submittedAt,
-    progress: contentProgress(r.content),
+    progress: liveWeeklyProgress(r.content, live.get(r.weeklyPlanId), r.submittedAt).progress,
     hasBlockers: !!r.blockers,
     commented: r.status === "REVIEWED" && !!r.managerComment,
   }));

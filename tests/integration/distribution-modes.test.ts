@@ -52,7 +52,7 @@ const goal = (name: string, distributionMode: "DISTRIBUTED" | "ONE_TIME" | "DAIL
 beforeAll(async () => {
   [manager, employee] = await Promise.all([authUser("manager@store.local"), authUser("products@store.local")]);
   await db.monthlyPlan.deleteMany({ where: { employeeId: employee.employeeId!, year: YEAR, month: MONTH } });
-  const plan = await plans.createMonthlyPlan(manager, { employeeId: employee.employeeId!, year: YEAR, month: MONTH, templateId: null, useTemplate: false });
+  const plan = await plans.createMonthlyPlan(manager, { employeeId: employee.employeeId!, year: YEAR, month: MONTH, templateId: null, useTemplate: false, executionStartDate: "2036-09-01" });
   planId = plan.id;
   await plans.addGoal(manager, planId, goal("إضافة 100 منتج", "DISTRIBUTED", 100, "2036-09-01", "2036-09-30"));
   await plans.addGoal(manager, planId, goal("تصميم بنر", "ONE_TIME", 1, "2036-09-01", "2036-09-23"));

@@ -10,6 +10,8 @@ import { listAttachments, listComments } from "@/server/queries/tasks";
 import { PageHeader } from "@/components/shared/page";
 import { Card, CardContent } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { formatPct } from "@/lib/num";
 import { NoteBlock, ReportHeaderCard, ReportSection, WeeklyReportBody } from "@/features/reports/report-body";
 import { ReportToolbar } from "@/features/reports/report-toolbar";
 import { GeneratedTextBlock } from "@/features/reports/generated-text-block";
@@ -94,6 +96,15 @@ export default async function WeeklyReportPage({ params }: { params: IdParams })
             <NoteBlock label="ملاحظات عامة" value={report.employeeNotes} />
           </div>
         </ReportSection>
+      )}
+
+      {report.metricsUpdated && (
+        <p className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <Badge variant="outline" className="font-normal">
+            {report.submittedAt ? "تم تحديث الإنجاز بعد إرسال التقرير" : "البيانات الحالية تختلف عن نسخة التقرير"}
+          </Badge>
+          الأرقام المعروضة هي الإنجاز الحالي للأسبوع — نسخة التقرير كانت {formatPct(report.snapshotTotals.weightedProgress)}
+        </p>
       )}
 
       <WeeklyReportBody content={c} />

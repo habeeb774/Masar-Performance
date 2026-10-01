@@ -1,6 +1,7 @@
 import "server-only";
 import { db } from "@/server/db";
-import { diffDays, fromDateKey, monthEnd, shiftMonth, toDateKey, todayKey } from "@/lib/dates";
+import { diffDays, fromDateKey, toDateKey, todayKey } from "@/lib/dates";
+import { currentPlanWhere, planSpan } from "./periods";
 import { num } from "@/lib/num";
 import { dueDataSources, syncDataSource } from "@/server/notion/sync";
 import { getCompanyFresh } from "./company";
@@ -74,17 +75,17 @@ export async function runScheduledSync() {
 export async function runDailyJobs() {
   const company = await getCompanyFresh();
   const today = todayKey(company.timezone);
-  const year = +today.slice(0, 4);
-  const month = +today.slice(5, 7);
-  const prev = shiftMonth(year, month, -1);
   const summary: Record<string, number> = {};
 
   summary.plansStarted = (
-    await db.monthlyPlan.updateMany({ where: { year, month, status: "APPROVED" }, data: { status: "IN_PROGRESS" } })
+    await db.monthlyPlan.updateMany({ where: { ...currentPlanWhere(today), status: "APPROVED" }, data: { status: "IN_PROGRESS" } })
   ).count;
+  const executing = await db.monthlyPlan.findMany({ where: { status: { in: ["APPROVED", "IN_PROGRESS"] } }, include: { weeklyPlans: true, employee: { select: { userId: true } } } });
+  const ended: string[] = [];
+  for (const plan of executing) if ((await planSpan(plan)).end < today) ended.push(plan.id);
   summary.plansCompleted = (
     await db.monthlyPlan.updateMany({
-      where: { status: { in: ["APPROVED", "IN_PROGRESS"] }, OR: [{ year: { lt: prev.year } }, { year: prev.year, month: { lte: prev.month } }] },
+      where: { id: { in: ended } },
       data: { status: "COMPLETED" },
     })
   ).count;
@@ -134,19 +135,16 @@ export async function runDailyJobs() {
   }
 
   // month ending
-  const daysToMonthEnd = diffDays(monthEnd(year, month), today);
-  if (daysToMonthEnd === 3) {
-    const plans = await db.monthlyPlan.findMany({ where: { year, month, status: { in: ["APPROVED", "IN_PROGRESS"] } }, select: { id: true, employee: { select: { userId: true } } } });
-    for (const p of plans) {
+    for (const p of executing) {
+      if (diffDays((await planSpan(p)).end, today) !== 3) continue;
       await notifyUsers([p.employee.userId], {
         type: "MONTH_ENDING",
-        title: "بقي 3 أيام على نهاية الشهر",
+        title: "بقي 3 أيام على نهاية فترة التنفيذ",
         link: "/my-plan",
         dedupeKey: `month-ending:${p.id}`,
       });
       reminders++;
     }
-  }
 
   // pending approvals per employee (Notion items waiting for approval)
   const pending = await db.notionItemStage.groupBy({

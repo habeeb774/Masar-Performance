@@ -1,53 +1,29 @@
 import "server-only";
+import { planSpan } from "./periods";
 import type { Prisma } from "@/generated/prisma/client";
 import { db } from "@/server/db";
 import { audit } from "@/server/audit";
 import { UserError } from "@/server/action";
 import { assertEmployeeAccess, type AuthUser } from "@/server/auth/session";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
-import { formatDateAr, fromDateKey, monthEnd, monthLabel, monthStart, shiftMonth, toDateKey, todayKey } from "@/lib/dates";
+import { addDays, formatDateAr, fromDateKey, monthLabel, shiftMonth, toDateKey, todayKey } from "@/lib/dates";
 import { isOverdue } from "@/lib/goal-status";
-import { formatPct, num, round2 } from "@/lib/num";
+import { formatPct, num } from "@/lib/num";
 import type { ProgressBreakdown } from "@/lib/notion/progress";
 import { GOAL_STATUS_LABELS, NOTION_STATUS_LABELS, TASK_STATUS_LABELS } from "@/lib/labels";
 import { pct, type BatchSummary } from "@/lib/notion/batches";
 import { batchesForPeriod } from "@/server/queries/batches";
-import type { MonthlyReportContent, ReportBatchLine, ReportGoalLine, ReportTaskLine, ReportTotals, StageSummaryLine, WeeklyReportContent } from "@/lib/report-types";
+import type { MonthlyReportContent, ReportBatchLine, ReportGoalLine, ReportTaskLine, StageSummaryLine, WeeklyReportContent } from "@/lib/report-types";
+import { batchText, breakdownText, goalCarryOver, goalHighlights, goalLinesOf, reportTotals, taskCarryOver, weeklyText } from "@/lib/weekly-report";
+import { weightedProgress } from "@/lib/weighted-progress";
 import { getCompanyFresh } from "./company";
 import { managerUserIdsFor, notifyUsers } from "./notifications";
 import { recomputePlan } from "./progress";
-import { dueMonths, monthsNeedingReport, REPORTABLE_PLAN_STATUSES, weeklyWindow, weeksNeedingReport } from "./reports-schedule";
+import { MONTHLY_LOOKBACK_DAYS, REPORTABLE_PLAN_STATUSES, weeklyWindow, weeksNeedingReport } from "./reports-schedule";
 
 const asBreakdown = (v: unknown) => (v && typeof v === "object" ? (v as ProgressBreakdown) : null);
 
-function totalsOf(goals: ReportGoalLine[]): ReportTotals {
-  const active = goals.filter((g) => g.status !== "CANCELLED");
-  const weightSum = active.reduce((a, g) => a + g.weight, 0);
-  const weightedProgress =
-    active.length === 0
-      ? 0
-      : weightSum > 0
-        ? active.reduce((a, g) => a + Math.min(g.progressPct, 100) * g.weight, 0) / weightSum
-        : active.reduce((a, g) => a + Math.min(g.progressPct, 100), 0) / active.length;
-  const sum = (k: keyof ProgressBreakdown) => active.reduce((a, g) => a + (g.breakdown ? Number(g.breakdown[k] ?? 0) : 0), 0);
-  const approved = sum("completed");
-  const needsRevision = sum("needsRevision");
-  const worked = sum("worked");
-  const reworkCount = sum("reworkCount");
-  return {
-    goalsCount: active.length,
-    completedGoals: active.filter((g) => g.progressPct >= 100).length,
-    weightedProgress: round2(weightedProgress),
-    approved,
-    worked,
-    pendingApproval: sum("pendingApproval"),
-    needsRevision,
-    blocked: sum("blocked"),
-    reworkCount,
-    approvalRate: approved + needsRevision > 0 ? round2((approved / (approved + needsRevision)) * 100) : null,
-    revisionRate: worked > 0 ? round2((Math.max(reworkCount, needsRevision) / worked) * 100) : null,
-  };
-}
+const totalsOf = reportTotals;
 
 type TaskRow = {
   id: string;
@@ -83,15 +59,6 @@ function taskLine(t: TaskRow, source = t.source ?? "MANUAL"): ReportTaskLine {
   };
 }
 
-function breakdownText(b: ProgressBreakdown | null) {
-  if (!b) return "";
-  const parts = [`معتمد/مكتمل ${b.completed}`];
-  if (b.pendingApproval) parts.push(`بانتظار الاعتماد ${b.pendingApproval}`);
-  if (b.needsRevision) parts.push(`يحتاج تحسين ${b.needsRevision}`);
-  if (b.blocked) parts.push(`معلق ${b.blocked}`);
-  return ` (${parts.join("، ")})`;
-}
-
 function batchLine(b: BatchSummary): ReportBatchLine {
   return {
     label: b.label,
@@ -107,10 +74,6 @@ function batchLine(b: BatchSummary): ReportBatchLine {
 
 async function batchLinesFor(employeeId: string, start: string, end: string): Promise<ReportBatchLine[]> {
   return (await batchesForPeriod(employeeId, start, end)).map(batchLine);
-}
-
-export function batchText(b: ReportBatchLine) {
-  return `• ${b.label} — المستهدف ${b.total} منتج: الصور المعتمدة ${b.imagesApproved}، تمت الإضافة للمتجر ${b.added}، تحتاج تحسين ${b.needsImprovement}، بانتظار الاعتماد ${b.waiting} — إنجاز الصور ${formatPct(b.imagesPct)}، إضافة المنتجات ${formatPct(b.addedPct)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -135,7 +98,7 @@ export async function buildWeeklyContent(weeklyPlanId: string): Promise<WeeklyRe
   const end = week.endDate;
   const [tasks, adHoc] = await Promise.all([
     db.dailyTask.findMany({
-      where: { employeeId: week.employeeId, date: { gte: start, lte: end } },
+        where: { employeeId: week.employeeId, date: { gte: start, lte: end }, OR: [{ monthlyGoalId: null }, { monthlyGoal: { planId: week.monthlyPlanId } }] },
       orderBy: { date: "asc" },
     }),
     db.adHocTask.findMany({
@@ -147,21 +110,7 @@ export async function buildWeeklyContent(weeklyPlanId: string): Promise<WeeklyRe
     }),
   ]);
 
-  const goals: ReportGoalLine[] = week.goals.map((wg) => ({
-    goalId: wg.monthlyGoalId,
-    name: wg.monthlyGoal.name,
-    dutyName: wg.monthlyGoal.dutyName,
-    unit: wg.monthlyGoal.unit,
-    category: wg.monthlyGoal.category,
-    source: wg.monthlyGoal.source,
-    goalType: wg.monthlyGoal.goalType,
-    weight: num(wg.monthlyGoal.weight),
-    status: wg.monthlyGoal.status,
-    target: num(wg.targetValue),
-    achieved: num(wg.achievedValue),
-    progressPct: num(wg.progressPct),
-    breakdown: asBreakdown(wg.breakdown),
-  }));
+  const goals = goalLinesOf(week.goals);
 
   const manualTasks = tasks.filter((t) => t.source === "MANUAL").map((t) => taskLine(t));
   const delayedTasks = [
@@ -174,16 +123,12 @@ export async function buildWeeklyContent(weeklyPlanId: string): Promise<WeeklyRe
   ];
   const adHocTasks = adHoc.map((t) => taskLine(t, "AD_HOC_TASK"));
 
-  const autoHighlights = goals
-    .filter((g) => g.progressPct >= 100 && g.target > 0)
-    .map((g) => `تحقيق هدف "${g.name}" بنسبة ${formatPct(g.progressPct)} (${g.achieved} من ${g.target} ${g.unit})`);
+  const autoHighlights = goalHighlights(goals);
   adHocTasks.filter((t) => t.status === "COMPLETED").forEach((t) => autoHighlights.push(`إنجاز التكليف: ${t.title}`));
 
   const autoCarryOver = [
-    ...goals
-      .filter((g) => g.target > g.achieved && g.goalType !== "PERCENTAGE")
-      .map((g) => `${g.name}: متبقي ${round2(g.target - g.achieved)} ${g.unit}`),
-    ...tasks.filter((t) => t.source === "MANUAL" && !["COMPLETED", "CANCELLED"].includes(t.status)).map((t) => `مهمة: ${t.title}`),
+    ...goalCarryOver(goals),
+    ...tasks.filter((t) => t.source === "MANUAL" && !["COMPLETED", "CANCELLED"].includes(t.status)).map((t) => taskCarryOver(t.title)),
   ];
 
   return {
@@ -211,58 +156,6 @@ export async function buildWeeklyContent(weeklyPlanId: string): Promise<WeeklyRe
   };
 }
 
-export function weeklyText(c: WeeklyReportContent): string {
-  const lines: string[] = [];
-  lines.push(`التقرير الأسبوعي — ${c.employee.name}${c.employee.jobTitle ? ` (${c.employee.jobTitle})` : ""}`);
-  lines.push(`الفترة ${c.week.index} · ${formatDateAr(c.week.start)} – ${formatDateAr(c.week.end)} (خطة ${monthLabel(c.week.year, c.week.month)})`);
-  lines.push("");
-  lines.push(`نسبة الإنجاز الموزونة: ${formatPct(c.totals.weightedProgress)} — أهداف مكتملة ${c.totals.completedGoals} من ${c.totals.goalsCount}`);
-  if (c.totals.worked > 0) {
-    lines.push(
-      `عناصر Notion: عمل على ${c.totals.worked}، معتمد ${c.totals.approved}، بانتظار الاعتماد ${c.totals.pendingApproval}، يحتاج تحسين ${c.totals.needsRevision}` +
-        (c.totals.approvalRate !== null ? ` — نسبة الاعتماد ${formatPct(c.totals.approvalRate)}` : ""),
-    );
-  }
-  lines.push("");
-  lines.push("أولًا: أهداف الأسبوع");
-  c.goals.forEach((g, i) => {
-    lines.push(
-      `${i + 1}. ${g.name}: المستهدف ${g.target} ${g.unit}، المنجز ${g.achieved} (${formatPct(g.progressPct)})${breakdownText(g.breakdown)}`,
-    );
-  });
-  if (c.manualTasks.length) {
-    lines.push("");
-    lines.push("ثانيًا: المهام اليدوية");
-    c.manualTasks.forEach((t) => lines.push(`• ${t.title} — ${TASK_STATUS_LABELS[t.status as keyof typeof TASK_STATUS_LABELS]?.label ?? t.status}`));
-  }
-  if (c.adHocTasks.length) {
-    lines.push("");
-    lines.push("ثالثًا: التكليفات المستجدة");
-    c.adHocTasks.forEach((t) => lines.push(`• ${t.title} — ${TASK_STATUS_LABELS[t.status as keyof typeof TASK_STATUS_LABELS]?.label ?? t.status}`));
-  }
-  if (c.delayedTasks.length) {
-    lines.push("");
-    lines.push("المعوقات والتأخير");
-    c.delayedTasks.forEach((t) => lines.push(`• ${t.title}${t.delayReason ? ` — السبب: ${t.delayReason}` : ""}`));
-  }
-  if (c.batches?.length) {
-    lines.push("");
-    lines.push("الدفعات");
-    c.batches.forEach((b) => lines.push(batchText(b)));
-  }
-  if (c.autoHighlights.length) {
-    lines.push("");
-    lines.push("ما أُنجز");
-    c.autoHighlights.forEach((h) => lines.push(`• ${h}`));
-  }
-  if (c.autoCarryOver.length) {
-    lines.push("");
-    lines.push("لم يكتمل — أولويات الأسبوع القادم");
-    c.autoCarryOver.forEach((h) => lines.push(`• ${h}`));
-  }
-  return lines.join("\n");
-}
-
 /** Create or refresh the weekly report draft (employee notes are preserved). */
 export async function generateWeeklyReport(weeklyPlanId: string, opts: { notify?: boolean } = {}) {
   const week = await db.weeklyPlan.findUniqueOrThrow({
@@ -270,7 +163,8 @@ export async function generateWeeklyReport(weeklyPlanId: string, opts: { notify?
     include: { report: true, employee: true },
   });
   if (week.report && !["DRAFT", "RETURNED"].includes(week.report.status)) return week.report;
-  await recomputePlan(week.monthlyPlanId);
+  // the full rebuild below replaces the report-refresh recomputePlan would do
+  await recomputePlan(week.monthlyPlanId, undefined, { refreshReports: false });
   const content = await buildWeeklyContent(weeklyPlanId);
   const text = weeklyText(content);
   const report = await db.weeklyReport.upsert({
@@ -496,8 +390,7 @@ export async function buildMonthlyContent(planId: string): Promise<MonthlyReport
   });
   const company = await getCompanyFresh();
   const today = todayKey(company.timezone);
-  const startKey = monthStart(plan.year, plan.month);
-  const endKey = monthEnd(plan.year, plan.month);
+  const { start: startKey, end: endKey } = await planSpan(plan);
   const from = fromDateKey(startKey);
   const to = new Date(fromDateKey(endKey).getTime() + 86_399_999);
 
@@ -506,6 +399,7 @@ export async function buildMonthlyContent(planId: string): Promise<MonthlyReport
       where: {
         employeeId: plan.employeeId,
         date: { gte: from, lte: fromDateKey(endKey) },
+        OR: [{ monthlyGoalId: null }, { monthlyGoal: { planId } }],
       },
     }),
     db.adHocTask.findMany({
@@ -533,18 +427,17 @@ export async function buildMonthlyContent(planId: string): Promise<MonthlyReport
   }));
 
   const weeks = plan.weeklyPlans.map((w) => {
-    const lines = w.goals.map((wg) => ({
-      weight: num(plan.goals.find((g) => g.id === wg.monthlyGoalId)?.weight),
-      p: Math.min(num(wg.progressPct), 100),
-    }));
-    const ws = lines.reduce((a, l) => a + l.weight, 0);
-    const progress =
-      lines.length === 0 ? 0 : ws > 0 ? lines.reduce((a, l) => a + l.p * l.weight, 0) / ws : lines.reduce((a, l) => a + l.p, 0) / lines.length;
+    const progress = weightedProgress(
+      w.goals.map((wg) => {
+        const g = plan.goals.find((x) => x.id === wg.monthlyGoalId);
+        return { weight: g?.weight ?? 0, progressPct: wg.progressPct, status: g?.status ?? "NOT_STARTED" };
+      }),
+    );
     return {
       index: w.weekIndex,
       start: toDateKey(w.startDate),
       end: toDateKey(w.endDate),
-      progressPct: round2(progress),
+      progressPct: progress,
       reportStatus: w.report?.status ?? null,
     };
   });
@@ -594,6 +487,7 @@ export function monthlyText(c: MonthlyReportContent): string {
   const l: string[] = [];
   l.push(`التقرير الشهري — ${c.employee.name}${c.employee.jobTitle ? ` (${c.employee.jobTitle})` : ""}`);
   l.push(`الفترة: ${monthLabel(c.period.year, c.period.month)}`);
+  l.push(`فترة التنفيذ: ${formatDateAr(c.period.start)} – ${formatDateAr(c.period.end)}`);
   l.push("");
   l.push(`نسبة الإنجاز الموزونة: ${formatPct(c.totals.weightedProgress)} — أهداف مكتملة ${c.totals.completedGoals} من ${c.totals.goalsCount}`);
   if (c.totals.worked > 0) {
@@ -767,7 +661,6 @@ export async function ensureDueReports(opts: { employeeIds: "ALL" | string[]; no
   };
   const statuses = [...REPORTABLE_PLAN_STATUSES];
   const window = weeklyWindow(today);
-  const months = dueMonths(today);
   const [weeks, plans] = await Promise.all([
     db.weeklyPlan.findMany({
       where: {
@@ -786,16 +679,13 @@ export async function ensureDueReports(opts: { employeeIds: "ALL" | string[]; no
       },
       orderBy: { endDate: "asc" },
     }),
-    months.length === 0
-      ? Promise.resolve([])
-      : db.monthlyPlan.findMany({
+    db.monthlyPlan.findMany({
           where: {
             report: null,
             employee,
             status: { in: statuses },
-            OR: months,
           },
-          select: { id: true, year: true, month: true, status: true },
+          include: { weeklyPlans: { select: { startDate: true, endDate: true } } },
         }),
   ]);
   const dueWeeks = weeksNeedingReport(
@@ -807,16 +697,8 @@ export async function ensureDueReports(opts: { employeeIds: "ALL" | string[]; no
     })),
     today,
   );
-  const duePlans = monthsNeedingReport(
-    plans.map((p) => ({
-      id: p.id,
-      year: p.year,
-      month: p.month,
-      planStatus: p.status,
-      hasReport: false,
-    })),
-    today,
-  );
+  const spans = await Promise.all(plans.map(async (plan) => ({ id: plan.id, end: (await planSpan(plan)).end })));
+  const duePlans = spans.filter((span) => span.end <= today && span.end >= addDays(today, -MONTHLY_LOOKBACK_DAYS));
 
   let budget = opts.limit ?? Number.POSITIVE_INFINITY;
   const run = async (fn: () => Promise<unknown>, key: "weekly" | "monthly") => {

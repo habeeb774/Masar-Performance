@@ -6,10 +6,12 @@ import type { IdParams } from "@/lib/params";
 import { requireUser } from "@/server/auth/session";
 import { db } from "@/server/db";
 import { canAccessEmployee, hasAnyPermission, PERMISSIONS } from "@/lib/permissions";
-import { monthEnd, monthLabel, monthStart } from "@/lib/dates";
+import { formatDateAr, monthLabel } from "@/lib/dates";
+import { planSpan } from "@/server/services/periods";
+import { PlanPeriodEditor } from "@/features/plans/plan-period-editor";
 import { formatNumber, formatPct } from "@/lib/num";
 import { PLAN_STATUS_LABELS } from "@/lib/labels";
-import { companyToday, distributionGoals, getNotionSourceOptions, getPlanDetail, monthPeriod, serializeGoal, weekColumns, weeklyTargetsMatrix } from "@/server/queries/plans";
+import { companyToday, distributionGoals, getNotionSourceOptions, getPlanDetail, serializeGoal, weekColumns, weeklyTargetsMatrix } from "@/server/queries/plans";
 import { weightedProgress } from "@/server/queries/dashboard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -43,7 +45,7 @@ export default async function MonthlyPlanPage({ params }: { params: IdParams }) 
   const managerView = cap.canManage || cap.canApprove;
   const running = plan.status === "APPROVED" || plan.status === "IN_PROGRESS" || plan.status === "COMPLETED";
   const returned = plan.status === "DRAFT";
-  const dates = { start: monthStart(plan.year, plan.month), end: monthEnd(plan.year, plan.month) };
+  const dates = await planSpan(plan);
   const varianceNote = plan.weeklyPlans.find((w) => w.varianceNote)?.varianceNote ?? null;
 
   return (
@@ -65,6 +67,8 @@ export default async function MonthlyPlanPage({ params }: { params: IdParams }) 
       />
 
       {returned && <ManagerNotes notes={plan.managerNotes} returned />}
+      <p className="text-sm text-muted-foreground">فترة التنفيذ: {formatDateAr(dates.start)} – {formatDateAr(dates.end)} · {plan.weeksCount ?? plan.weeklyPlans.length} أسابيع</p>
+      {cap.canManage && <PlanPeriodEditor key={`${plan.id}-${dates.start}-${plan.weeksCount}`} planId={plan.id} start={dates.start} weeksCount={plan.weeksCount ?? (plan.weeklyPlans.length || 4)} approved={!["DRAFT", "SUBMITTED"].includes(plan.status)} />}
       <PlanWorkflowActions plan={plan} user={user} />
 
       <Card>
@@ -105,7 +109,7 @@ export default async function MonthlyPlanPage({ params }: { params: IdParams }) 
             employeeId={plan.employeeId}
             goals={goals}
             sources={sources}
-            testPeriod={monthPeriod(plan.year, plan.month)}
+            testPeriod={{ ...dates, label: monthLabel(plan.year, plan.month) }}
             dates={dates}
             canEdit={cap.canEdit}
             canDelete={cap.canDelete}

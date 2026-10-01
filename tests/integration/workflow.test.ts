@@ -123,7 +123,7 @@ describe("planning → progress → report → evaluation", () => {
   });
 
   it("creates the plan from the job-title template", async () => {
-    const plan = await plans.createMonthlyPlan(manager, { employeeId: employee.employeeId!, year: YEAR, month: MONTH, templateId: null, useTemplate: true });
+    const plan = await plans.createMonthlyPlan(manager, { employeeId: employee.employeeId!, year: YEAR, month: MONTH, templateId: null, useTemplate: true, executionStartDate: "2031-03-01", weeksCount: 5 });
     planId = plan.id;
     const goals = await db.monthlyGoal.count({ where: { planId } });
     expect(goals).toBeGreaterThan(0);

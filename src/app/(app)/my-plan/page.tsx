@@ -5,10 +5,10 @@ import type { SearchParams } from "@/lib/params";
 import { int } from "@/lib/params";
 import { requireUser, type AuthUser } from "@/server/auth/session";
 import { db } from "@/server/db";
-import { formatDateAr, fromDateKey, getMonthWeeks, monthEnd, monthLabel, monthStart } from "@/lib/dates";
+import { formatDateAr, fromDateKey, monthLabel, toDateKey } from "@/lib/dates";
 import { formatNumber, formatPct, num } from "@/lib/num";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
-import { companyToday, distributionGoals, getNotionSourceOptions, getPlanDetail, monthPeriod, serializeGoal, weekColumns, weeklyTargetsMatrix } from "@/server/queries/plans";
+import { companyToday, distributionGoals, getNotionSourceOptions, getPlanDetail, serializeGoal, weekColumns, weeklyTargetsMatrix } from "@/server/queries/plans";
 import { getEmployeeBatches } from "@/server/queries/batches";
 import { BatchCard } from "@/features/notion/batch-card";
 import { AddManualBatchButton, ManualBatchInlineEditor } from "@/features/batches/manual-batch-editor";
@@ -21,6 +21,7 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { ProgressBar } from "@/components/shared/progress-bar";
 import { MonthPicker } from "@/components/shared/url-filters";
 import { PlanGoalsSummary, PlanGoalsTable } from "@/features/plans/plan-goals-table";
+import { currentPlanWhere, planSpan } from "@/server/services/periods";
 import { SyncFailureNotice } from "@/features/plans/goal-achievement";
 import { WeeklyDistributionEditor } from "@/features/plans/weekly-distribution-editor";
 import { ManagerNotes, PlanWorkflowActions, WeeksOverview, firstSyncIssue, manualAccess, planCapabilities } from "@/features/plans/plan-sections";
@@ -75,8 +76,9 @@ export default async function MyPlanPage({ searchParams }: { searchParams: Searc
   const user = await requireUser();
   const sp = await searchParams;
   const now = await companyToday();
-  const year = int(sp.year, now.year, 2020, 2100);
-  const month = int(sp.month, now.month, 1, 12);
+  const current = user.employeeId && !sp.year && !sp.month ? await db.monthlyPlan.findFirst({ where: { employeeId: user.employeeId, ...currentPlanWhere(now.today) }, select: { year: true, month: true } }) : null;
+  const year = int(sp.year, current?.year ?? now.year, 2020, 2100);
+  const month = int(sp.month, current?.month ?? now.month, 1, 12);
   const header = <PageHeader title={`خطة ${monthLabel(year, month)}`} actions={<MonthPicker year={year} month={month} />} />;
 
   if (!user.employeeId) {
@@ -104,6 +106,7 @@ export default async function MyPlanPage({ searchParams }: { searchParams: Searc
   }
 
   const goals = plan.goals.map(serializeGoal);
+  const execution = await planSpan(plan);
   const active = goals.filter((g) => g.status !== "CANCELLED");
   const progress = weightedProgress(plan.goals);
   const cap = planCapabilities(user, plan);
@@ -112,10 +115,10 @@ export default async function MyPlanPage({ searchParams }: { searchParams: Searc
   const running = plan.status === "APPROVED" || plan.status === "IN_PROGRESS" || plan.status === "COMPLETED";
 
   // the running period: in the first days of a month it may still belong to the previous month's plan
-  const viewingToday = monthStart(year, month) <= now.today && now.today <= monthEnd(year, month);
+  const viewingToday = execution.start <= now.today && now.today <= execution.end;
   const runningPeriod = running
     ? await db.weeklyPlan.findFirst({
-        where: { employeeId: plan.employeeId, startDate: { lte: fromDateKey(now.today) }, endDate: { gte: fromDateKey(now.today) } },
+        where: { monthlyPlanId: plan.id, employeeId: plan.employeeId, startDate: { lte: fromDateKey(now.today) }, endDate: { gte: fromDateKey(now.today) } },
         include: {
           monthlyPlan: { select: { year: true, month: true } },
           goals: { include: { monthlyGoal: { select: { name: true, unit: true, status: true, sortOrder: true } } } },
@@ -126,11 +129,11 @@ export default async function MyPlanPage({ searchParams }: { searchParams: Searc
   const fromOtherPlan = currentWeek && currentWeek.monthlyPlanId !== plan.id ? currentWeek.monthlyPlan : null;
   const weekGoals = (currentWeek?.goals ?? []).filter((g) => g.monthlyGoal.status !== "CANCELLED").sort((a, b) => a.monthlyGoal.sortOrder - b.monthlyGoal.sortOrder);
 
-  const [sources, batches] = await Promise.all([getNotionSourceOptions(), getEmployeeBatches(user.employeeId, year, month)]);
+  const [sources, batches] = await Promise.all([getNotionSourceOptions(), getEmployeeBatches(user.employeeId, year, month, execution)]);
   const weekBatch = batches?.current && batches.currentWeek && batches.currentWeek.start <= now.today && now.today <= batches.currentWeek.end ? batches.current : null;
   // Manual batches (no Notion workflow): entered and updated here by hand.
   const manual = batches?.manual ?? false;
-  const monthWeeks = getMonthWeeks(year, month, now.company.weekStartDay, now.company.workDays);
+  const monthWeeks = plan.weeklyPlans.map((week) => ({ index: week.weekIndex, start: toDateKey(week.startDate), end: toDateKey(week.endDate) }));
   const weekOptions = monthWeeks.map((w) => ({ start: w.start, label: `الأسبوع ${w.index} · ${formatDateAr(w.start)}` }));
   const thisWeekStart = monthWeeks.find((w) => w.start <= now.today && now.today <= w.end)?.start;
   const nextBatchNumber = Math.max(0, ...(batches?.month ?? []).map((b) => b.number ?? 0)) + 1;
@@ -153,6 +156,8 @@ export default async function MyPlanPage({ searchParams }: { searchParams: Searc
   return (
     <div className="space-y-5">
       {header}
+
+      <p className="text-sm text-muted-foreground">فترة التنفيذ: {formatDateAr(execution.start)} – {formatDateAr(execution.end)} · {plan.weeksCount ?? plan.weeklyPlans.length} أسابيع</p>
 
       <ManagerNotes notes={plan.managerNotes} returned={plan.status === "DRAFT"} />
       {plan.status === "SUBMITTED" && (
@@ -226,7 +231,7 @@ export default async function MyPlanPage({ searchParams }: { searchParams: Searc
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <PlanGoalsSummary goals={goals} today={now.today} dates={{ start: monthStart(year, month), end: monthEnd(year, month) }} canEdit={false} access={access} />
+          <PlanGoalsSummary goals={goals} today={now.today} dates={execution} canEdit={false} access={access} />
         </CardContent>
       </Card>
 
@@ -314,8 +319,8 @@ export default async function MyPlanPage({ searchParams }: { searchParams: Searc
             employeeId={plan.employeeId}
             goals={goals}
             sources={sources}
-            testPeriod={monthPeriod(year, month)}
-            dates={{ start: monthStart(year, month), end: monthEnd(year, month) }}
+            testPeriod={{ ...execution, label: monthLabel(year, month) }}
+            dates={execution}
             canEdit={cap.canEdit}
             canDelete={cap.canDelete}
             canCancel={cap.canCancel}

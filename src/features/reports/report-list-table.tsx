@@ -6,6 +6,7 @@ import { ArrowLeft } from "lucide-react";
 import { DataTable } from "@/components/shared/data-table";
 import { EnumBadge } from "@/components/shared/status-badge";
 import { ProgressBar } from "@/components/shared/progress-bar";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatDateTimeAr } from "@/lib/dates";
 import { REPORT_STATUS_LABELS } from "@/lib/labels";
@@ -41,7 +42,19 @@ export function ReportListTable({ rows, showEmployee = true, emptyTitle = "لا 
       accessorKey: "progress",
       header: "الإنجاز الموزون",
       enableSorting: true,
-      cell: ({ row }) => (row.original.progress === null ? <span className="text-muted-foreground">—</span> : <ProgressBar value={row.original.progress} showLabel size="sm" className="w-36" />),
+      cell: ({ row }) =>
+        row.original.progress === null ? (
+          <span className="text-muted-foreground">—</span>
+        ) : (
+          <div className="space-y-1">
+            <ProgressBar value={row.original.progress} showLabel size="sm" className="w-36" />
+            {row.original.progressUpdated && (
+              <Badge variant="outline" className="text-[10px] font-normal text-muted-foreground" title="النسبة محسوبة من الإنجاز الحالي للأسبوع">
+                {row.original.status === "DRAFT" || row.original.status === "RETURNED" ? "البيانات الحالية تختلف عن نسخة التقرير" : "تم تحديث الإنجاز بعد إرسال التقرير"}
+              </Badge>
+            )}
+          </div>
+        ),
     },
     {
       accessorKey: "submittedAt",

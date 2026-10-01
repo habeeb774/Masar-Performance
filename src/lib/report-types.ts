@@ -70,6 +70,10 @@ export interface WeeklyReportContent {
   autoCarryOver: string[];
   /** older reports have none */
   batches?: ReportBatchLine[];
+  /** totals as first frozen in the report, kept when its numbers are later refreshed from the live weekly goals */
+  originalTotals?: ReportTotals;
+  /** ISO time the numbers were last refreshed from the live weekly goals */
+  metricsRefreshedAt?: string;
 }
 
 export interface StageSummaryLine {

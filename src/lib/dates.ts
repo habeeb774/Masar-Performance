@@ -136,17 +136,23 @@ export function getMonthWeeks(
 /**
  * Plan periods («الفترات»): consecutive blocks of exactly 7 calendar days, the
  * first starting on `start`, each next one on the day after the previous ends,
- * for as long as a new period would still begin on or before `end`.
- * The calendar week grid plays no part, and a period is never cut at the month
- * boundary — the last one normally runs a few days into the next month.
- * Only a plan whose whole span is under 7 days (an explicit short range) gets a
- * single shorter period matching that span.
+ * for the requested number of weeks. Legacy end-date callers are rounded up to
+ * whole weeks. Neither calendar weeks nor month boundaries truncate a period.
  */
-export function planWeekPeriods(start: DateKey, end: DateKey, workDays: number[]): MonthWeek[] {
+export function executionEndDate(start: DateKey, weeksCount: number): DateKey {
+  if (!isDateKey(start) || !Number.isInteger(weeksCount) || weeksCount < 1 || weeksCount > 52) {
+    throw new Error("فترة تنفيذ غير صالحة: عدد الأسابيع يجب أن يكون بين 1 و52");
+  }
+  return addDays(start, weeksCount * 7 - 1);
+}
+
+export function planWeekPeriods(start: DateKey, countOrLegacyEnd: number | DateKey, workDays: number[]): MonthWeek[] {
+  const count = typeof countOrLegacyEnd === "number" ? countOrLegacyEnd : Math.max(0, Math.ceil((diffDays(countOrLegacyEnd, start) + 1) / 7));
+  if (count === 0 && typeof countOrLegacyEnd === "string") return [];
+  const end = executionEndDate(start, count);
   const weeks: MonthWeek[] = [];
-  const shortPlan = diffDays(end, start) + 1 < 7;
   for (let cursor = start; cursor <= end; ) {
-    const periodEnd = shortPlan ? end : addDays(cursor, 6);
+    const periodEnd = addDays(cursor, 6);
     weeks.push({ index: weeks.length + 1, start: cursor, end: periodEnd, workDays: eachDay(cursor, periodEnd).filter((d) => isWorkDay(d, workDays)) });
     cursor = addDays(periodEnd, 1);
   }

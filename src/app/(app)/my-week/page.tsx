@@ -72,7 +72,7 @@ export default async function MyWeekPage({ searchParams }: { searchParams: Searc
     },
   });
   const tasks = await db.dailyTask.findMany({
-    where: { employeeId, date: { gte: week.startDate, lte: week.endDate } },
+    where: { employeeId, date: { gte: week.startDate, lte: week.endDate }, OR: [{ monthlyGoalId: null }, { monthlyGoal: { planId: week.monthlyPlanId } }] },
     include: { monthlyGoal: { select: { source: true, unit: true } } },
     orderBy: [{ date: "asc" }, { priority: "desc" }, { createdAt: "asc" }],
   });

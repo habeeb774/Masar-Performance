@@ -10,8 +10,8 @@ import { Spinner } from "@/components/ui/spinner";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useServerAction } from "@/hooks/use-server-action";
-import { createPlanAction } from "@/actions/plans";
-import { AR_MONTH_NAMES } from "@/lib/dates";
+import { createPlanAction, suggestPlanPeriodAction } from "@/actions/plans";
+import { AR_MONTH_NAMES, executionEndDate, formatDateAr, isDateKey } from "@/lib/dates";
 
 export interface PlanEmployeeOption {
   id: string;
@@ -62,6 +62,10 @@ export function CreatePlanDialog({
   const [emp, setEmp] = useState<string | undefined>(employeeId);
   const [y, setY] = useState(String(year));
   const [m, setM] = useState(String(month));
+  const [executionStart, setExecutionStart] = useState("");
+  const [weeksCount, setWeeksCount] = useState(4);
+  const validCount = Number.isInteger(weeksCount) && weeksCount >= 1 && weeksCount <= 52;
+  const suggest = useServerAction(suggestPlanPeriodAction, { onSuccess: (data) => { if (data) setExecutionStart(data.start); } });
   const [tpl, setTpl] = useState<string>(() => (suggestedTemplate(templates, employees.find((e) => e.id === employeeId)) ? NONE : BLANK));
   const { run, pending } = useServerAction(createPlanAction, {
     onSuccess: (d) => {
@@ -75,6 +79,7 @@ export function CreatePlanDialog({
   const suggestion = suggestedTemplate(templates, employee);
   const pickEmployee = (id: string) => {
     setEmp(id);
+    setExecutionStart("");
     setTpl(suggestedTemplate(templates, employees.find((e) => e.id === id)) ? NONE : BLANK);
   };
   // job-title templates first, then the rest
@@ -155,13 +160,19 @@ export function CreatePlanDialog({
               {suggestion && <p className="text-xs text-muted-foreground">القالب المقترح لمسمى الموظف: {suggestion.name}</p>}
               {employee && !employee.jobTitleId && <p className="text-xs text-warning">الموظف بدون مسمى وظيفي — اختر قالبًا يدويًا أو أنشئ خطة فارغة.</p>}
             </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2"><Label htmlFor="new-execution-start">بداية فترة التنفيذ</Label><Input id="new-execution-start" type="date" value={executionStart} onChange={(event) => setExecutionStart(event.target.value)} /><p className="text-xs text-muted-foreground">اتركه فارغًا لبدء الخطة بعد نهاية الخطة السابقة.</p></div>
+              <div className="space-y-2"><Label htmlFor="new-weeks-count">عدد الأسابيع</Label><Input id="new-weeks-count" type="number" min={1} max={52} value={weeksCount} onChange={(event) => setWeeksCount(Number(event.target.value))} /></div>
+            </div>
+            <Button type="button" variant="outline" size="sm" disabled={!emp || !validCount || suggest.pending} onClick={() => emp && suggest.run(emp, Number(y), Number(m), weeksCount)}>اقتراح بداية التنفيذ</Button>
+            <p className="text-sm text-muted-foreground">نهاية فترة التنفيذ: {isDateKey(executionStart) && validCount ? formatDateAr(executionEndDate(executionStart, weeksCount)) : "تُحسب تلقائيًا عند اختيار البداية"}</p>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)} disabled={pending}>
               إلغاء
             </Button>
             <Button
-              disabled={pending || !emp}
+              disabled={pending || !emp || !validCount}
               onClick={() =>
                 emp &&
                 run({
@@ -170,6 +181,8 @@ export function CreatePlanDialog({
                   month: Number(m),
                   templateId: tpl === NONE || tpl === BLANK ? null : tpl,
                   useTemplate: tpl !== BLANK,
+                  executionStartDate: executionStart || null,
+                  weeksCount,
                 })
               }
             >

@@ -83,7 +83,7 @@ afterAll(async () => {
 
 describe("without Notion: full manual management", () => {
   it("manual monthly plan", async () => {
-    const plan = await plans.createMonthlyPlan(manager, { employeeId: employee.employeeId!, year: YEAR, month: MONTH, templateId: null, useTemplate: false });
+    const plan = await plans.createMonthlyPlan(manager, { employeeId: employee.employeeId!, year: YEAR, month: MONTH, templateId: null, useTemplate: false, executionStartDate: "2032-05-01", weeksCount: 5 });
     planId = plan.id;
     await plans.addGoal(manager, planId, manualGoal("إضافة المنتجات", 160));
     await plans.addGoal(manager, planId, manualGoal("تجهيز الصور", 160));
@@ -102,12 +102,12 @@ describe("without Notion: full manual management", () => {
     expect(num(g.progressPct)).toBe(56.25);
     const wg = await db.weeklyGoal.findFirstOrThrow({ where: { monthlyGoalId: addGoalId, weeklyPlan: { weekIndex: 2 } } });
     expect(num(wg.achievedValue)).toBe(90);
-    await manual.setManualAchievement(manager, photoGoalId, { value: 92 });
+    await manual.setManualAchievement(manager, photoGoalId, { value: 92, date: week2Day });
     expect(num((await goal(photoGoalId)).achievedValue)).toBe(92);
     const log = await db.auditLog.findMany({ where: { entityId: addGoalId, action: "goal.manual_progress" }, orderBy: { createdAt: "asc" } });
     expect(log).toHaveLength(2);
     expect(log[0]).toMatchObject({ userId: employee.id, reason: "حتى الآن" });
-    await expect(manual.setManualAchievement(employee, addGoalId, { value: -3 })).rejects.toThrow();
+    await expect(manual.setManualAchievement(employee, addGoalId, { value: -3, date: week2Day })).rejects.toThrow();
   });
 
   it("manual weekly batch (aggregate numbers only)", async () => {
@@ -176,7 +176,7 @@ describe("Notion linked later, overrides and failures", () => {
   });
 
   it("no conflict → switches to automatic directly", async () => {
-    await manual.setManualAchievement(manager, photoGoalId, { value: 26 });
+    await manual.setManualAchievement(manager, photoGoalId, { value: 26, date: week2Day });
     await plans.updateGoal(manager, photoGoalId, toNotion("تجهيز الصور"));
     const g = await goal(photoGoalId);
     expect(g.overrideValue).toBeNull();

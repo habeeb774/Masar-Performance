@@ -147,13 +147,13 @@ const lookback = (days: number) => new Date(Date.now() - days * DAY);
 export type ProductNeedingWork = { id: string; title: string; url: string | null; batch: string; note: string | null; since: string };
 
 /** «دفعتي»: the employee's current batch, the month's batches and what needs their action now. */
-export async function getEmployeeBatches(employeeId: string, year: number, month: number) {
-  const since = new Date(fromDateKey(monthStart(year, month)).getTime() - 21 * DAY);
+export async function getEmployeeBatches(employeeId: string, year: number, month: number, execution?: { start: string; end: string }) {
+  const since = new Date(fromDateKey(execution?.start ?? monthStart(year, month)).getTime() - 21 * DAY);
   const from = since < lookback(60) ? since : lookback(60);
   const [items, manual, notion] = await Promise.all([loadCycleItems({ kind: "employee", employeeId }, from), manualBatches([employeeId], from), hasNotionWorkflow(employeeId)]);
   const batches: Summary[] = mergeManualBatches(summarizeBatches(items), manual.map((m) => m.summary));
   if (batches.length === 0 && notion) return null;
-  const [start, end] = [monthStart(year, month), monthEnd(year, month)];
+  const [start, end] = [execution?.start ?? monthStart(year, month), execution?.end ?? monthEnd(year, month)];
   const current = batches[0] ?? null;
   const open = items.filter((i) => batchKeyOf(i));
   const needsImprovement: ProductNeedingWork[] = open

@@ -11,8 +11,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useServerAction } from "@/hooks/use-server-action";
-import { createTeamPlanAction, teamPlanDraftAction } from "@/actions/plans";
-import { monthLabel } from "@/lib/dates";
+import { createTeamPlanAction, teamPlanDraftAction, suggestPlanPeriodAction } from "@/actions/plans";
+import { executionEndDate, formatDateAr, isDateKey, monthLabel } from "@/lib/dates";
 
 type Row = { key: number; name: string; target: string; unit: string; sourceId: string | null };
 type EmployeeOption = { id: string; fullName: string };
@@ -45,6 +45,10 @@ export function TeamPlanDialog({
   const [employeeId, setEmployeeId] = useState(fixedEmployee ?? "");
   const [rows, setRows] = useState<Row[]>([]);
   const [from, setFrom] = useState<string | null>(null);
+  const [start, setStart] = useState("");
+  const [count, setCount] = useState(4);
+  const periodValid = Number.isInteger(count) && count >= 1 && count <= 52;
+  const suggestion = useServerAction(suggestPlanPeriodAction, { onSuccess: (data) => { if (data) setStart(data.start); } });
   const draft = useServerAction(teamPlanDraftAction, { silent: true });
   const save = useServerAction(createTeamPlanAction, {
     onSuccess: () => {
@@ -55,6 +59,7 @@ export function TeamPlanDialog({
 
   const loadDraft = (id: string) => {
     setEmployeeId(id);
+    setStart("");
     setRows([]);
     draft.run(id, year, month).then((r) => {
       const goals = r.ok ? (r.data?.goals ?? []) : [];
@@ -72,7 +77,7 @@ export function TeamPlanDialog({
 
   const patch = (key: number, p: Partial<Row>) => setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...p } : r)));
   const filled = rows.filter((r) => r.name.trim() || r.target || r.sourceId);
-  const ready = !!employeeId && filled.length > 0 && filled.every(valid);
+  const ready = !!employeeId && filled.length > 0 && filled.every(valid) && periodValid;
   const employeeName = employees.find((e) => e.id === employeeId)?.fullName;
 
   const submit = () =>
@@ -80,6 +85,8 @@ export function TeamPlanDialog({
       employeeId,
       year,
       month,
+      executionStartDate: start || null,
+      weeksCount: count,
       goals: filled.map((r) => ({ name: r.name.trim(), target: Number(r.target), unit: r.unit.trim(), sourceId: r.sourceId })),
     });
 
@@ -97,6 +104,12 @@ export function TeamPlanDialog({
         </DialogHeader>
 
         <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1"><Label htmlFor="team-execution-start">بداية فترة التنفيذ</Label><Input id="team-execution-start" type="date" value={start} onChange={(event) => setStart(event.target.value)} /></div>
+            <div className="space-y-1"><Label htmlFor="team-execution-count">عدد الأسابيع</Label><Input id="team-execution-count" type="number" min={1} max={52} value={count} onChange={(event) => setCount(Number(event.target.value))} /></div>
+          </div>
+          <Button variant="outline" size="sm" disabled={!employeeId || !periodValid || suggestion.pending} onClick={() => suggestion.run(employeeId, year, month, count)}>اقتراح بداية التنفيذ</Button>
+          <p className="text-xs text-muted-foreground">نهاية التنفيذ: {isDateKey(start) && periodValid ? formatDateAr(executionEndDate(start, count)) : "تُحسب تلقائيًا؛ البداية الفارغة تتبع نهاية الخطة السابقة"}</p>
           {!fixedEmployee && (
             <div className="space-y-1.5">
               <Label>الموظف</Label>

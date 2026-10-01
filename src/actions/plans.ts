@@ -12,9 +12,31 @@ import {
   monthlyGoalSchema,
   teamPlanSchema,
   weeklyDistributionSchema,
+  updatePlanPeriodSchema,
 } from "@/lib/validation";
 import * as plans from "@/server/services/plans";
 import * as teamPlan from "@/server/services/team-plan";
+import { firstPeriodStart } from "@/server/services/periods";
+import { assertEmployeeAccess } from "@/server/auth/session";
+import { executionEndDate } from "@/lib/dates";
+
+export async function suggestPlanPeriodAction(employeeId: string, year: number, month: number, weeksCount: number) {
+  return runAction(async () => {
+    const user = await actionUser();
+    assertEmployeeAccess(user, idSchema.parse(employeeId));
+    const parsed = createPlanSchema.parse({ employeeId, year, month, weeksCount, templateId: null });
+    const start = await firstPeriodStart(employeeId, parsed.year, parsed.month);
+    return { start, end: executionEndDate(start, parsed.weeksCount ?? 4) };
+  });
+}
+
+export async function updatePlanPeriodAction(planId: string, input: z.input<typeof updatePlanPeriodSchema>) {
+  return runAction(async () => {
+    const user = await actionPermission(PERMISSIONS.PLANS_MANAGE);
+    await plans.updatePlanPeriod(user, idSchema.parse(planId), updatePlanPeriodSchema.parse(input));
+    refresh();
+  }, "تم تحديث فترة التنفيذ");
+}
 
 const refresh = () => {
   revalidatePath("/", "layout");

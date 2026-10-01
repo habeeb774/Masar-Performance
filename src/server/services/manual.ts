@@ -44,10 +44,16 @@ async function loadGoal(goalId: string) {
   return goal;
 }
 
-async function weekGoalFor(goalId: string, dateKey: string) {
+/** The weekly goal whose period contains `dateKey`. */
+async function weekGoalOn(goalId: string, dateKey: string) {
   const d = fromDateKey(dateKey);
-  const within = await db.weeklyGoal.findFirst({ where: { monthlyGoalId: goalId, weeklyPlan: { startDate: { lte: d }, endDate: { gte: d } } } });
+  return db.weeklyGoal.findFirst({ where: { monthlyGoalId: goalId, weeklyPlan: { startDate: { lte: d }, endDate: { gte: d } } } });
+}
+
+async function weekGoalFor(goalId: string, dateKey: string) {
+  const within = await weekGoalOn(goalId, dateKey);
   if (within) return within;
+  const d = fromDateKey(dateKey);
   // a day outside the plan's weeks (e.g. weekend after the last week) → nearest earlier week, else the first one
   return (
     (await db.weeklyGoal.findFirst({ where: { monthlyGoalId: goalId, weeklyPlan: { startDate: { lte: d } } }, orderBy: { weeklyPlan: { startDate: "desc" } } })) ??
@@ -57,8 +63,10 @@ async function weekGoalFor(goalId: string, dateKey: string) {
 
 /**
  * Manual goal: set the achieved total («المحقق = 85») or add to it («+ إضافة إنجاز»).
- * The difference is stored as a manual adjustment on the month and on the week of `date`,
- * so daily tasks completed later still count on top.
+ * Only the difference is stored, as a manual adjustment on the month and on the week whose
+ * period contains `date` (38 → 43 adds +5 to that week, never 43 to the current one), so
+ * daily tasks completed later still count on top.
+ * A distributed goal needs the achievement's date: each entry belongs to one week.
  */
 export async function setManualAchievement(user: AuthUser, goalId: string, input: { value?: number; delta?: number; date?: string | null; note?: string | null }) {
   const goal = await loadGoal(goalId);
@@ -72,9 +80,15 @@ export async function setManualAchievement(user: AuthUser, goalId: string, input
   const diff = next - current;
   if (diff === 0) return { achieved: current };
 
+  const distributed = goal.distributionMode === "DISTRIBUTED";
+  if (distributed && !input.date) throw new UserError("حدد تاريخ الإنجاز ليُسند إلى أسبوعه");
   const company = await getCompany();
   const day = input.date || todayKey(company.timezone);
-  const week = await weekGoalFor(goalId, day);
+  const week = distributed ? await weekGoalOn(goalId, day) : await weekGoalFor(goalId, day);
+  if (distributed && !week) throw new UserError("تاريخ الإنجاز خارج فترات هذا الهدف");
+  // a correction can't take more from a week than was achieved in it — pick the week where it was recorded
+  if (week && diff < 0 && num(week.achievedValue) + diff < -1e-9)
+    throw new UserError(`إنجاز هذا الأسبوع ${num(week.achievedValue)} فقط — اختر تاريخًا في الأسبوع الذي سُجل فيه الإنجاز`);
   await db.$transaction([
     db.monthlyGoal.update({ where: { id: goalId }, data: { manualAdjust: { increment: diff } } }),
     ...(week ? [db.weeklyGoal.update({ where: { id: week.id }, data: { manualAdjust: { increment: diff } } })] : []),
@@ -140,6 +154,8 @@ export async function reconcileSourceChange(user: AuthUser, goalId: string, wasN
   if (!goal || !RUNNING.includes(goal.plan.status)) return;
   const nowNotion = isNotionGoal(goal);
   if (wasNotion === nowNotion) return;
+  // each week's value before the switch, so it carries over week by week (not just on the month)
+  const weeksBefore = new Map((await db.weeklyGoal.findMany({ where: { monthlyGoalId: goalId }, select: { id: true, achievedValue: true } })).map((w) => [w.id, num(w.achievedValue)]));
   await recomputePlan(goal.planId);
   const fresh = await db.monthlyGoal.findUniqueOrThrow({ where: { id: goalId } });
   const current = num(fresh.achievedValue);
@@ -153,10 +169,16 @@ export async function reconcileSourceChange(user: AuthUser, goalId: string, wasN
       await recomputePlan(goal.planId);
     }
   } else {
-    await db.monthlyGoal.update({
-      where: { id: goalId },
-      data: { manualAdjust: { increment: previousAchieved - current }, overrideValue: null, overrideReason: null, overrideById: null, overrideAt: null, overrideKeptAt: null },
-    });
+    const weeksNow = await db.weeklyGoal.findMany({ where: { monthlyGoalId: goalId }, select: { id: true, achievedValue: true } });
+    await db.$transaction([
+      db.monthlyGoal.update({
+        where: { id: goalId },
+        data: { manualAdjust: { increment: previousAchieved - current }, overrideValue: null, overrideReason: null, overrideById: null, overrideAt: null, overrideKeptAt: null },
+      }),
+      ...weeksNow
+        .filter((w) => Math.abs((weeksBefore.get(w.id) ?? 0) - num(w.achievedValue)) > 1e-9)
+        .map((w) => db.weeklyGoal.update({ where: { id: w.id }, data: { manualAdjust: { increment: (weeksBefore.get(w.id) ?? 0) - num(w.achievedValue) } } })),
+    ]);
     await recomputePlan(goal.planId);
   }
 }

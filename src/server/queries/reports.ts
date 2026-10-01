@@ -6,6 +6,8 @@ import { getCompany } from "@/server/services/company";
 import { formatDateAr, fromDateKey, monthEnd as monthEndKey, monthLabel, toDateKey, todayKey } from "@/lib/dates";
 import type { ReportStatusKey } from "@/lib/labels";
 import type { MonthlyReportContent, WeeklyReportContent } from "@/lib/report-types";
+import { snapshotDiffers, type WeeklyReportMetrics } from "@/lib/weekly-report";
+import { getWeeklyReportMetricsMany } from "@/server/services/weekly-report-metrics";
 
 export interface ReportListRow {
   id: string;
@@ -14,6 +16,8 @@ export interface ReportListRow {
   period: string;
   status: ReportStatusKey;
   progress: number | null;
+  /** weekly: the live numbers differ from the report's snapshot, or were refreshed after it was sent */
+  progressUpdated?: boolean;
   submittedAt: string | null;
   reviewedAt: string | null;
 }
@@ -21,6 +25,19 @@ export interface ReportListRow {
 export function contentProgress(content: unknown): number | null {
   const v = (content as { totals?: { weightedProgress?: unknown } } | null)?.totals?.weightedProgress;
   return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+/**
+ * Weekly progress for display: always the live weekly goals (the snapshot only as a fallback
+ * for a week whose goals are gone). `updated` drives the badge shown when they differ.
+ */
+export function liveWeeklyProgress(content: unknown, live: WeeklyReportMetrics | undefined, submittedAt: Date | null) {
+  const snapshot = content && typeof content === "object" ? (content as WeeklyReportContent) : null;
+  if (!live || live.goalsCount === 0) return { progress: contentProgress(content), updated: false };
+  const differs = snapshot ? snapshotDiffers({ goals: snapshot.goals ?? [], totals: snapshot.totals }, live) : true;
+  const original = snapshot?.originalTotals?.weightedProgress;
+  const changedSinceSubmit = !!submittedAt && typeof original === "number" && Math.abs(original - live.weightedProgress) >= 0.005;
+  return { progress: live.weightedProgress, updated: differs || changedSinceSubmit };
 }
 
 export interface ReportListFilters {
@@ -55,6 +72,7 @@ export async function listWeeklyReports(user: AuthUser, f: ReportListFilters, ow
       where,
       select: {
         id: true,
+        weeklyPlanId: true,
         status: true,
         content: true,
         weekStart: true,
@@ -75,18 +93,24 @@ export async function listWeeklyReports(user: AuthUser, f: ReportListFilters, ow
     }),
     db.weeklyReport.count({ where }),
   ]);
+  // one batched query for the live weekly goals of the page — no N+1
+  const live = await getWeeklyReportMetricsMany(rows.map((r) => r.weeklyPlanId));
   return {
     total,
-    rows: rows.map<ReportListRow>((r) => ({
-      id: r.id,
-      href: `/reports/weekly/${r.id}`,
-      employeeName: r.employee.fullName,
-      period: `الفترة ${r.weeklyPlan.weekIndex} · ${formatDateAr(r.weekStart)} – ${formatDateAr(r.weekEnd)} (خطة ${monthLabel(r.weeklyPlan.monthlyPlan.year, r.weeklyPlan.monthlyPlan.month)})`,
-      status: r.status,
-      progress: contentProgress(r.content),
-      submittedAt: r.submittedAt?.toISOString() ?? null,
-      reviewedAt: r.reviewedAt?.toISOString() ?? null,
-    })),
+    rows: rows.map<ReportListRow>((r) => {
+      const p = liveWeeklyProgress(r.content, live.get(r.weeklyPlanId), r.submittedAt);
+      return {
+        id: r.id,
+        href: `/reports/weekly/${r.id}`,
+        employeeName: r.employee.fullName,
+        period: `الفترة ${r.weeklyPlan.weekIndex} · ${formatDateAr(r.weekStart)} – ${formatDateAr(r.weekEnd)} (خطة ${monthLabel(r.weeklyPlan.monthlyPlan.year, r.weeklyPlan.monthlyPlan.month)})`,
+        status: r.status,
+        progress: p.progress,
+        progressUpdated: p.updated,
+        submittedAt: r.submittedAt?.toISOString() ?? null,
+        reviewedAt: r.reviewedAt?.toISOString() ?? null,
+      };
+    }),
   };
 }
 
@@ -195,6 +219,9 @@ function normalizeWeekly(raw: unknown): WeeklyReportContent {
     adHocTasks: arr(c.adHocTasks),
     autoHighlights: arr(c.autoHighlights),
     autoCarryOver: arr(c.autoCarryOver),
+    batches: c.batches,
+    originalTotals: c.originalTotals ? { ...EMPTY_TOTALS, ...c.originalTotals } : undefined,
+    metricsRefreshedAt: c.metricsRefreshedAt,
   };
 }
 
@@ -235,13 +262,21 @@ export async function getWeeklyReport(id: string) {
     },
   });
   if (!r) return null;
+  const snapshot = normalizeWeekly(r.content);
+  const live = (await getWeeklyReportMetricsMany([r.weeklyPlanId])).get(r.weeklyPlanId)!;
+  const p = liveWeeklyProgress(r.content, live, r.submittedAt);
+  // the numbers shown come from the live weekly goals; tasks, batches and text stay the snapshot
+  const content: WeeklyReportContent = live.goalsCount > 0 ? { ...snapshot, goals: live.goals, totals: live.totals } : snapshot;
   return {
     id: r.id,
     employeeId: r.employeeId,
     employeeName: r.employee.fullName,
     jobTitle: r.employee.jobTitle?.name ?? null,
     status: r.status,
-    content: normalizeWeekly(r.content),
+    content,
+    /** the totals as first stored in the report (before any later refresh) */
+    snapshotTotals: snapshot.originalTotals ?? snapshot.totals,
+    metricsUpdated: p.updated,
     generatedText: r.generatedText,
     employeeNotes: r.employeeNotes,
     highlights: r.highlights,
@@ -315,8 +350,10 @@ export async function getMyPendingReports(employeeId: string): Promise<MyPending
       where: { employeeId, status },
       select: {
         id: true,
+        weeklyPlanId: true,
         status: true,
         content: true,
+        submittedAt: true,
         weekStart: true,
         weekEnd: true,
         managerComment: true,
@@ -344,6 +381,7 @@ export async function getMyPendingReports(employeeId: string): Promise<MyPending
       take: 6,
     }),
   ]);
+  const live = await getWeeklyReportMetricsMany(weekly.map((r) => r.weeklyPlanId));
   const items = [
     ...weekly.map((r) => ({
       sort: toDateKey(r.weekEnd),
@@ -354,7 +392,7 @@ export async function getMyPendingReports(employeeId: string): Promise<MyPending
         title: `تقرير الفترة ${r.weeklyPlan.weekIndex} — ${monthLabel(r.weeklyPlan.monthlyPlan.year, r.weeklyPlan.monthlyPlan.month)}`,
         period: `${formatDateAr(r.weekStart)} – ${formatDateAr(r.weekEnd)}`,
         status: r.status,
-        progress: contentProgress(r.content),
+        progress: liveWeeklyProgress(r.content, live.get(r.weeklyPlanId), r.submittedAt).progress,
         managerComment: r.status === "RETURNED" ? r.managerComment : null,
       },
     })),

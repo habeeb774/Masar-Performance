@@ -1,39 +1,63 @@
 import "server-only";
 import { db } from "@/server/db";
-import { addDays, monthEnd, monthStart, shiftMonth, toDateKey, type DateKey } from "@/lib/dates";
+import { addDays, fromDateKey, monthEnd, monthStart, toDateKey, type DateKey } from "@/lib/dates";
+import type { Prisma } from "@/generated/prisma/client";
+import { UserError } from "@/server/action";
 
 /**
- * First day of a plan's periods: the 1st of the month, or — when the same
- * employee's previous-month plan has a period still running into this month —
- * the day after that period ends. That period stays with the previous plan until
- * its end, so consecutive plans never overlap.
+ * Start immediately after the employee's latest preceding administrative plan,
+ * even when months were skipped. With no predecessor, use the calendar first.
  */
-export async function firstPeriodStart(employeeId: string, year: number, month: number): Promise<DateKey> {
-  const natural = monthStart(year, month);
-  const prev = shiftMonth(year, month, -1);
-  const last = await db.weeklyPlan.findFirst({
-    where: { employeeId, monthlyPlan: { year: prev.year, month: prev.month } },
-    orderBy: { endDate: "desc" },
-    select: { endDate: true },
+export async function firstPeriodStart(employeeId: string, year: number, month: number, tx: Prisma.TransactionClient = db): Promise<DateKey> {
+  const previous = await tx.monthlyPlan.findFirst({
+    where: { employeeId, OR: [{ year: { lt: year } }, { year, month: { lt: month } }] },
+    orderBy: [{ year: "desc" }, { month: "desc" }],
+    include: { weeklyPlans: { select: { startDate: true, endDate: true } } },
   });
-  const lastEnd = last ? toDateKey(last.endDate) : null;
-  return lastEnd && lastEnd >= natural ? addDays(lastEnd, 1) : natural;
+  return previous ? addDays((await planSpan(previous)).end, 1) : monthStart(year, month);
 }
 
 /**
- * The days a plan actually covers. With 7-day periods that is first period start →
- * last period end (it may begin after the 1st and end in the next month). Plans made
- * before that rule keep the calendar month, so nothing already recorded moves.
+ * Explicit execution dates win; historical weekly bounds and finally calendar
+ * bounds provide backward compatibility without rewriting historical data.
  */
 export async function planSpan(
-  plan: { employeeId: string; year: number; month: number; weeklyPlans: { startDate: Date; endDate: Date }[] },
+  plan: { employeeId: string; year: number; month: number; executionStartDate?: Date | null; executionEndDate?: Date | null; weeklyPlans: { startDate: Date; endDate: Date }[] },
 ): Promise<{ start: DateKey; end: DateKey }> {
   const mStart = monthStart(plan.year, plan.month);
   const mEnd = monthEnd(plan.year, plan.month);
-  if (plan.weeklyPlans.length === 0) return { start: mStart, end: mEnd };
   const first = plan.weeklyPlans.map((w) => toDateKey(w.startDate)).sort()[0];
-  const last = plan.weeklyPlans.map((w) => toDateKey(w.endDate)).sort().at(-1)!;
-  // a later first day only counts when the previous plan's running period really covers the gap
-  const start = first > mStart && first === (await firstPeriodStart(plan.employeeId, plan.year, plan.month)) ? first : mStart;
-  return { start, end: last > mEnd ? last : mEnd };
+  const last = plan.weeklyPlans.map((w) => toDateKey(w.endDate)).sort().at(-1);
+  return { start: plan.executionStartDate ? toDateKey(plan.executionStartDate) : first ?? mStart,
+    end: plan.executionEndDate ? toDateKey(plan.executionEndDate) : last ?? mEnd };
+}
+
+export async function lockEmployeePeriods(tx: Prisma.TransactionClient, employeeId: string) {
+  await tx.$queryRaw`SELECT "id" FROM "Employee" WHERE "id" = ${employeeId} FOR UPDATE`;
+}
+
+export async function assertNoPlanOverlap(tx: Prisma.TransactionClient, employeeId: string, start: string, end: string, exceptId?: string) {
+  const plans = await tx.monthlyPlan.findMany({
+    where: { employeeId, ...(exceptId ? { id: { not: exceptId } } : {}) },
+    include: { weeklyPlans: { select: { startDate: true, endDate: true } } },
+  });
+  for (const plan of plans) {
+    const span = await planSpan(plan);
+    if (span.start <= end && span.end >= start) throw new UserError("فترة الخطة تتداخل مع خطة أخرى لهذا الموظف");
+  }
+}
+
+export function currentPlanWhere(today: string): Prisma.MonthlyPlanWhereInput {
+  const date = fromDateKey(today);
+  return { OR: [
+    { executionStartDate: { lte: date }, executionEndDate: { gte: date } },
+    { executionStartDate: null, weeklyPlans: { some: { startDate: { lte: date }, endDate: { gte: date } } } },
+    { executionStartDate: null, weeklyPlans: { none: {} }, year: +today.slice(0, 4), month: +today.slice(5, 7) },
+  ] };
+}
+
+export async function assertTaskInPlan(monthlyGoalId: string, date: string) {
+  const goal = await db.monthlyGoal.findUniqueOrThrow({ where: { id: monthlyGoalId }, include: { plan: { include: { weeklyPlans: true } } } });
+  const span = await planSpan(goal.plan);
+  if (date < span.start || date > span.end) throw new UserError("تاريخ المهمة خارج فترة تنفيذ الخطة");
 }

@@ -6,7 +6,7 @@ import { audit } from "@/server/audit";
 import { UserError } from "@/server/action";
 import { assertEmployeeAccess, type AuthUser } from "@/server/auth/session";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
-import { fromDateKey, monthEnd, monthLabel, monthStart } from "@/lib/dates";
+import { monthLabel } from "@/lib/dates";
 import { num } from "@/lib/num";
 import type { teamPlanSchema } from "@/lib/validation";
 import { approvePlan, createMonthlyPlan, submitPlan } from "./plans";
@@ -67,6 +67,7 @@ type Source = {
   dutyName: string | null;
   description: string | null;
   goalType: string;
+  distributionMode?: string;
   weight: Prisma.Decimal;
   priority: string;
   source: string;
@@ -77,7 +78,7 @@ type Source = {
 
 export async function createTeamPlan(user: AuthUser, input: z.infer<typeof teamPlanSchema>) {
   if (!hasPermission(user, PERMISSIONS.PLANS_MANAGE)) throw new UserError("إعداد خطط الفريق متاح للمديرين فقط");
-  const plan = await createMonthlyPlan(user, { employeeId: input.employeeId, year: input.year, month: input.month, templateId: null, useTemplate: false });
+  const plan = await createMonthlyPlan(user, { employeeId: input.employeeId, year: input.year, month: input.month, templateId: null, useTemplate: false, executionStartDate: input.executionStartDate, weeksCount: input.weeksCount });
 
   const goalIds = input.goals.map((g) => g.sourceId?.startsWith("goal:") && g.sourceId.slice(5)).filter((v): v is string => !!v);
   const itemIds = input.goals.map((g) => g.sourceId?.startsWith("item:") && g.sourceId.slice(5)).filter((v): v is string => !!v);
@@ -92,8 +93,8 @@ export async function createTeamPlan(user: AuthUser, input: z.infer<typeof teamP
   const resolved = input.goals.map((g) => (g.sourceId ? (sources.get(g.sourceId) ?? null) : null));
   const weights = autoWeights(resolved.map((s) => (s ? num(s.weight) : null)));
 
-  const start = fromDateKey(monthStart(input.year, input.month));
-  const end = fromDateKey(monthEnd(input.year, input.month));
+  const start = plan.executionStartDate;
+  const end = plan.executionEndDate;
   await db.monthlyGoal.createMany({
     data: input.goals.map((g, i) => {
       const s = resolved[i];
@@ -108,6 +109,7 @@ export async function createTeamPlan(user: AuthUser, input: z.infer<typeof teamP
         description: s?.description ?? null,
         goalType: (s && (s.goalType !== "NOTION_SYNCED" || notion) ? s.goalType : "NUMERIC") as never,
         targetValue: g.target,
+        distributionMode: (s?.distributionMode ?? "DISTRIBUTED") as never,
         unit: g.unit,
         weight: weights[i],
         priority: (s?.priority ?? "MEDIUM") as never,

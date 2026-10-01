@@ -470,6 +470,9 @@ model MonthlyPlan {
   employeeId   String
   year         Int
   month        Int // 1-12
+  executionStartDate DateTime? @db.Date
+  executionEndDate   DateTime? @db.Date
+  weeksCount         Int?
   status       PlanStatus    @default(DRAFT)
   templateId   String?
   notes        String?
@@ -488,6 +491,7 @@ model MonthlyPlan {
   review       PerformanceReview?
 
   @@unique([employeeId, year, month])
+  @@index([employeeId, executionStartDate, executionEndDate], map: "MonthlyPlan_employeeId_execution_dates_idx")
   @@index([year, month])
   @@index([status])
 }

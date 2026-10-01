@@ -8,19 +8,11 @@ import type { ProgressBreakdown } from "@/lib/notion/progress";
 import { getCompany } from "@/server/services/company";
 import { assignerNames, dailyInclude, adHocInclude, toDailyRow, toAdHocRow } from "@/server/queries/tasks";
 import { getAttentionFeed } from "./attention";
+import { currentPlanWhere } from "@/server/services/periods";
 
-type GoalLike = { weight: unknown; progressPct: unknown; status: string; breakdown?: unknown };
+import { weightedProgress } from "@/lib/weighted-progress";
 
-export function weightedProgress(goals: GoalLike[]) {
-  const active = goals.filter((g) => g.status !== "CANCELLED");
-  if (active.length === 0) return 0;
-  const w = active.reduce((a, g) => a + num(g.weight), 0);
-  return round2(
-    w > 0
-      ? active.reduce((a, g) => a + Math.min(num(g.progressPct), 100) * num(g.weight), 0) / w
-      : active.reduce((a, g) => a + Math.min(num(g.progressPct), 100), 0) / active.length,
-  );
-}
+export { weightedProgress };
 
 export function breakdownTotals(rows: { breakdown?: unknown; status?: string }[]) {
   const sum = (k: keyof ProgressBreakdown) =>
@@ -47,8 +39,8 @@ export async function getEmployeeDashboard(user: AuthUser) {
   const todayDate = fromDateKey(today);
 
   const [plan, week, todayTasks, adHoc, delayedTasks, notifications, weeklyFeedback, lastReview] = await Promise.all([
-    db.monthlyPlan.findUnique({
-      where: { employeeId_year_month: { employeeId, year, month } },
+    db.monthlyPlan.findFirst({
+      where: { employeeId, ...currentPlanWhere(today) },
       include: { goals: { orderBy: { sortOrder: "asc" } } },
     }),
     db.weeklyPlan.findFirst({
@@ -111,8 +103,8 @@ export async function getEmployeeDashboard(user: AuthUser) {
   const adHocRows = adHoc.map((t) => toAdHocRow(t, today, assigners));
   return {
     today,
-    year,
-    month,
+    year: plan?.year ?? year,
+    month: plan?.month ?? month,
     plan,
     week,
     todayTasks,
@@ -150,7 +142,7 @@ export async function getManagerDashboard(user: AuthUser) {
     where: { status: "ACTIVE", ...employeeWhere, jobTitleId: { not: null } },
     include: {
       jobTitle: true,
-      monthlyPlans: { where: { year, month }, include: { goals: true } },
+      monthlyPlans: { where: currentPlanWhere(today), include: { goals: true } },
       weeklyPlans: { where: { startDate: { lte: todayDate }, endDate: { gte: todayDate } }, include: { goals: { include: { monthlyGoal: true } } } },
     },
     orderBy: { fullName: "asc" },

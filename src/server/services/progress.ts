@@ -91,8 +91,10 @@ const planInclude = {
 /**
  * Recompute achievement for every goal, weekly goal and daily task of a plan.
  * Notion-synced goals are derived from synced items; manual goals from their tasks.
+ * Every change of achievement ends here, so this is also the one place the plan's stored
+ * weekly reports are brought back in line with the weekly goals (once per recompute).
  */
-export async function recomputePlan(planId: string, cache = new ItemCache()) {
+export async function recomputePlan(planId: string, cache = new ItemCache(), opts: { refreshReports?: boolean } = {}) {
   const company = await getCompanyFresh();
   const today = todayKey(company.timezone);
   const plan = await db.monthlyPlan.findUnique({ where: { id: planId }, include: planInclude });
@@ -106,11 +108,12 @@ export async function recomputePlan(planId: string, cache = new ItemCache()) {
 
   for (const goal of plan.goals) {
     const target = num(goal.targetValue);
-    // a goal keeps an explicit start/due date set inside the month; the default month bounds follow the periods
-    const customStart = goal.startDate && toDateKey(goal.startDate) > mStart ? toDateKey(goal.startDate) : null;
-    const customEnd = goal.dueDate && toDateKey(goal.dueDate) < mEnd ? toDateKey(goal.dueDate) : null;
+    // Historical calendar defaults follow the real span. Other explicit goal
+    // dates are respected, including custom dates spilling into another month.
+    const customStart = goal.startDate && toDateKey(goal.startDate) !== mStart ? toDateKey(goal.startDate) : null;
+    const customEnd = goal.dueDate && toDateKey(goal.dueDate) !== mEnd ? toDateKey(goal.dueDate) : null;
     const start = customStart && customStart > pStart ? customStart : pStart;
-    const end = customEnd ?? pEnd;
+    const end = customEnd && customEnd < pEnd ? customEnd : pEnd;
     const isNotion = goal.source === "NOTION" && goal.notionDataSourceId && goal.notionFilter;
     let achieved = num(goal.achievedValue);
     let breakdown: ProgressBreakdown | null = null;
@@ -221,6 +224,11 @@ export async function recomputePlan(planId: string, cache = new ItemCache()) {
 
   // recompute writes are idempotent derived values — run them concurrently (bounded by the pool)
   for (let i = 0; i < writes.length; i += 8) await Promise.all(writes.slice(i, i + 8));
+
+  if (opts.refreshReports !== false) {
+    const { refreshPlanWeeklyReports } = await import("./weekly-report-metrics");
+    await refreshPlanWeeklyReports(planId);
+  }
 }
 
 /** Plans that are currently being executed (current + previous month). */

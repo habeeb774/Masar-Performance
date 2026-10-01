@@ -1,4 +1,5 @@
 import "server-only";
+import { planSpan } from "./periods";
 import type { Prisma } from "@/generated/prisma/client";
 import type { KpiSourceType } from "@/generated/prisma/enums";
 import { db } from "@/server/db";
@@ -62,7 +63,7 @@ interface EvalContext {
 /** Resolve the measured value (and formula variables) for a KPI source. */
 export function measureSource(sourceType: KpiSourceType, config: SourceConfig, ctx: EvalContext): KpiInput & { details: Record<string, unknown> } {
   const goals = (ctx.plan?.goals ?? []).filter((g) => g.status !== "CANCELLED");
-  const monthEndKey = monthEnd(ctx.year, ctx.month);
+  const monthEndKey = ctx.plan?.executionEndDate ? toDateKey(ctx.plan.executionEndDate) : ctx.plan?.weeklyPlans.map((w) => toDateKey(w.endDate)).sort().at(-1) ?? monthEnd(ctx.year, ctx.month);
   const cutoff = ctx.today < monthEndKey ? ctx.today : monthEndKey;
 
   const notionTotals = () => {
@@ -181,12 +182,13 @@ export function measureSource(sourceType: KpiSourceType, config: SourceConfig, c
 
 async function loadContext(employeeId: string, year: number, month: number): Promise<EvalContext> {
   const company = await getCompanyFresh();
-  const from = fromDateKey(monthStart(year, month));
-  const to = fromDateKey(monthEnd(year, month));
   const plan = await db.monthlyPlan.findUnique({
     where: { employeeId_year_month: { employeeId, year, month } },
     include: { goals: { orderBy: { sortOrder: "asc" } }, weeklyPlans: { include: { report: true, goals: true } }, report: true },
   });
+  const span = plan ? await planSpan(plan) : { start: monthStart(year, month), end: monthEnd(year, month) };
+  const from = fromDateKey(span.start);
+  const to = fromDateKey(span.end);
   const [adHoc, deadlineTasks] = await Promise.all([
     db.adHocTask.findMany({ where: { employeeId, OR: [{ assignedDate: { gte: from, lte: to } }, { dueDate: { gte: from, lte: to } }] } }),
     db.dailyTask.findMany({ where: { employeeId, deadline: { gte: from, lte: to }, source: "MANUAL" } }),

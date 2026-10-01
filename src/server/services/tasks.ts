@@ -9,6 +9,7 @@ import { formatDateAr, fromDateKey } from "@/lib/dates";
 import type { adHocTaskSchema, dailyTaskSchema, taskProgressSchema } from "@/lib/validation";
 import { notifyEmployee } from "./notifications";
 import { recomputePlan } from "./progress";
+import { assertTaskInPlan } from "./periods";
 
 async function recomputeForGoal(monthlyGoalId: string | null) {
   if (!monthlyGoalId) return;
@@ -30,6 +31,7 @@ export async function createDailyTask(user: AuthUser, input: z.infer<typeof dail
   const employeeId = resolveEmployeeId(user, input.employeeId);
   let weeklyGoalId: string | null = null;
   if (input.monthlyGoalId) {
+    await assertTaskInPlan(input.monthlyGoalId, input.date);
     const goal = await db.monthlyGoal.findUniqueOrThrow({ where: { id: input.monthlyGoalId } });
     if (goal.employeeId !== employeeId) throw new UserError("الهدف لا يخص هذا الموظف");
     const wg = await db.weeklyGoal.findFirst({
@@ -95,8 +97,15 @@ export async function updateTaskProgress(user: AuthUser, taskId: string, input: 
 export async function updateDailyTask(user: AuthUser, taskId: string, input: z.infer<typeof dailyTaskSchema>) {
   const task = await db.dailyTask.findUniqueOrThrow({ where: { id: taskId } });
   assertEmployeeAccess(user, task.employeeId);
+  if (input.monthlyGoalId) await assertTaskInPlan(input.monthlyGoalId, input.date);
   if (task.source !== "MANUAL") throw new UserError("هذه المهمة مولّدة من الخطة — عدّل التوزيع بدلًا من ذلك");
   if (task.employeeId !== user.employeeId && !hasPermission(user, PERMISSIONS.TASKS_ASSIGN)) throw new UserError("لا يمكنك تعديل هذه المهمة");
+  let weeklyGoalId: string | null = null;
+  if (input.monthlyGoalId) {
+    const goal = await db.monthlyGoal.findUniqueOrThrow({ where: { id: input.monthlyGoalId } });
+    if (goal.employeeId !== task.employeeId) throw new UserError("الهدف لا يخص هذا الموظف");
+    weeklyGoalId = (await db.weeklyGoal.findFirst({ where: { monthlyGoalId: goal.id, weeklyPlan: { startDate: { lte: fromDateKey(input.date) }, endDate: { gte: fromDateKey(input.date) } } } }))?.id ?? null;
+  }
   const updated = await db.dailyTask.update({
     where: { id: taskId },
     data: {
@@ -110,6 +119,7 @@ export async function updateDailyTask(user: AuthUser, taskId: string, input: z.i
       status: input.status,
       priority: input.priority,
       monthlyGoalId: input.monthlyGoalId,
+      weeklyGoalId,
       notes: input.notes,
       delayReason: input.delayReason,
       completedAt: input.status === "COMPLETED" ? (task.completedAt ?? new Date()) : null,

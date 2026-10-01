@@ -75,8 +75,8 @@ describe("plan periods: 7 full days each, never cut at the month end", () => {
     }
   });
 
-  it("only an explicitly short plan (< 7 days) gets one shorter period", () => {
-    expect(ranges("2026-10-10", "2026-10-13")).toEqual([["2026-10-10", "2026-10-13"]]);
+  it("even a legacy short range produces a full seven-day period", () => {
+    expect(ranges("2026-10-10", "2026-10-13")).toEqual([["2026-10-10", "2026-10-16"]]);
     expect(lengths("2026-10-10", "2026-10-16")).toEqual([7]);
   });
 

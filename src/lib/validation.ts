@@ -177,6 +177,14 @@ export const createPlanSchema = z.object({
   templateId: optionalId,
   /** false = start a blank plan even when the job title has an active template */
   useTemplate: z.boolean().default(true),
+  executionStartDate: optionalDateKey,
+  weeksCount: z.coerce.number().int().min(1).max(52).optional(),
+});
+
+export const updatePlanPeriodSchema = z.object({
+  executionStartDate: dateKeySchema,
+  weeksCount: z.coerce.number().int().min(1).max(52),
+  confirmed: z.boolean().default(false),
 });
 
 /** Quick team plan: just goal names and targets; everything else is inferred. */
@@ -184,6 +192,8 @@ export const teamPlanSchema = z.object({
   employeeId: idSchema,
   year: z.coerce.number().int().min(2020).max(2100),
   month: z.coerce.number().int().min(1).max(12),
+  executionStartDate: optionalDateKey,
+  weeksCount: z.coerce.number().int().min(1).max(52).optional(),
   goals: z
     .array(
       z.object({

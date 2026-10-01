@@ -62,7 +62,7 @@ const goal = (name: string, target: number) => ({
 });
 
 async function approvedPlan(m: { year: number; month: number }, target = 160) {
-  const plan = await plans.createMonthlyPlan(manager, { employeeId: employee.employeeId!, year: m.year, month: m.month, templateId: null, useTemplate: false });
+  const plan = await plans.createMonthlyPlan(manager, { employeeId: employee.employeeId!, year: m.year, month: m.month, templateId: null, useTemplate: false, weeksCount: 5, ...(m === MONTHS[0] ? { executionStartDate: "2034-11-01" } : {}) });
   await plans.addGoal(manager, plan.id, goal("إضافة المنتجات", target));
   await plans.approvePlan(manager, plan.id, "معتمد");
   planIds[key(m)] = plan.id;
