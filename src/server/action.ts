@@ -2,12 +2,13 @@ import "server-only";
 import { ZodError } from "zod";
 import { Prisma } from "@/generated/prisma/client";
 import { AuthError } from "@/server/auth/session";
+import { UserError } from "@/server/user-error";
+export { UserError } from "@/server/user-error";
 
 export type ActionResult<T = undefined> =
   | { ok: true; data?: T; message?: string }
   | { ok: false; error: string; fieldErrors?: Record<string, string[]> };
 
-export class UserError extends Error {}
 
 /**
  * Wrap a server action body: turns validation, authorization and known DB

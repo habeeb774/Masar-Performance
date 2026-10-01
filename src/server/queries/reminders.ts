@@ -3,7 +3,7 @@ import { db } from "@/server/db";
 import type { AuthUser } from "@/server/auth/session";
 import { reminderWhere } from "@/server/services/reminders";
 import { getCompany } from "@/server/services/company";
-import { getMonthWeeks, toDateKey, todayKey } from "@/lib/dates";
+import { addDays, fromDateKey, startOfWeek, toDateKey, todayKey } from "@/lib/dates";
 
 export type ReminderRow = {
   id: string;
@@ -24,8 +24,11 @@ export type ReminderRow = {
 export async function getReminders(user: AuthUser) {
   const company = await getCompany();
   const today = todayKey(company.timezone);
-  const weeks = getMonthWeeks(+today.slice(0, 4), +today.slice(5, 7), company.weekStartDay, company.workDays);
-  const weekEnd = weeks.find((w) => today >= w.start && today <= w.end)?.end ?? today;
+  // «this week»: the employee's running 7-day weekly plan, else a full calendar week — never cut at a month end
+  const running = user.employeeId
+    ? await db.weeklyPlan.findFirst({ where: { employeeId: user.employeeId, startDate: { lte: fromDateKey(today) }, endDate: { gte: fromDateKey(today) } }, select: { endDate: true } })
+    : null;
+  const weekEnd = running ? toDateKey(running.endDate) : addDays(startOfWeek(today, company.weekStartDay), 6);
   const rows = await db.reminder.findMany({
     where: { AND: [reminderWhere(user), { status: { not: "CANCELLED" } }] },
     include: { employee: { select: { fullName: true } }, owner: { select: { name: true } }, adHocTask: { select: { id: true, title: true } } },

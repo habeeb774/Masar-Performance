@@ -7,6 +7,7 @@ import { formatDateAr, fromDateKey, monthEnd as monthEndKey, monthLabel, toDateK
 import type { ReportStatusKey } from "@/lib/labels";
 import type { MonthlyReportContent, WeeklyReportContent } from "@/lib/report-types";
 import { snapshotDiffers, type WeeklyReportMetrics } from "@/lib/weekly-report";
+import { resolveExecutionPeriod, type PlanPeriodLike } from "@/lib/execution-period";
 import { getWeeklyReportMetricsMany } from "@/server/services/weekly-report-metrics";
 
 export interface ReportListRow {
@@ -14,6 +15,8 @@ export interface ReportListRow {
   href: string;
   employeeName: string;
   period: string;
+  /** «فترة التنفيذ: 5 سبتمبر – 2 أكتوبر» — the real span, which may cross a calendar month */
+  periodDetail?: string;
   status: ReportStatusKey;
   progress: number | null;
   /** weekly: the live numbers differ from the report's snapshot, or were refreshed after it was sent */
@@ -38,6 +41,12 @@ export function liveWeeklyProgress(content: unknown, live: WeeklyReportMetrics |
   const original = snapshot?.originalTotals?.weightedProgress;
   const changedSinceSubmit = !!submittedAt && typeof original === "number" && Math.abs(original - live.weightedProgress) >= 0.005;
   return { progress: live.weightedProgress, updated: differs || changedSinceSubmit };
+}
+
+/** «فترة التنفيذ: 5 سبتمبر 2026 – 2 أكتوبر 2026» */
+export function executionLabel(plan: PlanPeriodLike) {
+  const { start, end } = resolveExecutionPeriod(plan);
+  return `فترة التنفيذ: ${formatDateAr(start)} – ${formatDateAr(end)}`;
 }
 
 export interface ReportListFilters {
@@ -83,7 +92,7 @@ export async function listWeeklyReports(user: AuthUser, f: ReportListFilters, ow
         weeklyPlan: {
           select: {
             weekIndex: true,
-            monthlyPlan: { select: { year: true, month: true } },
+            monthlyPlan: { select: { year: true, month: true, executionStartDate: true, executionEndDate: true, weeksCount: true } },
           },
         },
       },
@@ -103,7 +112,8 @@ export async function listWeeklyReports(user: AuthUser, f: ReportListFilters, ow
         id: r.id,
         href: `/reports/weekly/${r.id}`,
         employeeName: r.employee.fullName,
-        period: `الفترة ${r.weeklyPlan.weekIndex} · ${formatDateAr(r.weekStart)} – ${formatDateAr(r.weekEnd)} (خطة ${monthLabel(r.weeklyPlan.monthlyPlan.year, r.weeklyPlan.monthlyPlan.month)})`,
+        period: `خطة ${monthLabel(r.weeklyPlan.monthlyPlan.year, r.weeklyPlan.monthlyPlan.month)} · الأسبوع ${r.weeklyPlan.weekIndex}: ${formatDateAr(r.weekStart)} – ${formatDateAr(r.weekEnd)}`,
+        periodDetail: executionLabel(r.weeklyPlan.monthlyPlan),
         status: r.status,
         progress: p.progress,
         progressUpdated: p.updated,
@@ -133,6 +143,7 @@ export async function listMonthlyReports(user: AuthUser, f: ReportListFilters, o
         submittedAt: true,
         reviewedAt: true,
         employee: { select: { fullName: true } },
+        monthlyPlan: { select: { year: true, month: true, executionStartDate: true, executionEndDate: true, weeksCount: true, weeklyPlans: { select: { startDate: true, endDate: true } } } },
       },
       orderBy: [{ year: "desc" }, { month: "desc" }, { createdAt: "desc" }],
       skip: f.skip,
@@ -146,7 +157,8 @@ export async function listMonthlyReports(user: AuthUser, f: ReportListFilters, o
       id: r.id,
       href: `/reports/monthly/${r.id}`,
       employeeName: r.employee.fullName,
-      period: monthLabel(r.year, r.month),
+      period: `خطة ${monthLabel(r.year, r.month)}`,
+      periodDetail: executionLabel(r.monthlyPlan),
       status: r.status,
       progress: contentProgress(r.content),
       submittedAt: r.submittedAt?.toISOString() ?? null,

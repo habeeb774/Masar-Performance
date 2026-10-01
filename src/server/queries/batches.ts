@@ -2,7 +2,7 @@ import "server-only";
 import { db } from "@/server/db";
 import { employeeIdScope, type AuthUser } from "@/server/auth/session";
 import { getCompany } from "@/server/services/company";
-import { fromDateKey, getMonthWeeks, monthEnd, monthStart, todayKey } from "@/lib/dates";
+import { addDays, fromDateKey, monthEnd, monthStart, startOfWeek, todayKey } from "@/lib/dates";
 import { valueToStrings, type NormalizedValue } from "@/lib/notion/properties";
 import type { SystemStatus } from "@/lib/notion/status";
 import { toDateKey } from "@/lib/dates";
@@ -118,9 +118,9 @@ async function loadCycleItems(scope: Scope, since: Date): Promise<(CycleItem & {
 
 async function weekOf(dateKey: string) {
   const company = await getCompany();
-  const [y, m] = [+dateKey.slice(0, 4), +dateKey.slice(5, 7)];
-  const week = getMonthWeeks(y, m, company.weekStartDay, company.workDays).find((w) => dateKey >= w.start && dateKey <= w.end);
-  return week ? { start: week.start, end: week.end } : { start: dateKey, end: dateKey };
+  // a full 7-day week, never cut at a month end
+  const start = startOfWeek(dateKey, company.weekStartDay);
+  return { start, end: addDays(start, 6) };
 }
 
 const DAY = 86_400_000;

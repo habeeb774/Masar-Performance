@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { checkDistribution, distributeProportional, suggestDailyTargets, suggestWeeklyTargets } from "@/lib/distribution";
-import { getMonthWeeks } from "@/lib/dates";
+import { planWeekPeriods } from "@/lib/dates";
 import { distributionProgress } from "@/lib/distribution-progress";
 
 describe("distributeProportional", () => {
@@ -25,7 +25,7 @@ describe("distributeProportional", () => {
 });
 
 describe("weekly and daily suggestions", () => {
-  const weeks = getMonthWeeks(2026, 9, 6, [6, 0, 1, 2, 3]);
+  const weeks = planWeekPeriods("2026-09-05", 4, [6, 0, 1, 2, 3]);
   it("splits numeric goals by working days per week", () => {
     const t = suggestWeeklyTargets({ goalType: "NUMERIC", targetValue: 160 }, weeks);
     expect(t.reduce((a, b) => a + b, 0)).toBe(160);

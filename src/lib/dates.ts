@@ -99,38 +99,11 @@ export function isWorkDay(key: DateKey, workDays: number[]): boolean {
 
 export interface MonthWeek {
   index: number;
-  /** first day (getMonthWeeks: clamped to the month; planWeekPeriods: not clamped) */
+  /** first day of the 7-day period */
   start: DateKey;
-  /** last day (getMonthWeeks: clamped to the month; planWeekPeriods: may be in the next month) */
+  /** start + 6 days — may be in the next month */
   end: DateKey;
   workDays: DateKey[];
-}
-
-/**
- * Working weeks of a month. A week is kept only when it contains at least one
- * working day inside the month; days outside the month are excluded.
- */
-export function getMonthWeeks(
-  year: number,
-  month: number,
-  weekStartDay: number,
-  workDays: number[],
-): MonthWeek[] {
-  const first = monthStart(year, month);
-  const last = monthEnd(year, month);
-  const weeks: MonthWeek[] = [];
-  let cursor = startOfWeek(first, weekStartDay);
-  while (cursor <= last) {
-    const weekEnd = addDays(cursor, 6);
-    const start = cursor < first ? first : cursor;
-    const end = weekEnd > last ? last : weekEnd;
-    const days = eachDay(start, end).filter((d) => isWorkDay(d, workDays));
-    if (days.length > 0) {
-      weeks.push({ index: weeks.length + 1, start, end, workDays: days });
-    }
-    cursor = addDays(cursor, 7);
-  }
-  return weeks;
 }
 
 /**
@@ -146,10 +119,9 @@ export function executionEndDate(start: DateKey, weeksCount: number): DateKey {
   return addDays(start, weeksCount * 7 - 1);
 }
 
-export function planWeekPeriods(start: DateKey, countOrLegacyEnd: number | DateKey, workDays: number[]): MonthWeek[] {
-  const count = typeof countOrLegacyEnd === "number" ? countOrLegacyEnd : Math.max(0, Math.ceil((diffDays(countOrLegacyEnd, start) + 1) / 7));
-  if (count === 0 && typeof countOrLegacyEnd === "string") return [];
-  const end = executionEndDate(start, count);
+/** The plan's weeks: `weeksCount` periods of 7 calendar days from `start`; the month plays no part. */
+export function planWeekPeriods(start: DateKey, weeksCount: number, workDays: number[]): MonthWeek[] {
+  const end = executionEndDate(start, weeksCount);
   const weeks: MonthWeek[] = [];
   for (let cursor = start; cursor <= end; ) {
     const periodEnd = addDays(cursor, 6);

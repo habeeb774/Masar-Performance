@@ -1,7 +1,7 @@
 import "server-only";
 import type { Prisma } from "@/generated/prisma/client";
 import { db } from "@/server/db";
-import { UserError } from "@/server/action";
+import { UserError } from "@/server/user-error";
 import { executionEndDate, fromDateKey, monthEnd, monthStart, planWeekPeriods, toDateKey } from "@/lib/dates";
 import { suggestDailyTargets, suggestWeeklyTargets } from "@/lib/distribution";
 import { num } from "@/lib/num";

@@ -38,6 +38,14 @@ export async function updatePlanPeriodAction(planId: string, input: z.input<type
   }, "تم تحديث فترة التنفيذ");
 }
 
+export async function previewPlanPeriodAction(planId: string, input: { executionStartDate: string; weeksCount: number }) {
+  return runAction(async () => {
+    const user = await actionPermission(PERMISSIONS.PLANS_MANAGE);
+    const parsed = updatePlanPeriodSchema.parse({ ...input, confirmed: false });
+    return plans.previewPlanPeriod(user, idSchema.parse(planId), parsed);
+  });
+}
+
 const refresh = () => {
   revalidatePath("/", "layout");
 };

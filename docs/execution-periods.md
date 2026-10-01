@@ -2,103 +2,79 @@
 
 ## القاعدة
 
-السنة والشهر عنوان إداري وأرشفة، وليسا حدًا للتنفيذ. تحتوي MonthlyPlan على
-executionStartDate وexecutionEndDate (DATE قابلة للفراغ) وweeksCount (عدد صحيح
-موجب قابل للفراغ للبيانات التاريخية). الخطط الجديدة تبدأ بأربعة أسابيع افتراضيًا؛
-الواجهة والتحقق يسمحان من 1 إلى 52 أسبوعًا.
+`year` / `month` في MonthlyPlan اسم إداري فقط («خطة أكتوبر 2026»): العنوان، الأرشفة،
+الفلاتر، MonthPicker والتقارير الإدارية. ولا يحددان متى تُنفذ الخطة.
 
-النهاية = البداية + (عدد الأسابيع × 7 − 1) يومًا. كل WeeklyPlan سبعة أيام
-تقويمية متتابعة من البداية؛ company.workDays يحدد أيام توزيع المهام فقط.
-تبدأ الخطة التالية تلقائيًا بعد نهاية أحدث خطة إدارية سابقة للموظف؛ إن لم توجد
-خطة سابقة، تستخدم بداية الشهر المختار. يمنع التداخل داخل transaction مع قفل
-صف الموظف، بما يشمل الطلبات المتزامنة.
+مصدر الحقيقة الوحيد لفترة التنفيذ:
 
-الخطة الحالية تحتوي تاريخ اليوم بين تاريخي التنفيذ. تستخدم البيانات القديمة
-حدود الأسابيع المحفوظة، ثم حدود الشهر كحل أخير. التقارير والتقدم و«خطتي»
-ولوحة التحكم تستخدم فترة التنفيذ الفعلية. تعديل خطة معتمدة يستلزم تأكيدًا.
-
-## تصحيح البيانات الحالي — معاينة الإنتاج فقط
-
-شغلت المعاينة في 2026-10-01. لم تُطبق migration أو data fix على الإنتاج.
-
-| الخطة | البداية المقترحة | النهاية المقترحة | الأسابيع |
-| --- | --- | --- | --- |
-| سبتمبر 2026 | 2026-09-05 | 2026-10-02 | 4 |
-| أكتوبر 2026 | 2026-10-03 | 2026-10-30 | 4 |
-
-الأسابيع المقترحة لسبتمبر: 5–11، 12–18، 19–25 سبتمبر، 26 سبتمبر–2 أكتوبر.
-الأسابيع المقترحة لأكتوبر: 3–9، 10–16، 17–23، 24–30 أكتوبر.
-البداية التلقائية للخطة التالية هي 31 أكتوبر.
-
-### مهام أكتوبر المتأثرة
-
-كل المهام التالية NOT_STARTED وachieved=0 وprogress=0، ولا توجد مهام بتاريخ
-2 أكتوبر في خطة أكتوبر في المعاينة.
-
-| التاريخ | المهمة | المعرف |
-| --- | --- | --- |
-| 1 أكتوبر | إعداد الخطط والتقارير | cmuphgcb8001y04lbup0l59zy |
-| 1 أكتوبر | ربط المنتجات بمقاطع Instagram | cmuphgcb8001s04lbw2dnde6o |
-| 1 أكتوبر | تعديل منتجات سابقة | cmuphgcb8001l04lbsrs561za |
-| 1 أكتوبر | إضافة منتجات جديدة | cmuphgcb8001f04lb4ukxu35c |
-| 1 أكتوبر | تصميم بنرات جديدة للمتجر. | cmuphgcb8001r04lbbl4788fq |
-| 1 أكتوبر | تصميم صور لمقالات وتعديلها على المتجر. | cmuphgcb8002404lbv7a6j4sy |
-| 31 أكتوبر | إعداد الخطط والتقارير | cmuphgcba004i04lb9uo8r5zs |
-| 31 أكتوبر | ربط المنتجات بمقاطع Instagram | cmuphgcba004f04lbx7cr382u |
-| 31 أكتوبر | تعديل منتجات سابقة | cmuphgcba004d04lb0wrk9r60 |
-| 31 أكتوبر | إضافة منتجات جديدة | cmuphgcba004b04lbeq5hm5wr |
-
-سبتمبر محمي من التطبيق: يوجد تقرير محفوظ وإنجاز يدوي في أسبوع زائد. لا
-يحذفهما السكربت ولا يدمجهما تلقائيًا. يلزم تحديد كيفية أرشفة التقرير وإسناد
-الإنجاز قبل تصحيح مجموعة خطط الموظف. المجموعة تعالج atomically لكل موظف.
-
-## تشغيل السكربت
-
-```powershell
-node --conditions=react-server --import tsx scripts/fix-plan-periods.ts
-node --conditions=react-server --import tsx scripts/fix-plan-periods.ts --test-db
+```
+executionStartDate + weeksCount
+executionEndDate = executionStartDate + weeksCount × 7 − 1   (مخزنة للبحث السريع، لا تُعدل مستقلة)
 ```
 
-Dry Run هو الافتراضي ويطبع الفترات والمهام وأسباب منع التطبيق. الكتابة لا تحدث
-إلا بإضافة --apply. يمكن تحديد موظف بـ --employee=<id>. خذ نسخة احتياطية وراجع
-المعاينة قبل التطبيق. --test-db يستخدم DATABASE_URL_TEST ولا يستخدم الإنتاج.
+- كل WeeklyPlan سبعة أيام تقويمية كاملة، ولا يُقص أسبوع بنهاية الشهر.
+- `company.workDays` يحدد أيام توليد DailyTasks داخل كل أسبوع فقط.
+- الخطة التالية تبدأ تلقائيًا في اليوم التالي لنهاية الخطة السابقة للموظف.
+- يُمنع التداخل (`newStart <= existingEnd AND newEnd >= existingStart`) داخل transaction مع قفل صف الموظف.
+- قيود قاعدة البيانات: `weeksCount > 0` و`executionEndDate >= executionStartDate`، وفهرس `(employeeId, executionStartDate, executionEndDate)`.
 
-أثناء إعادة البناء: تحفظ معرفات الأسابيع المتبقية والمهام المنفذة والملاحظات
-والأوزان والتقارير. يعاد ربط المهام بالأسبوع الذي يحتوي تاريخها. يعاد استخدام
-معرفات المهام المولدة غير المنفذة؛ الزائد يُلغى مع الاحتفاظ بالسجل والملاحظات،
-ولا يُحذف. تمنع المهام المنفذة خارج الفترة الجديدة والتقارير/الإنجازات اليدوية
-في أسابيع زائدة التطبيق كله. تُحدث أهداف الأسابيع وأرقام التقدم بعد التصحيح.
+## الدوال المركزية
 
-Migration الحقول الجديدة يحفظ الحدود التاريخية الموجودة، ولا يقص الأسابيع
-القديمة ولا يغير مهامها وتقاريرها. اختبرته على DATABASE_URL_TEST فقط.
+`src/lib/execution-period.ts` (دوال نقية):
 
-## الملفات التي شملتها إعادة تصميم الفترات
+| الدالة | الغرض |
+| --- | --- |
+| `calculateExecutionPeriod(start, weeksCount)` | `{ startDate, endDate, weeks[] }` |
+| `resolveExecutionPeriod(plan)` | الحقول المخزنة ← أول/آخر WeeklyPlan (بيانات قديمة) ← حدود الشهر (حل أخير) |
+| `getPlanExecutionStart / End / WeeksCount(plan)` | اختصارات |
+| `isDateInsidePlan(plan, date)` | هل التاريخ ضمن الخطة |
+| `periodsOverlap(a, b)` / `nextPlanStart(end)` / `assertConsistentPeriod` | التداخل، بداية الخطة التالية، التحقق |
 
-- prisma/schema.prisma وprisma/migrations/20261001010000_execution_periods/migration.sql.
-- src/lib/dates.ts وsrc/lib/validation.ts.
-- src/server/services/periods.ts وplans.ts وrebuild-plan-periods.ts وprogress.ts.
-- src/server/services/tasks.ts وreports.ts وperformance.ts وjobs.ts وteam-plan.ts.
-- src/server/queries/dashboard.ts وbatches.ts وsrc/actions/plans.ts.
-- src/app/(app)/my-plan/page.tsx وmy-week/page.tsx وmonthly-plans/[id]/page.tsx.
-- src/features/plans/create-plan-dialog.tsx وteam-plan-dialog.tsx وplan-period-editor.tsx.
-- scripts/fix-plan-periods.ts واختبارات execution-periods للوحدات والتكامل.
-- حدّثت fixtures لاختبارات plan-periods وdistribution-modes وmanual-mode وworkflow
-  لتحدد البداية/عدد الأسابيع عندما تختبر فترة بعينها، بدل الاعتماد على الشهر.
+`src/server/services/periods.ts`: `planSpan`، `findCurrentPlan(employeeId, date)`،
+`currentPlanMonth(date, employeeId?)` (الشهر الإداري الافتراضي للصفحات = الخطة الجارية اليوم)،
+`assertNoPlanOverlap`، `currentPlanWhere`، `assertTaskInPlan`.
 
-توجد تغييرات أخرى متزامنة في التقارير ومقاييسها داخل المجلد؛ احتفظت بها. أصلحت
-ثلاث تحويلات أنواع فقط في اختبار weekly-report-refresh كي ينجح typecheck، دون
-تغيير سلوكه. مراجعة React أبقت النهاية قيمة محسوبة، والتحقق من صلاحيات التعديل
-داخل Server Action، مع إعادة ضبط نموذج التعديل عند تغير الفترة المحفوظة.
+`planWeekPeriods(start, weeksCount, workDays)` في `src/lib/dates.ts` — لم تعد تقبل نهاية شهر.
 
-## حدود التحقق
+## تغيير فترة خطة موجودة
 
-prisma generate وmigration على DATABASE_URL_TEST وtypecheck ناجحة.
-اختبارات الوحدات: 206/206. اختبارات الفترات المعزولة: 11/11.
-lint: دون أخطاء، مع 7 تحذيرات قائمة. البناء نجح.
+`src/server/services/plan-execution.ts`:
 
-لم أعتمد نجاح مجموعة التكامل العامة: كان تشغيل آخر يتشارك قاعدة الاختبارات
-ويحذف fixtures أثناء التنفيذ. بناءً على اختيار المستخدم، اقتصرت نتيجة التكامل
-المعتمدة على اختبارات الفترات المعزولة ذات الموظف المستقل.
+- `rebuildPlanExecutionPeriod(planId, { executionStartDate, weeksCount, apply })` — تحافظ على
+  المعرفات والإنجاز والمهام المكتملة والتقارير وملاحظاتها؛ تعيد جدولة المهام الموزعة غير المنفذة.
+  المعاينة = نفس إعادة البناء داخل transaction يُلغى (rollback)، فالمعاينة مطابقة لما سيُطبق.
+  أي تعارض (مهمة منفذة خارج الفترة، تقرير أو إنجاز يدوي في أسبوع سيُزال) يمنع التطبيق.
+  واجهة «تعديل فترة التنفيذ» تعرض المعاينة قبل التأكيد.
+- `resetPlanExecutionPeriod` — بداية نظيفة لخطة: حذف الأسابيع والأهداف الأسبوعية والتقارير
+  والمهام المولدة غير المنفذة، ثم إعادة التوليد من الفترة الجديدة. الأهداف الشهرية تبقى.
+  لا تُحذف مهمة مكتملة أو يدوية أو بها إنجاز.
+- `purgePlans` — حذف خطط تاريخية كاملة مع مهامها (علاقة DailyTask بالهدف SetNull، فتُحذف صراحةً)
+  وتقاريرها ومرفقاتها وتعليقاتها.
 
-قبل نشر الكود، يجب تطبيق migration الحقول على البيئة المستهدفة. تطبيق تصحيح
-سبتمبر وأكتوبر منفصل وصريح، وليس جزءًا تلقائيًا من النشر.
+كل تغيير transactional ويُسجل في Audit: `plan.execution_period_rebuilt` (before/after،
+الأسابيع والمهام المتأثرة، المهام المكتملة المحمية) أو `plan.purged`.
+
+## سكربت ترحيل البيانات (عام لكل الخطط)
+
+```powershell
+npx tsx scripts/migrate-plan-execution-periods.ts [--plan=<id>] [--employee=<id>] [--year=YYYY] [--month=M]
+    [--mode=rebuild|reset] [--start=YYYY-MM-DD] [--weeks=N] [--purge-before=YYYY-MM] [--apply] [--test-db]
+```
+
+Dry Run افتراضي ولا يكتب شيئًا. الكتابة فقط مع `--apply`. `--test-db` يستخدم DATABASE_URL_TEST.
+
+بداية النظام الجديد (أكتوبر 2026) للموظف `cmui6o8js0012xsvzysr99wq1`:
+
+```powershell
+# 1) معاينة
+npx tsx scripts/migrate-plan-execution-periods.ts --employee=cmui6o8js0012xsvzysr99wq1 --purge-before=2026-10 --year=2026 --month=10 --mode=reset --start=2026-10-03 --weeks=4
+# 2) بعد نسخة احتياطية ومراجعة المعاينة
+npx tsx scripts/migrate-plan-execution-periods.ts --employee=cmui6o8js0012xsvzysr99wq1 --purge-before=2026-10 --year=2026 --month=10 --mode=reset --start=2026-10-03 --weeks=4 --apply
+```
+
+لا توجد سكربتات شهرية؛ أي خطة مستقبلية تُعالج بنفس الخدمة أو من واجهة «تعديل فترة التنفيذ».
+
+## Migration
+
+`prisma/migrations/20261001010000_execution_periods` تضيف الحقول وقيودها والفهرس، وتملأ الخطط
+القائمة مؤقتًا من أول/آخر WeeklyPlan وعدد الأسابيع. لا تحذف بيانات. تُطبق بـ `npm run db:migrate`.

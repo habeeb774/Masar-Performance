@@ -4,7 +4,8 @@ import { ArrowLeft, CalendarClock, FileCheck2, MessageSquareWarning, UserX } fro
 import type { SearchParams } from "@/lib/params";
 import { pageParams } from "@/lib/params";
 import { requireUser } from "@/server/auth/session";
-import { currentYearMonth, formatDateAr } from "@/lib/dates";
+import { formatDateAr, todayKey } from "@/lib/dates";
+import { currentPlanMonth } from "@/server/services/periods";
 import { REPORT_STATUS_LABELS } from "@/lib/labels";
 import { getCompany } from "@/server/services/company";
 import { ensureDueReports } from "@/server/services/reports";
@@ -32,7 +33,7 @@ export default async function MyReportsPage({ searchParams }: { searchParams: Se
   const employeeId = user.employeeId;
   const sp = await searchParams;
   const company = await getCompany();
-  const now = currentYearMonth(company.timezone);
+  const now = await currentPlanMonth(todayKey(company.timezone), employeeId);
   const { page, pageSize, skip, take } = pageParams(sp, 10);
 
   await ensureDueReports({ employeeIds: [employeeId], limit: 6 }).catch((e) => console.error("[my-reports] auto generation failed", e));

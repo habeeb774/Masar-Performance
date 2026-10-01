@@ -15,7 +15,7 @@ import { calculateReview } from "@/server/services/performance";
 import { buildEmployeePerformanceFile } from "@/server/export/performance-report";
 import { batchesForPeriod } from "@/server/queries/batches";
 import { rebuildStages, syncDataSource } from "@/server/notion/sync";
-import { monthEnd, monthStart, planWeekPeriods } from "@/lib/dates";
+import { monthStart, planWeekPeriods } from "@/lib/dates";
 import { num } from "@/lib/num";
 
 const YEAR = 2032;
@@ -62,7 +62,7 @@ let admin: AuthUser, manager: AuthUser, employee: AuthUser;
 let planId: string;
 let addGoalId: string, photoGoalId: string;
 let dataSourceId: string, connectionId: string;
-const weeks = planWeekPeriods(monthStart(YEAR, MONTH), monthEnd(YEAR, MONTH), [6, 0, 1, 2, 3]);
+const weeks = planWeekPeriods(monthStart(YEAR, MONTH), 5, [6, 0, 1, 2, 3]);
 const week2Day = weeks[1].workDays[0];
 const goal = (id: string) => db.monthlyGoal.findUniqueOrThrow({ where: { id } });
 

@@ -34,6 +34,7 @@ export function ReportListTable({ rows, showEmployee = true, emptyTitle = "لا 
       cell: ({ row }) => (
         <Link href={row.original.href} className="block min-w-44 text-sm hover:underline">
           {row.original.period}
+          {row.original.periodDetail && <span className="block text-xs text-muted-foreground">{row.original.periodDetail}</span>}
         </Link>
       ),
     },

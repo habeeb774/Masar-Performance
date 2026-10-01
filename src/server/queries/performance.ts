@@ -4,6 +4,8 @@ import { db } from "@/server/db";
 import type { AuthUser } from "@/server/auth/session";
 import { employeeIdScope } from "@/server/auth/session";
 import { getCompany } from "@/server/services/company";
+import { currentPlanMonth } from "@/server/services/periods";
+import { resolveExecutionPeriod } from "@/lib/execution-period";
 import { breakdownTotals, weightedProgress } from "@/server/queries/dashboard";
 import { fromDateKey, monthEnd, monthLabel, monthStart, shiftMonth, toDateKey, todayKey } from "@/lib/dates";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
@@ -19,10 +21,11 @@ const avg = (vals: (number | null | undefined)[]) => {
 
 const excerpt = (s: string | null | undefined, n = 120) => (s ? (s.length > n ? `${s.slice(0, n)}…` : s) : null);
 
+/** Today + the administrative month of the plans running today (not the calendar month). */
 export async function currentMonth() {
   const company = await getCompany();
   const today = todayKey(company.timezone);
-  return { today, year: +today.slice(0, 4), month: +today.slice(5, 7) };
+  return { today, ...(await currentPlanMonth(today)) };
 }
 
 /** Employee-id filter on the Employee model itself for the given user. */
@@ -267,8 +270,10 @@ export async function getPerformanceHistory(employeeId: string, range: 6 | 12, a
 
 export async function getPerformanceAnalytics(user: AuthUser, year: number, month: number) {
   const { today } = await currentMonth();
-  const from = fromDateKey(monthStart(year, month));
-  const to = fromDateKey(monthEnd(year, month));
+  // delays are counted over the month's execution periods (which may cross a calendar month)
+  const spans = (await db.monthlyPlan.findMany({ where: { year, month }, include: { weeklyPlans: { select: { startDate: true, endDate: true } } } })).map(resolveExecutionPeriod);
+  const from = fromDateKey(spans.map((s) => s.start).sort()[0] ?? monthStart(year, month));
+  const to = fromDateKey(spans.map((s) => s.end).sort().at(-1) ?? monthEnd(year, month));
   const todayDate = fromDateKey(today);
   const scope = employeeIdScope(user);
 

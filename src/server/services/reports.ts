@@ -6,7 +6,7 @@ import { audit } from "@/server/audit";
 import { UserError } from "@/server/action";
 import { assertEmployeeAccess, type AuthUser } from "@/server/auth/session";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
-import { addDays, formatDateAr, fromDateKey, monthLabel, shiftMonth, toDateKey, todayKey } from "@/lib/dates";
+import { formatDateAr, fromDateKey, monthLabel, shiftMonth, toDateKey, todayKey } from "@/lib/dates";
 import { isOverdue } from "@/lib/goal-status";
 import { formatPct, num } from "@/lib/num";
 import type { ProgressBreakdown } from "@/lib/notion/progress";
@@ -16,10 +16,11 @@ import { batchesForPeriod } from "@/server/queries/batches";
 import type { MonthlyReportContent, ReportBatchLine, ReportGoalLine, ReportTaskLine, StageSummaryLine, WeeklyReportContent } from "@/lib/report-types";
 import { batchText, breakdownText, goalCarryOver, goalHighlights, goalLinesOf, reportTotals, taskCarryOver, weeklyText } from "@/lib/weekly-report";
 import { weightedProgress } from "@/lib/weighted-progress";
+import { resolveExecutionPeriod } from "@/lib/execution-period";
 import { getCompanyFresh } from "./company";
 import { managerUserIdsFor, notifyUsers } from "./notifications";
 import { recomputePlan } from "./progress";
-import { MONTHLY_LOOKBACK_DAYS, REPORTABLE_PLAN_STATUSES, weeklyWindow, weeksNeedingReport } from "./reports-schedule";
+import { plansNeedingReport, REPORTABLE_PLAN_STATUSES, weeklyWindow, weeksNeedingReport } from "./reports-schedule";
 
 const asBreakdown = (v: unknown) => (v && typeof v === "object" ? (v as ProgressBreakdown) : null);
 
@@ -697,8 +698,10 @@ export async function ensureDueReports(opts: { employeeIds: "ALL" | string[]; no
     })),
     today,
   );
-  const spans = await Promise.all(plans.map(async (plan) => ({ id: plan.id, end: (await planSpan(plan)).end })));
-  const duePlans = spans.filter((span) => span.end <= today && span.end >= addDays(today, -MONTHLY_LOOKBACK_DAYS));
+  const duePlans = plansNeedingReport(
+    plans.map((plan) => ({ id: plan.id, executionEnd: resolveExecutionPeriod(plan).end, planStatus: plan.status, hasReport: false })),
+    today,
+  );
 
   let budget = opts.limit ?? Number.POSITIVE_INFINITY;
   const run = async (fn: () => Promise<unknown>, key: "weekly" | "monthly") => {

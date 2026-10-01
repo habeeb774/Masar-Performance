@@ -15,17 +15,25 @@ import { notifyUsers, managerUserIdsFor } from "./notifications";
 import { recomputePlan } from "./progress";
 import { assertNoPlanOverlap, firstPeriodStart, lockEmployeePeriods, planSpan } from "./periods";
 import { isNotionGoal, reconcileSourceChange } from "./manual";
-import { rebuildPlanPeriods } from "./rebuild-plan-periods";
+import { rebuildPlanExecutionPeriod } from "./plan-execution";
 
 export async function updatePlanPeriod(user: AuthUser, planId: string, input: { executionStartDate: string; weeksCount: number; confirmed: boolean }) {
   const plan = await getPlanOrThrow(planId);
   assertEmployeeAccess(user, plan.employeeId);
   if (!canManagePlans(user)) throw new UserError("تغيير فترة التنفيذ متاح للمدير فقط");
-  if (!["DRAFT", "SUBMITTED"].includes(plan.status) && !input.confirmed) throw new UserError("تغيير فترة الخطة سيؤثر على الأسابيع والمهام اليومية. أكّد التغيير أولًا");
-  const company = await getCompany();
-  await rebuildPlanPeriods(planId, input.executionStartDate, input.weeksCount, company.workDays);
-  await audit({ user, action: "plan.period", entityType: "MonthlyPlan", entityId: planId, before: plan, after: input });
-  await recomputePlan(planId);
+  if (!["DRAFT", "SUBMITTED"].includes(plan.status) && !input.confirmed) throw new UserError("تغيير فترة التنفيذ سيعيد بناء الأسابيع والمهام غير المكتملة. أكّد التغيير أولًا");
+  // transactional rebuild + audit «plan.execution_period_rebuilt» + recompute
+  const report = await rebuildPlanExecutionPeriod(planId, { executionStartDate: input.executionStartDate, weeksCount: input.weeksCount, apply: true, user });
+  if (!report.applied) throw new UserError(report.conflicts.join(" — ") || "تعذر تغيير فترة التنفيذ");
+  return report;
+}
+
+/** What a period change would do — the same rebuild, rolled back. */
+export async function previewPlanPeriod(user: AuthUser, planId: string, input: { executionStartDate: string; weeksCount: number }) {
+  const plan = await getPlanOrThrow(planId);
+  assertEmployeeAccess(user, plan.employeeId);
+  if (!canManagePlans(user)) throw new UserError("تغيير فترة التنفيذ متاح للمدير فقط");
+  return rebuildPlanExecutionPeriod(planId, { ...input, apply: false });
 }
 
 type ParsedGoalInput = z.output<typeof monthlyGoalSchema>;
@@ -345,7 +353,7 @@ export async function ensureWeeklyPlans(planId: string) {
  * tasks from today on, so nobody has to "save the distribution" by hand.
  * Weeks or goals that already have a saved distribution are left untouched.
  */
-export async function autoDistributePlan(planId: string, userId: string) {
+export async function autoDistributePlan(planId: string, userId: string | null) {
   const company = await getCompany();
   const today = todayKey(company.timezone);
   const plan = await db.monthlyPlan.findUniqueOrThrow({ where: { id: planId }, include: { weeklyPlans: true } });

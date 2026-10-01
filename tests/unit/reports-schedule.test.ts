@@ -1,9 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-  dueMonths,
-  isMonthDue,
+  isPlanDue,
   isWeekEnded,
-  monthsNeedingReport,
+  plansNeedingReport,
   weeksNeedingReport,
 } from "@/server/services/reports-schedule";
 
@@ -13,19 +12,11 @@ describe("reports schedule", () => {
     expect(isWeekEnded("2026-09-24", "2026-09-25")).toBe(true);
   });
 
-  it("makes the monthly report due on the month's last day", () => {
-    expect(isMonthDue(2026, 9, "2026-09-29")).toBe(false);
-    expect(isMonthDue(2026, 9, "2026-09-30")).toBe(true);
-    expect(isMonthDue(2026, 8, "2026-09-01")).toBe(true);
-  });
-
-  it("lists due months within the lookback window, newest first", () => {
-    expect(dueMonths("2026-09-27")).toEqual([{ year: 2026, month: 8 }]);
-    expect(dueMonths("2026-09-30")).toEqual([
-      { year: 2026, month: 9 },
-      { year: 2026, month: 8 },
-    ]);
-    expect(dueMonths("2026-01-20")).toEqual([{ year: 2025, month: 12 }]);
+  it("makes the monthly report due on the plan's last execution day, not the calendar month end", () => {
+    // September plan runs 5 Sep → 2 Oct
+    expect(isPlanDue("2026-10-02", "2026-09-30")).toBe(false);
+    expect(isPlanDue("2026-10-02", "2026-10-01")).toBe(false);
+    expect(isPlanDue("2026-10-02", "2026-10-02")).toBe(true);
   });
 
   it("selects only ended, unreported weeks of reportable plans", () => {
@@ -80,43 +71,36 @@ describe("reports schedule", () => {
     ]);
   });
 
-  it("selects only due, unreported months of reportable plans", () => {
+  it("selects only ended, unreported plans of reportable statuses", () => {
     const plans = [
       {
         id: "aug",
-        year: 2026,
-        month: 8,
+        executionEnd: "2026-09-04",
         planStatus: "COMPLETED",
         hasReport: false,
       },
       {
         id: "aug-done",
-        year: 2026,
-        month: 8,
+        executionEnd: "2026-09-04",
         planStatus: "COMPLETED",
         hasReport: true,
       },
       {
         id: "aug-submitted-plan",
-        year: 2026,
-        month: 8,
+        executionEnd: "2026-09-04",
         planStatus: "SUBMITTED",
         hasReport: false,
       },
       {
         id: "sep",
-        year: 2026,
-        month: 9,
+        executionEnd: "2026-10-02",
         planStatus: "IN_PROGRESS",
         hasReport: false,
       },
     ];
-    expect(monthsNeedingReport(plans, "2026-09-27").map((p) => p.id)).toEqual([
-      "aug",
-    ]);
-    expect(monthsNeedingReport(plans, "2026-09-30").map((p) => p.id)).toEqual([
-      "aug",
-      "sep",
-    ]);
+    expect(plansNeedingReport(plans, "2026-09-27").map((p) => p.id)).toEqual(["aug"]);
+    // September's plan ends 2 Oct — its report is not due on 30 Sep
+    expect(plansNeedingReport(plans, "2026-09-30").map((p) => p.id)).toEqual(["aug"]);
+    expect(plansNeedingReport(plans, "2026-10-02").map((p) => p.id)).toEqual(["aug", "sep"]);
   });
 });

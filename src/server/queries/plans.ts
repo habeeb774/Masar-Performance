@@ -10,12 +10,13 @@ import { normalizeRule, readBreakdown, type NotionSourceOption, type TestPeriod 
 import type { DistributionGoal, PlanGoalRow, WeekColumn } from "@/features/plans/types";
 import type { DistributionModeKey, GoalSourceKey, GoalStatusKey, GoalTypeKey, KpiCategoryKey, PriorityKey } from "@/lib/labels";
 import { weightedProgress } from "./dashboard";
+import { currentPlanMonth } from "@/server/services/periods";
 
-/** Current year/month + today in the company timezone. */
+/** Today in the company timezone + the administrative month of the plans running today. */
 export async function companyToday() {
   const company = await getCompany();
   const today = todayKey(company.timezone);
-  return { company, today, year: +today.slice(0, 4), month: +today.slice(5, 7) };
+  return { company, today, ...(await currentPlanMonth(today)) };
 }
 
 /** Period used by "اختبار القاعدة" (the current month). */
