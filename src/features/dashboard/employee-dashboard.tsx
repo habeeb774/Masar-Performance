@@ -51,7 +51,9 @@ export function EmployeeDashboard({
   const { stats, week } = data;
   const next = nextTask(data.todayTaskRows, data.adHocRows, data.today);
   const allDone = stats.todayCount > 0 && stats.todayDone >= stats.todayCount;
-  const weekGoals = (week?.goals ?? []).filter((g) => g.monthlyGoal.status !== "CANCELLED");
+  const weekGoals = (week?.goals ?? [])
+    .filter((g) => g.monthlyGoal.status !== "CANCELLED")
+    .filter((g) => num(g.targetValue) > 0 || num(g.achievedValue) > 0);
   const alerts = [
     stats.delayed > 0 && { icon: AlarmClock, tone: "text-danger", text: `${formatNumber(stats.delayed)} مهام متأخرة`, href: "/my-tasks" },
     stats.needsRevision > 0 && { icon: RotateCcw, tone: "text-warning", text: `${formatNumber(stats.needsRevision)} عناصر تحتاج تحسين`, href: "/my-plan" },

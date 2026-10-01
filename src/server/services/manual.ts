@@ -83,6 +83,12 @@ export async function setManualAchievement(user: AuthUser, goalId: string, input
   const distributed = goal.distributionMode === "DISTRIBUTED";
   if (distributed && !input.date) throw new UserError("حدد تاريخ الإنجاز ليُسند إلى أسبوعه");
   const company = await getCompany();
+  // Distributed goals must always be attributed to an explicit achievement date.
+  // Silently defaulting to "today" corrupts historical weekly progress by placing
+  // the whole manual adjustment in the current week.
+  if (goal.distributionMode === "DISTRIBUTED" && !input.date) {
+    throw new UserError("حدد تاريخ الإنجاز حتى يتم احتسابه في الأسبوع الصحيح");
+  }
   const day = input.date || todayKey(company.timezone);
   const week = distributed ? await weekGoalOn(goalId, day) : await weekGoalFor(goalId, day);
   if (distributed && !week) throw new UserError("تاريخ الإنجاز خارج فترات هذا الهدف");

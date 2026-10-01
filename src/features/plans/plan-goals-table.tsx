@@ -380,7 +380,9 @@ export function PlanGoalsSummary({
   canEdit: boolean;
   access?: ManualAccess;
 }) {
-  const active = goals.filter((g) => g.status !== "CANCELLED");
+  const active = goals
+    .filter((g) => g.status !== "CANCELLED")
+    .filter((g) => Number(g.targetValue) > 0 || Number(g.achievedValue) > 0);
   if (active.length === 0) return <EmptyState icon={Target} title="لا توجد أهداف في هذه الخطة" className="py-6" />;
   const groups = groupByDuty(active, dutyOf);
   return (
