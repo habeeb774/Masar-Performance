@@ -62,6 +62,7 @@ export const NAV: NavGroup[] = [
       { href: "/tasks", label: "مهام الفريق", icon: "allTasks", anyOf: [PERMISSIONS.TASKS_ASSIGN] },
       { href: "/employees", label: "الموظفون", icon: "employees", anyOf: [PERMISSIONS.EMPLOYEES_VIEW_ALL, PERMISSIONS.EMPLOYEES_MANAGE] },
       { href: "/performance", label: "أداء الفريق", icon: "kpis", anyOf: [PERMISSIONS.PERFORMANCE_REVIEW, PERMISSIONS.PERFORMANCE_APPROVE, PERMISSIONS.KPI_MANAGE] },
+      { href: "/performance/evaluations", label: "التقييم الرسمي", icon: "reviews", anyOf: [PERMISSIONS.PERFORMANCE_REVIEW, PERMISSIONS.PERFORMANCE_APPROVE] },
     ],
   },
   {

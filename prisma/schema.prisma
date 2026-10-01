@@ -378,6 +378,7 @@ model JobTitle {
   department   Department?    @relation(fields: [departmentId], references: [id])
   employees    Employee[]
   goalTemplates GoalTemplate[]
+  evaluationTemplates EvaluationTemplate[]
   kpis         Kpi[]
 }
 
@@ -410,6 +411,7 @@ model Employee {
   weeklyReports WeeklyReport[]
   monthlyReports MonthlyReport[]
   reviews       PerformanceReview[]
+  evaluations   PerformanceEvaluation[]
   notionItems   NotionSyncedItem[]
   stageOwnerships NotionFieldMapping[] @relation("StageOwner")
   defaultForSources NotionDataSource[] @relation("DataSourceDefaultEmployee")
@@ -489,6 +491,7 @@ model MonthlyPlan {
   weeklyPlans  WeeklyPlan[]
   report       MonthlyReport?
   review       PerformanceReview?
+  evaluation   PerformanceEvaluation?
 
   @@unique([employeeId, year, month])
   @@index([employeeId, executionStartDate, executionEndDate], map: "MonthlyPlan_employeeId_execution_dates_idx")
@@ -1126,4 +1129,156 @@ model Reminder {
 
   @@index([ownerId, status])
   @@index([employeeId])
+}
+
+// ---------------------------------------------------------------------
+//  Official monthly evaluation (the manager's Excel model)
+//  final = Σ duty.score × duty.weight / 100
+//  duty.score = Σ indicator.score × indicator.weight / 100
+//  indicator.score = achieved / target × 100 (capped at 100 when capAt100)
+//  A layer on top of plans / reports — it never changes their data.
+// ---------------------------------------------------------------------
+
+enum EvaluationStatus {
+  DRAFT
+  APPROVED
+}
+
+enum EvaluationSourceType {
+  MANUAL
+  MONTHLY_GOAL
+  MONTHLY_PLAN
+  WEEKLY_PLAN
+  WEEKLY_REPORT
+  MONTHLY_REPORT
+  AD_HOC_TASK
+}
+
+/**
+ * What a duty is filled from when an evaluation is built.
+ */
+enum EvaluationDutyKind {
+  COMMITMENT // plan / weekly plans / weekly reports / monthly report timeliness
+  GOALS // indicators taken from the plan's monthly goals
+  AD_HOC // ad-hoc tasks marked «تدخل في التقييم»
+  MANUAL
+}
+
+model EvaluationTemplate {
+  id         String                   @id @default(cuid())
+  name       String
+  jobTitleId String?
+  isActive   Boolean                  @default(true)
+  capAt100   Boolean                  @default(true)
+  createdAt  DateTime                 @default(now())
+  updatedAt  DateTime                 @updatedAt
+  jobTitle   JobTitle?                @relation(fields: [jobTitleId], references: [id], onDelete: SetNull)
+  duties     EvaluationTemplateDuty[]
+
+  @@index([jobTitleId])
+}
+
+model EvaluationTemplateDuty {
+  id         String                        @id @default(cuid())
+  templateId String
+  title      String
+  kind       EvaluationDutyKind            @default(MANUAL)
+  weight     Decimal                       @db.Decimal(6, 2)
+  sortOrder  Int                           @default(0)
+  template   EvaluationTemplate            @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  indicators EvaluationTemplateIndicator[]
+
+  @@index([templateId])
+}
+
+model EvaluationTemplateIndicator {
+  id           String                 @id @default(cuid())
+  dutyId       String
+  title        String
+  description  String?
+  notes        String?
+  target       Decimal                @default(0) @db.Decimal(12, 2)
+  weight       Decimal                @default(0) @db.Decimal(6, 2)
+  sourceType   EvaluationSourceType   @default(MANUAL)
+  /**
+   * MONTHLY_GOAL: { goalNameIncludes: string[] } — which plan goal feeds it
+   */
+  sourceConfig Json?
+  sortOrder    Int                    @default(0)
+  duty         EvaluationTemplateDuty @relation(fields: [dutyId], references: [id], onDelete: Cascade)
+
+  @@index([dutyId])
+}
+
+model PerformanceEvaluation {
+  id             String           @id @default(cuid())
+  employeeId     String
+  monthlyPlanId  String?          @unique
+  templateId     String?
+  year           Int
+  month          Int
+  periodStart    DateTime         @db.Date
+  periodEnd      DateTime         @db.Date
+  capAt100       Boolean          @default(true)
+  /**
+   * Σ duty score × weight — always recomputed
+   */
+  computedScore  Decimal          @default(0) @db.Decimal(9, 4)
+  /**
+   * manager override of the final score (reason + audit required)
+   */
+  overrideScore  Decimal?         @db.Decimal(9, 4)
+  overrideReason String?
+  finalScore     Decimal          @default(0) @db.Decimal(9, 4)
+  ratingLabel    String?
+  status         EvaluationStatus @default(DRAFT)
+  managerNotes   String?
+  approvedById   String?
+  approvedAt     DateTime?
+  createdById    String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  employee       Employee         @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  monthlyPlan    MonthlyPlan?     @relation(fields: [monthlyPlanId], references: [id], onDelete: SetNull)
+  duties         EvaluationDuty[]
+
+  @@unique([employeeId, year, month])
+  @@index([year, month])
+}
+
+model EvaluationDuty {
+  id           String                @id @default(cuid())
+  evaluationId String
+  title        String
+  kind         EvaluationDutyKind    @default(MANUAL)
+  weight       Decimal               @db.Decimal(6, 2)
+  score        Decimal               @default(0) @db.Decimal(9, 4)
+  sortOrder    Int                   @default(0)
+  evaluation   PerformanceEvaluation @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+  indicators   EvaluationIndicator[]
+
+  @@index([evaluationId])
+}
+
+model EvaluationIndicator {
+  id            String               @id @default(cuid())
+  dutyId        String
+  title         String
+  description   String?
+  notes         String?
+  achieved      Decimal              @default(0) @db.Decimal(12, 2)
+  target        Decimal              @default(0) @db.Decimal(12, 2)
+  weight        Decimal              @default(0) @db.Decimal(6, 2)
+  score         Decimal              @default(0) @db.Decimal(9, 4)
+  weightedScore Decimal              @default(0) @db.Decimal(9, 4)
+  sourceType    EvaluationSourceType @default(MANUAL)
+  sourceId      String?
+  /**
+   * the manager changed an automatic value: a refresh keeps it
+   */
+  isOverridden  Boolean              @default(false)
+  sortOrder     Int                  @default(0)
+  duty          EvaluationDuty       @relation(fields: [dutyId], references: [id], onDelete: Cascade)
+
+  @@index([dutyId])
 }

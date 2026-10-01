@@ -260,8 +260,9 @@ export function AdHocTaskDialog({
                 )}
               />
               <Field data-invalid={!!err.weight} className="sm:max-w-48">
-                <FieldLabel htmlFor="ah-weight">الوزن في التقييم %</FieldLabel>
+                <FieldLabel htmlFor="ah-weight">الوزن داخل «المهام المستجدة» %</FieldLabel>
                 <Input id="ah-weight" type="number" min={0} max={100} step="any" {...form.register("weight")} />
+                <p className="text-xs text-muted-foreground">تظهر في الواجب الرابع للتقييم الرسمي؛ مجموع أوزان مهام الشهر = 100%.</p>
                 <FieldError errors={[err.weight]} />
               </Field>
               <Controller

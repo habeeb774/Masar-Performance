@@ -73,6 +73,11 @@ export default async function PerformanceAnalyticsPage({ searchParams }: { searc
                 التقييمات الشهرية <ArrowLeft />
               </Link>
             </Button>
+            <Button asChild>
+              <Link href={`/performance/evaluations?year=${year}&month=${month}`}>
+                التقييم الرسمي الشهري <ArrowLeft />
+              </Link>
+            </Button>
           </>
         }
       />
