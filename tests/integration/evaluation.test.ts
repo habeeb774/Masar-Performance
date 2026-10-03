@@ -70,10 +70,10 @@ beforeAll(async () => {
 afterAll(cleanup);
 
 describe("building an evaluation", () => {
-  it("creates the 4 official duties (20 / 40 / 20 / 20) for the plan's execution period", async () => {
+  it("creates the 4 official duties (20 / 25 / 20 / 35) for the plan's execution period", async () => {
     evaluationId = (await ev.createEvaluation(manager, emp, Y, M)).id;
     const e = await load();
-    expect(e.duties.map((d) => [d.kind, num(d.weight)])).toEqual([["COMMITMENT", 20], ["GOALS", 40], ["GOALS", 20], ["AD_HOC", 20]]);
+    expect(e.duties.map((d) => [d.kind, num(d.weight)])).toEqual([["COMMITMENT", 20], ["GOALS", 25], ["GOALS", 20], ["AD_HOC", 35]]);
     expect([toDateKey(e.periodStart), toDateKey(e.periodEnd)]).toEqual([`${Y}-07-01`, `${Y}-07-28`]);
     expect(e.monthlyPlanId).toBe(planId);
     // creating again returns the same evaluation
@@ -85,7 +85,7 @@ describe("building an evaluation", () => {
     expect(d2.indicators.map((i) => [i.sourceType, num(i.achieved), num(i.target), num(i.weight)])).toEqual([["MONTHLY_GOAL", 141, 160, 100]]);
     expect(num(d2.score)).toBe(88.125);
     const d3 = await duty(2);
-    expect(d3.indicators.map((i) => [num(i.target), num(i.weight)])).toEqual([[6, 30], [5, 35], [3, 35]]);
+    expect(d3.indicators.map((i) => [num(i.target), num(i.weight)])).toEqual([[6, 100], [5, 0], [3, 0]]);
     expect(num((await db.monthlyGoal.findFirstOrThrow({ where: { planId, name: "إضافة منتجات جديدة" } })).achievedValue)).toBe(141);
   });
 
@@ -124,6 +124,16 @@ describe("manager edits, audit and approval", () => {
     await ev.updateDuty(manager, d3.id, { weight: 20 }, "إرجاع");
   });
 
+  it("changing a target requires a reason and writes it into the KPI notes", async () => {
+    const ind = (await duty(1)).indicators[0];
+    await expect(ev.updateIndicator(manager, ind.id, { target: 120 }, null)).rejects.toThrow("سبب تعديل المستهدف مطلوب");
+    await ev.updateIndicator(manager, ind.id, { target: 120 }, "تم تخفيض المستهدف لعدم توفر منتجات مناسبة");
+    const updated = (await duty(1)).indicators[0];
+    expect(num(updated.target)).toBe(120);
+    expect(updated.notes).toContain("تم تخفيض المستهدف لعدم توفر منتجات مناسبة");
+    await ev.resetIndicator(manager, ind.id);
+  });
+
   it("the final-score override needs a reason and is audited", async () => {
     await expect(ev.overrideFinalScore(manager, evaluationId, 90, " ")).rejects.toThrow();
     await ev.overrideFinalScore(manager, evaluationId, 90, "قرار الإدارة");
@@ -149,7 +159,7 @@ describe("reference: the manager's July 2026 sheet entered through the service",
 
     const e = await load();
     expect(e.duties.map((d) => num(d.score))).toEqual([80, 100, 100, 100]);
-    expect(e.result.duties.map((d) => d.rate)).toEqual([16, 40, 20, 20]);
+    expect(e.result.duties.map((d) => d.rate)).toEqual([16, 25, 20, 35]);
     expect(num(e.finalScore)).toBe(96);
     expect(e.ratingLabel).toBe("ممتاز");
     expect(e.validation).toEqual([]);
