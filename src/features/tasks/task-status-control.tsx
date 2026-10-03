@@ -79,6 +79,7 @@ export function TaskPriorityMark({ priority }: { priority: PriorityKey }) {
 export interface PostponeHandlers {
   onTomorrow: () => void;
   onNextWeek: () => void;
+  onCustomDate?: (date: string, reason?: string) => void;
   pending?: boolean;
 }
 
@@ -94,6 +95,9 @@ export function TaskStatusControl({
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [postponeOpen, setPostponeOpen] = useState(false);
+  const [postponeDate, setPostponeDate] = useState("");
+  const [postponeReason, setPostponeReason] = useState("");
   const [status, setStatus] = useState<TaskStatusKey>(task.status);
   const [achieved, setAchieved] = useState(String(task.achieved ?? 0));
   const [progress, setProgress] = useState(String(task.progress));
@@ -168,8 +172,57 @@ export function TaskStatusControl({
           <DropdownMenuContent align="end">
             <DropdownMenuItem onSelect={postpone.onTomorrow}>إلى الغد</DropdownMenuItem>
             <DropdownMenuItem onSelect={postpone.onNextWeek}>إلى الأسبوع القادم</DropdownMenuItem>
+            {postpone.onCustomDate && <DropdownMenuItem onSelect={() => setPostponeOpen(true)}>اختيار تاريخ…</DropdownMenuItem>}
           </DropdownMenuContent>
         </DropdownMenu>
+      )}
+      {postpone?.onCustomDate && (
+        <Dialog open={postponeOpen} onOpenChange={setPostponeOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="text-base">تأجيل المهمة</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor={`postpone-date-${task.id}`}>التاريخ الجديد</Label>
+                <Input
+                  id={`postpone-date-${task.id}`}
+                  type="date"
+                  value={postponeDate}
+                  onChange={(e) => setPostponeDate(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor={`postpone-reason-${task.id}`}>سبب التأجيل (اختياري)</Label>
+                <Textarea
+                  id={`postpone-reason-${task.id}`}
+                  rows={2}
+                  placeholder="مثال: انتظار اعتماد المنتجات…"
+                  value={postponeReason}
+                  onChange={(e) => setPostponeReason(e.target.value)}
+                  maxLength={1000}
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setPostponeOpen(false)} disabled={postpone.pending}>
+                إلغاء
+              </Button>
+              <Button
+                onClick={() => {
+                  if (!postponeDate) return;
+                  postpone.onCustomDate?.(postponeDate, postponeReason.trim() || undefined);
+                  setPostponeOpen(false);
+                  setPostponeDate("");
+                  setPostponeReason("");
+                }}
+                disabled={!postponeDate || postpone.pending}
+              >
+                {postpone.pending && <Spinner />} تأجيل
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       )}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-md">
