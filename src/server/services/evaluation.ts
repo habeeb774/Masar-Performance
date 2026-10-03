@@ -45,9 +45,10 @@ export const DEFAULT_TEMPLATE = {
     {
       title: "الواجب الثاني: إضافة وتعديل المنتجات في المتجر",
       kind: "GOALS",
-      weight: 40,
+      weight: 25,
       indicators: [
-        { title: "إضافة المنتجات الجديدة للمتجر", description: "عدد المنتجات التي تم إدخالها للمتجر من إجمالي العدد المستهدف.", target: 0, weight: 100, sourceType: "MONTHLY_GOAL", sourceConfig: { goalNameIncludes: ["إضافة منتجات", "إضافة المنتجات"] } },
+        { title: "إضافة المنتجات الجديدة للمتجر", description: "عدد المنتجات التي تم إدخالها للمتجر من إجمالي العدد المستهدف.", target: 0, weight: 50, sourceType: "MONTHLY_GOAL", sourceConfig: { goalNameIncludes: ["إضافة منتجات", "إضافة المنتجات"] } },
+        { title: "تعديل المنتجات الموجودة في المتجر", description: "عدد المنتجات التي تم تعديلها في المتجر من إجمالي العدد المستهدف.", target: 0, weight: 50, sourceType: "MONTHLY_GOAL", sourceConfig: { goalNameIncludes: ["تعديل المنتجات", "تعديل منتجات", "المنتجات الموجودة"] } },
       ],
     },
     {
@@ -55,44 +56,77 @@ export const DEFAULT_TEMPLATE = {
       kind: "GOALS",
       weight: 20,
       indicators: [
-        { title: "ربط المنتجات بمقاطع الانستقرام في المتجر", description: "عدد المقاطع التي تم ربطها بالمنتجات من إجمالي المقاطع التي تم نشرها.", target: 0, weight: 30, sourceType: "MONTHLY_GOAL", sourceConfig: { goalNameIncludes: ["Instagram", "الانستقرام", "انستقرام"] } },
-        { title: "تصميم صور المقالات وتعديلها على المتجر", description: "عدد المقالات التي تم تصميم صورها وتعديلها.", target: 0, weight: 35, sourceType: "MONTHLY_GOAL", sourceConfig: { goalNameIncludes: ["مقالات"] } },
-        { title: "تصميم بنرات جديدة للمتجر", description: "عدد البنرات الجديدة المنجزة.", target: 0, weight: 35, sourceType: "MONTHLY_GOAL", sourceConfig: { goalNameIncludes: ["بنرات جديدة"] } },
+        { title: "ربط المنتجات بمقاطع الانستقرام في المتجر", description: "عدد المقاطع التي تم ربطها بالمنتجات من إجمالي المقاطع التي تم نشرها.", target: 0, weight: 100, sourceType: "MONTHLY_GOAL", sourceConfig: { goalNameIncludes: ["Instagram", "الانستقرام", "انستقرام"] } },
+        { title: "تصميم صور المقالات وتعديلها على المتجر", description: "عدد المقالات التي تم تصميم صورها وتعديلها.", target: 0, weight: 0, sourceType: "MONTHLY_GOAL", sourceConfig: { goalNameIncludes: ["مقالات"] } },
+        { title: "تصميم بنرات جديدة للمتجر", description: "عدد البنرات الجديدة المنجزة.", target: 0, weight: 0, sourceType: "MONTHLY_GOAL", sourceConfig: { goalNameIncludes: ["بنرات جديدة"] } },
       ],
     },
-    { title: "الواجب الرابع: مهام مستجدة كُلّف بها خلال الشهر", kind: "AD_HOC", weight: 20, indicators: [] },
+    { title: "الواجب الرابع: مهام مستجدة كُلّف بها خلال الشهر", kind: "AD_HOC", weight: 35, indicators: [] },
   ],
 } as const;
 
 /** The default template, created once (idempotent) — also how production gets it without a seed. */
+const defaultDutiesCreate = () =>
+  DEFAULT_TEMPLATE.duties.map((d, di) => ({
+    title: d.title,
+    kind: d.kind,
+    weight: d.weight,
+    sortOrder: di,
+    indicators: {
+      create: d.indicators.map((x, ii) => ({
+        title: x.title,
+        description: x.description,
+        notes: "notes" in x ? x.notes : null,
+        target: x.target,
+        weight: x.weight,
+        sourceType: x.sourceType,
+        sourceConfig: "sourceConfig" in x ? (x.sourceConfig as unknown as Prisma.InputJsonValue) : undefined,
+        sortOrder: ii,
+      })),
+    },
+  }));
+
+/**
+ * Keep the code-owned default template aligned with the currently approved HR model.
+ * Existing monthly evaluations are snapshots and are never rewritten here.
+ */
 export async function ensureDefaultEvaluationTemplate(tx: Tx | typeof db = db) {
-  const existing = await tx.evaluationTemplate.findFirst({ where: { name: DEFAULT_TEMPLATE.name } });
-  if (existing) return existing;
+  const existing = await tx.evaluationTemplate.findFirst({
+    where: { name: DEFAULT_TEMPLATE.name },
+    include: { duties: { orderBy: { sortOrder: "asc" }, include: { indicators: { orderBy: { sortOrder: "asc" } } } } },
+  });
   const jobTitle = await tx.jobTitle.findFirst({ where: { name: DEFAULT_TEMPLATE.jobTitleName } });
-  return tx.evaluationTemplate.create({
-    data: {
-      name: DEFAULT_TEMPLATE.name,
-      jobTitleId: jobTitle?.id ?? null,
-      duties: {
-        create: DEFAULT_TEMPLATE.duties.map((d, di) => ({
-          title: d.title,
-          kind: d.kind,
-          weight: d.weight,
-          sortOrder: di,
-          indicators: {
-            create: d.indicators.map((x, ii) => ({
-              title: x.title,
-              description: x.description,
-              notes: "notes" in x ? x.notes : null,
-              target: x.target,
-              weight: x.weight,
-              sourceType: x.sourceType,
-              sourceConfig: "sourceConfig" in x ? (x.sourceConfig as unknown as Prisma.InputJsonValue) : undefined,
-              sortOrder: ii,
-            })),
-          },
-        })),
+
+  if (!existing) {
+    return tx.evaluationTemplate.create({
+      data: {
+        name: DEFAULT_TEMPLATE.name,
+        jobTitleId: jobTitle?.id ?? null,
+        duties: { create: defaultDutiesCreate() },
       },
+    });
+  }
+
+  const current = existing.duties.map((d) => ({
+    title: d.title,
+    kind: d.kind,
+    weight: num(d.weight),
+    indicators: d.indicators.map((i) => ({ title: i.title, weight: num(i.weight), sourceType: i.sourceType })),
+  }));
+  const official = DEFAULT_TEMPLATE.duties.map((d) => ({
+    title: d.title,
+    kind: d.kind,
+    weight: d.weight,
+    indicators: d.indicators.map((i) => ({ title: i.title, weight: i.weight, sourceType: i.sourceType })),
+  }));
+
+  if (JSON.stringify(current) === JSON.stringify(official)) return existing;
+
+  return tx.evaluationTemplate.update({
+    where: { id: existing.id },
+    data: {
+      jobTitleId: existing.jobTitleId ?? jobTitle?.id ?? null,
+      duties: { deleteMany: {}, create: defaultDutiesCreate() },
     },
   });
 }
@@ -214,25 +248,56 @@ async function pullAutomatic(tx: Tx, evaluationId: string) {
   const configOf = (title: string) => template?.duties.flatMap((d) => d.indicators).find((i) => i.title === title)?.sourceConfig ?? null;
 
   for (const duty of e.duties) {
+    const goalIndicators = duty.indicators.filter((ind) => !ind.isOverridden && ind.sourceType === "MONTHLY_GOAL");
+    if (goalIndicators.length > 0) {
+      const measured = goalIndicators.map((ind) => ({ ind, m: measure(ind.sourceType, configOf(ind.title), ctx) }));
+      const active = measured.filter((x) => x.m);
+      const templateWeights = active.map(({ ind }) => {
+        const source = template?.duties.flatMap((d) => d.indicators).find((i) => i.title === ind.title);
+        return source ? num(source.weight) : num(ind.weight);
+      });
+      const baseSum = templateWeights.reduce((a, b) => a + Math.max(0, b), 0);
+      for (const { ind, m } of measured) {
+        if (!m) {
+          await tx.evaluationIndicator.update({ where: { id: ind.id }, data: { achieved: 0, target: 0, weight: 0, sourceId: null } });
+          continue;
+        }
+        const activeIndex = active.findIndex((x) => x.ind.id === ind.id);
+        const base = Math.max(0, templateWeights[activeIndex] ?? 0);
+        const normalizedWeight = baseSum > 0 ? (base / baseSum) * 100 : 100 / active.length;
+        await tx.evaluationIndicator.update({
+          where: { id: ind.id },
+          data: { achieved: m.achieved, target: m.target, weight: normalizedWeight, sourceId: m.sourceId ?? ind.sourceId, ...(m.notes !== undefined && !ind.notes ? { notes: m.notes } : {}) },
+        });
+      }
+    }
+
     for (const ind of duty.indicators) {
-      if (ind.isOverridden || ind.sourceType === "MANUAL" || ind.sourceType === "AD_HOC_TASK") continue;
+      if (ind.isOverridden || ind.sourceType === "MANUAL" || ind.sourceType === "AD_HOC_TASK" || ind.sourceType === "MONTHLY_GOAL") continue;
       const m = measure(ind.sourceType, configOf(ind.title), ctx);
       if (!m) continue;
       await tx.evaluationIndicator.update({ where: { id: ind.id }, data: { achieved: m.achieved, target: m.target, sourceId: m.sourceId ?? ind.sourceId, ...(m.notes !== undefined && !ind.notes ? { notes: m.notes } : {}) } });
     }
+
     if (duty.kind !== "AD_HOC") continue;
-    // duty 4: every ad-hoc task marked «تدخل في التقييم» within the period, with its evaluation weight
+    // Duty 4: explicit task weights are respected; unweighted tasks share the remaining weight automatically.
     const tasks = await adHocTasksFor(e.employeeId, ctx.start, ctx.end);
+    const explicit = tasks.reduce((sum, t) => sum + Math.max(0, num(t.weight)), 0);
+    const unweighted = tasks.filter((t) => num(t.weight) <= 0);
+    const remaining = Math.max(0, 100 - explicit);
+    const automaticWeight = unweighted.length > 0 ? remaining / unweighted.length : 0;
+    const resolvedWeight = (task: (typeof tasks)[number]) => (num(task.weight) > 0 ? num(task.weight) : automaticWeight);
+
     const linked = new Map(duty.indicators.filter((i) => i.sourceType === "AD_HOC_TASK" && i.sourceId).map((i) => [i.sourceId!, i]));
     let order = duty.indicators.length;
     for (const t of tasks) {
       const done = t.status === "COMPLETED" ? 1 : 0;
       const existing = linked.get(t.id);
       if (existing) {
-        if (!existing.isOverridden) await tx.evaluationIndicator.update({ where: { id: existing.id }, data: { title: t.title, achieved: done, target: 1, weight: num(t.weight) } });
+        if (!existing.isOverridden) await tx.evaluationIndicator.update({ where: { id: existing.id }, data: { title: t.title, achieved: done, target: 1, weight: resolvedWeight(t) } });
         continue;
       }
-      await tx.evaluationIndicator.create({ data: { dutyId: duty.id, title: t.title, description: DONE, achieved: done, target: 1, weight: num(t.weight), sourceType: "AD_HOC_TASK", sourceId: t.id, sortOrder: order++ } });
+      await tx.evaluationIndicator.create({ data: { dutyId: duty.id, title: t.title, description: DONE, achieved: done, target: 1, weight: resolvedWeight(t), sourceType: "AD_HOC_TASK", sourceId: t.id, sortOrder: order++ } });
     }
   }
 }
@@ -327,11 +392,22 @@ export async function updateIndicator(user: AuthUser, indicatorId: string, patch
   await loadForEdit(user, before.duty.evaluationId);
   for (const k of ["achieved", "target", "weight"] as const) if (patch[k] !== undefined && (!Number.isFinite(patch[k]) || patch[k]! < 0)) throw new UserError("القيم يجب أن تكون أرقامًا موجبة");
   if (patch.weight !== undefined && patch.weight > 100) throw new UserError("وزن المؤشر لا يتجاوز 100%");
-  const valueChanged = (patch.achieved !== undefined && patch.achieved !== num(before.achieved)) || (patch.target !== undefined && patch.target !== num(before.target));
+  const targetChanged = patch.target !== undefined && patch.target !== num(before.target);
+  const valueChanged =
+    (patch.achieved !== undefined && patch.achieved !== num(before.achieved)) ||
+    targetChanged ||
+    (patch.weight !== undefined && patch.weight !== num(before.weight));
+  if (targetChanged && !reason?.trim()) throw new UserError("سبب تعديل المستهدف مطلوب");
+
+  const targetReasonNote =
+    targetChanged && reason?.trim() && patch.notes === undefined
+      ? { notes: before.notes ? `${before.notes}\nسبب تعديل المستهدف: ${reason.trim()}` : `سبب تعديل المستهدف: ${reason.trim()}` }
+      : {};
+
   await db.$transaction(async (tx) => {
     const after = await tx.evaluationIndicator.update({
       where: { id: indicatorId },
-      data: { ...patch, ...(valueChanged && before.sourceType !== "MANUAL" ? { isOverridden: true } : {}) },
+      data: { ...patch, ...targetReasonNote, ...(valueChanged && before.sourceType !== "MANUAL" ? { isOverridden: true } : {}) },
     });
     await recalculate(tx, before.duty.evaluationId);
     await audit({ user, action: "evaluation.indicator.update", entityType: "EvaluationIndicator", entityId: indicatorId, before, after, diff: true, reason }, tx);
