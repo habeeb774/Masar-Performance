@@ -6,7 +6,7 @@ import { UserError } from "@/server/action";
 import { assertEmployeeAccess, type AuthUser } from "@/server/auth/session";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
 import { formatDateAr, fromDateKey } from "@/lib/dates";
-import type { adHocTaskSchema, dailyTaskSchema, taskProgressSchema } from "@/lib/validation";
+import type { adHocTaskSchema, dailyTaskSchema, taskPostponeSchema, taskProgressSchema } from "@/lib/validation";
 import { notifyEmployee } from "./notifications";
 import { recomputePlan } from "./progress";
 import { assertTaskInPlan } from "./periods";
@@ -90,6 +90,68 @@ export async function updateTaskProgress(user: AuthUser, taskId: string, input: 
       };
   const updated = await db.dailyTask.update({ where: { id: taskId }, data });
   await audit({ user, action: "task.update", entityType: "DailyTask", entityId: taskId, before: task, after: updated, diff: true });
+  await recomputeForGoal(task.monthlyGoalId);
+  return updated;
+}
+
+export async function postponeDailyTask(user: AuthUser, taskId: string, input: z.infer<typeof taskPostponeSchema>) {
+  const task = await db.dailyTask.findUniqueOrThrow({
+    where: { id: taskId },
+    include: { monthlyGoal: true },
+  });
+  assertEmployeeAccess(user, task.employeeId);
+  if (task.employeeId !== user.employeeId && !hasPermission(user, PERMISSIONS.TASKS_ASSIGN)) {
+    throw new UserError("لا يمكنك تأجيل هذه المهمة");
+  }
+  if (task.status === "COMPLETED" || task.status === "CANCELLED") {
+    throw new UserError("لا يمكن تأجيل مهمة مكتملة أو ملغاة");
+  }
+  const notionDriven = task.monthlyGoal?.source === "NOTION" && task.source !== "MANUAL";
+  if (notionDriven) {
+    throw new UserError("هذه المهمة مرتبطة بـ Notion ولا يمكن تغيير تاريخها من النظام");
+  }
+
+  const currentDate = task.date.toISOString().slice(0, 10);
+  if (input.date <= currentDate) {
+    throw new UserError("اختر تاريخًا بعد تاريخ المهمة الحالي");
+  }
+
+  let weeklyGoalId = task.weeklyGoalId;
+  if (task.monthlyGoalId) {
+    await assertTaskInPlan(task.monthlyGoalId, input.date);
+    weeklyGoalId =
+      (
+        await db.weeklyGoal.findFirst({
+          where: {
+            monthlyGoalId: task.monthlyGoalId,
+            weeklyPlan: {
+              startDate: { lte: fromDateKey(input.date) },
+              endDate: { gte: fromDateKey(input.date) },
+            },
+          },
+          select: { id: true },
+        })
+      )?.id ?? null;
+  }
+
+  const updated = await db.dailyTask.update({
+    where: { id: taskId },
+    data: {
+      date: fromDateKey(input.date),
+      weeklyGoalId,
+      delayReason: input.reason ?? task.delayReason,
+    },
+  });
+
+  await audit({
+    user,
+    action: "task.postpone",
+    entityType: "DailyTask",
+    entityId: taskId,
+    before: task,
+    after: updated,
+    diff: true,
+  });
   await recomputeForGoal(task.monthlyGoalId);
   return updated;
 }
