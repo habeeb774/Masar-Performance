@@ -78,18 +78,23 @@ export async function updateTaskProgress(user: AuthUser, taskId: string, input: 
   const isOwner = task.employeeId === user.employeeId;
   if (!isOwner && !hasPermission(user, PERMISSIONS.TASKS_ASSIGN)) throw new UserError("لا يمكنك تعديل هذه المهمة");
   const notionDriven = task.monthlyGoal?.source === "NOTION" && task.source !== "MANUAL";
+  const requestedAchieved = Number(input.achieved ?? task.achieved);
+  const target = Number(task.target);
+  const requestedProgress = input.progress ?? task.progress;
+  const protectedStatus = input.status === "BLOCKED" || input.status === "CANCELLED";
+  const reachedTarget = target > 0 && requestedAchieved >= target;
+  const reachedFullProgress = requestedProgress >= 100;
+  const resolvedStatus = !protectedStatus && (reachedTarget || reachedFullProgress) ? "COMPLETED" : input.status;
+
   const data = notionDriven
-    ? { notes: input.notes, delayReason: input.delayReason, ...(input.status === "BLOCKED" || input.status === "CANCELLED" ? { status: input.status } : {}) }
+    ? { notes: input.notes, delayReason: input.delayReason, ...(protectedStatus ? { status: input.status } : {}) }
     : {
-        status: input.status,
-        achieved:
-          input.status === "COMPLETED"
-            ? Math.max(Number(input.achieved ?? task.achieved), Number(task.target))
-            : (input.achieved ?? task.achieved),
-        progress: input.status === "COMPLETED" ? 100 : (input.progress ?? task.progress),
+        status: resolvedStatus,
+        achieved: resolvedStatus === "COMPLETED" && target > 0 ? Math.max(requestedAchieved, target) : requestedAchieved,
+        progress: resolvedStatus === "COMPLETED" ? 100 : requestedProgress,
         notes: input.notes,
         delayReason: input.delayReason,
-        completedAt: input.status === "COMPLETED" ? (task.completedAt ?? new Date()) : null,
+        completedAt: resolvedStatus === "COMPLETED" ? (task.completedAt ?? new Date()) : null,
       };
   const updated = await db.dailyTask.update({ where: { id: taskId }, data });
   await audit({ user, action: "task.update", entityType: "DailyTask", entityId: taskId, before: task, after: updated, diff: true });
@@ -171,6 +176,15 @@ export async function updateDailyTask(user: AuthUser, taskId: string, input: z.i
     if (goal.employeeId !== task.employeeId) throw new UserError("الهدف لا يخص هذا الموظف");
     weeklyGoalId = (await db.weeklyGoal.findFirst({ where: { monthlyGoalId: goal.id, weeklyPlan: { startDate: { lte: fromDateKey(input.date) }, endDate: { gte: fromDateKey(input.date) } } } }))?.id ?? null;
   }
+  const protectedStatus = input.status === "BLOCKED" || input.status === "CANCELLED";
+  const reachedTarget = Number(input.target) > 0 && Number(input.achieved) >= Number(input.target);
+  const reachedFullProgress = Number(input.progress) >= 100;
+  const resolvedStatus = !protectedStatus && (reachedTarget || reachedFullProgress) ? "COMPLETED" : input.status;
+  const resolvedAchieved =
+    resolvedStatus === "COMPLETED" && Number(input.target) > 0
+      ? Math.max(Number(input.achieved), Number(input.target))
+      : Number(input.achieved);
+
   const updated = await db.dailyTask.update({
     where: { id: taskId },
     data: {
@@ -179,15 +193,15 @@ export async function updateDailyTask(user: AuthUser, taskId: string, input: z.i
       date: fromDateKey(input.date),
       deadline: input.deadline ? fromDateKey(input.deadline) : null,
       target: input.target,
-      achieved: input.status === "COMPLETED" ? Math.max(Number(input.achieved), Number(task.target)) : input.achieved,
-      progress: input.status === "COMPLETED" ? 100 : input.progress,
-      status: input.status,
+      achieved: resolvedAchieved,
+      progress: resolvedStatus === "COMPLETED" ? 100 : input.progress,
+      status: resolvedStatus,
       priority: input.priority,
       monthlyGoalId: input.monthlyGoalId,
       weeklyGoalId,
       notes: input.notes,
       delayReason: input.delayReason,
-      completedAt: input.status === "COMPLETED" ? (task.completedAt ?? new Date()) : null,
+      completedAt: resolvedStatus === "COMPLETED" ? (task.completedAt ?? new Date()) : null,
     },
   });
   await audit({ user, action: "task.update", entityType: "DailyTask", entityId: taskId, before: task, after: updated, diff: true });
@@ -251,14 +265,17 @@ export async function updateAdHocProgress(user: AuthUser, taskId: string, input:
   const task = await db.adHocTask.findUniqueOrThrow({ where: { id: taskId } });
   assertEmployeeAccess(user, task.employeeId);
   if (task.employeeId !== user.employeeId && !hasPermission(user, PERMISSIONS.TASKS_ASSIGN)) throw new UserError("غير مسموح");
+  const requestedProgress = input.progress ?? task.progress;
+  const protectedStatus = input.status === "BLOCKED" || input.status === "CANCELLED";
+  const resolvedStatus = !protectedStatus && requestedProgress >= 100 ? "COMPLETED" : input.status;
   const updated = await db.adHocTask.update({
     where: { id: taskId },
     data: {
-      status: input.status,
-      progress: input.status === "COMPLETED" ? 100 : (input.progress ?? task.progress),
+      status: resolvedStatus,
+      progress: resolvedStatus === "COMPLETED" ? 100 : requestedProgress,
       notes: input.notes,
       delayReason: input.delayReason,
-      completedAt: input.status === "COMPLETED" ? (task.completedAt ?? new Date()) : null,
+      completedAt: resolvedStatus === "COMPLETED" ? (task.completedAt ?? new Date()) : null,
     },
   });
   await audit({ user, action: "adhoc.update", entityType: "AdHocTask", entityId: taskId, before: task, after: updated, diff: true });
