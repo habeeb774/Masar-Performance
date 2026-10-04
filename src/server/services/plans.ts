@@ -177,7 +177,7 @@ export async function updateGoal(user: AuthUser, goalId: string, input: GoalInpu
   assertCanEditGoals(user, before.plan);
   const after = await db.monthlyGoal.update({ where: { id: goalId }, data: goalData(input) });
   await audit({ user, action: "goal.update", entityType: "MonthlyGoal", entityId: goalId, before, after, diff: true });
-  if (before.plan.status === "APPROVED" || before.plan.status === "IN_PROGRESS") {
+  if (["APPROVED", "IN_PROGRESS", "COMPLETED"].includes(before.plan.status)) {
     if (isNotionGoal(before) !== isNotionGoal(after)) await reconcileSourceChange(user, goalId, isNotionGoal(before), num(before.achievedValue));
     else await recomputePlan(before.planId);
   }
@@ -202,7 +202,7 @@ export async function cancelGoal(user: AuthUser, goalId: string, reason: string)
   await db.monthlyGoal.update({ where: { id: goalId }, data: { status: "CANCELLED" } });
   await audit({ user, action: "goal.update", entityType: "MonthlyGoal", entityId: goalId, before: { status: goal.status }, after: { status: "CANCELLED" }, reason });
   // weekly / monthly progress and stored reports drop the cancelled goal
-  if (goal.plan.status === "APPROVED" || goal.plan.status === "IN_PROGRESS") await recomputePlan(goal.planId);
+  if (["APPROVED", "IN_PROGRESS", "COMPLETED"].includes(goal.plan.status)) await recomputePlan(goal.planId);
 }
 
 export async function submitPlan(user: AuthUser, planId: string) {
