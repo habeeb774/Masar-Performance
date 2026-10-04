@@ -235,7 +235,15 @@ export async function recomputePlan(planId: string, cache = new ItemCache(), opt
       if (goal.overrideValue !== null) achieved = num(goal.overrideValue);
       progress = pct(achieved, target);
     } else {
-      achieved = manualAchieved(goal.goalType, goal.dailyTasks, num(goal.manualAdjust));
+      const fallbackTasks = completedDailyFallback.filter(
+        (task) =>
+          task.monthlyGoalId !== goal.id &&
+          sameWorkTitle(task.title, goal.name) &&
+          toDateKey(task.date) >= start &&
+          toDateKey(task.date) <= end,
+      );
+      achieved = manualAchieved(goal.goalType, [...goal.dailyTasks, ...fallbackTasks], num(goal.manualAdjust));
+      if (target <= 1 && reportSaysGoalDone(goal)) achieved = Math.max(achieved, target);
       progress = pct(achieved, target);
     }
     const status = deriveGoalStatus({
@@ -310,7 +318,15 @@ export async function recomputePlan(planId: string, cache = new ItemCache(), opt
         if (breakdown) achieved = breakdown.completed;
         progress = pct(achieved, target);
       } else {
-        achieved = manualAchieved("NUMERIC", wg.dailyTasks, num(wg.manualAdjust));
+        const fallbackTasks = completedDailyFallback.filter(
+          (task) =>
+            task.monthlyGoalId !== goal.id &&
+            sameWorkTitle(task.title, goal.name) &&
+            toDateKey(task.date) >= wStart &&
+            toDateKey(task.date) <= wEnd,
+        );
+        achieved = manualAchieved("NUMERIC", [...wg.dailyTasks, ...fallbackTasks], num(wg.manualAdjust));
+        if (target <= 1 && reportSaysGoalDone(goal)) achieved = Math.max(achieved, target);
         progress = pct(achieved, target);
       }
       writes.push(
