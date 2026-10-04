@@ -124,6 +124,16 @@ describe("manager edits, audit and approval", () => {
     await ev.updateDuty(manager, d3.id, { weight: 20 }, "إرجاع");
   });
 
+  it("keeps official template KPI weights after a manager overrides target or achieved values", async () => {
+    const d3 = await duty(2);
+    expect(d3.indicators.map((i) => num(i.weight))).toEqual([100, 0, 0]);
+    const first = d3.indicators[0];
+    await ev.updateIndicator(manager, first.id, { target: 29, achieved: 29 }, "مطابقة تقييم المدير");
+    const after = await duty(2);
+    expect(after.indicators.map((i) => num(i.weight))).toEqual([100, 0, 0]);
+    expect([num(after.indicators[0].achieved), num(after.indicators[0].target)]).toEqual([29, 29]);
+  });
+
   it("changing a target requires a reason and writes it into the KPI notes", async () => {
     const ind = (await duty(1)).indicators[0];
     await expect(ev.updateIndicator(manager, ind.id, { target: 120 }, null)).rejects.toThrow("سبب تعديل المستهدف مطلوب");
