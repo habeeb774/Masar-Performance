@@ -409,7 +409,10 @@ export async function createEvaluation(user: AuthUser | null, employeeId: string
     assertEmployeeAccess(user, employeeId);
   }
   const existing = await db.performanceEvaluation.findUnique({ where: { employeeId_year_month: { employeeId, year, month } } });
-  if (existing) return existing;
+  if (existing) {
+    if (existing.status === "DRAFT") await refreshDraftEvaluationData(existing.id);
+    return existing;
+  }
   const employee = await db.employee.findUniqueOrThrow({ where: { id: employeeId }, select: { jobTitleId: true } });
   const template = await templateFor(employee.jobTitleId);
   const plan = await db.monthlyPlan.findUnique({ where: { employeeId_year_month: { employeeId, year, month } }, include: { weeklyPlans: { select: { startDate: true, endDate: true } } } });
