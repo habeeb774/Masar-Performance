@@ -248,7 +248,10 @@ async function pullAutomatic(tx: Tx, evaluationId: string) {
   const configOf = (title: string) => template?.duties.flatMap((d) => d.indicators).find((i) => i.title === title)?.sourceConfig ?? null;
 
   for (const duty of e.duties) {
-    const goalIndicators = duty.indicators.filter((ind) => !ind.isOverridden && ind.sourceType === "MONTHLY_GOAL");
+    // Goal values may be manually overridden by the manager, but the KPI weights still
+    // belong to the official evaluation template. A value override must never freeze an
+    // obsolete weight (e.g. September's old 30/35/35 instead of 100/0/0).
+    const goalIndicators = duty.indicators.filter((ind) => ind.sourceType === "MONTHLY_GOAL");
     if (goalIndicators.length > 0) {
       const measured = goalIndicators.map((ind) => ({ ind, m: measure(ind.sourceType, configOf(ind.title), ctx) }));
       const active = measured.filter((x) => x.m);
@@ -259,7 +262,10 @@ async function pullAutomatic(tx: Tx, evaluationId: string) {
       const baseSum = templateWeights.reduce((a, b) => a + Math.max(0, b), 0);
       for (const { ind, m } of measured) {
         if (!m) {
-          await tx.evaluationIndicator.update({ where: { id: ind.id }, data: { achieved: 0, target: 0, weight: 0, sourceId: null } });
+          await tx.evaluationIndicator.update({
+            where: { id: ind.id },
+            data: ind.isOverridden ? { weight: 0, sourceId: null } : { achieved: 0, target: 0, weight: 0, sourceId: null },
+          });
           continue;
         }
         const activeIndex = active.findIndex((x) => x.ind.id === ind.id);
@@ -267,7 +273,9 @@ async function pullAutomatic(tx: Tx, evaluationId: string) {
         const normalizedWeight = baseSum > 0 ? (base / baseSum) * 100 : 100 / active.length;
         await tx.evaluationIndicator.update({
           where: { id: ind.id },
-          data: { achieved: m.achieved, target: m.target, weight: normalizedWeight, sourceId: m.sourceId ?? ind.sourceId, ...(m.notes !== undefined && !ind.notes ? { notes: m.notes } : {}) },
+          data: ind.isOverridden
+            ? { weight: normalizedWeight, sourceId: m.sourceId ?? ind.sourceId }
+            : { achieved: m.achieved, target: m.target, weight: normalizedWeight, sourceId: m.sourceId ?? ind.sourceId, ...(m.notes !== undefined && !ind.notes ? { notes: m.notes } : {}) },
         });
       }
     }
@@ -409,6 +417,9 @@ export async function updateIndicator(user: AuthUser, indicatorId: string, patch
       where: { id: indicatorId },
       data: { ...patch, ...targetReasonNote, ...(valueChanged && before.sourceType !== "MANUAL" ? { isOverridden: true } : {}) },
     });
+    // Re-apply official automatic/template weights after a manager edit while preserving
+    // the manager's overridden achieved/target values.
+    await pullAutomatic(tx, before.duty.evaluationId);
     await recalculate(tx, before.duty.evaluationId);
     await audit({ user, action: "evaluation.indicator.update", entityType: "EvaluationIndicator", entityId: indicatorId, before, after, diff: true, reason }, tx);
   });
