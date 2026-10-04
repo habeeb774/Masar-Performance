@@ -74,9 +74,9 @@ export function ManagerDashboard({
         </div>
         <div className="flex flex-wrap gap-2">
           {dueReminders > 0 && (
-            <Button variant="ghost" asChild>
+            <Button variant="ghost" className="border border-danger/40 bg-danger/10 text-danger hover:bg-danger/15 hover:text-danger" asChild>
               <Link href="/reminders">
-                <BellRing className="text-primary" /> {formatNumber(dueReminders)} تذكيرات حان موعدها
+                <BellRing className="text-danger" /> {formatNumber(dueReminders)} تذكيرات حان موعدها
               </Link>
             </Button>
           )}
