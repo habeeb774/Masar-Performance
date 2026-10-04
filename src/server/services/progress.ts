@@ -79,7 +79,7 @@ export async function breakdownFor(
 }
 
 const planInclude = {
-  goals: { include: { dailyTasks: { select: { achieved: true, status: true, source: true, weeklyGoalId: true } } } },
+  goals: { include: { dailyTasks: { select: { achieved: true, target: true, status: true, source: true, weeklyGoalId: true } } } },
   weeklyPlans: {
     include: {
       goals: { include: { dailyTasks: true } },
