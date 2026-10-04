@@ -262,6 +262,10 @@ export async function updateAdHocProgress(user: AuthUser, taskId: string, input:
     },
   });
   await audit({ user, action: "adhoc.update", entityType: "AdHocTask", entityId: taskId, before: task, after: updated, diff: true });
+  if (task.compensatesGoalId) {
+    const goal = await db.monthlyGoal.findUnique({ where: { id: task.compensatesGoalId }, select: { planId: true } });
+    if (goal) await recomputePlan(goal.planId);
+  }
   return updated;
 }
 
