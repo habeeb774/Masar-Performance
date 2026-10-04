@@ -22,6 +22,7 @@ import { ProgressBar } from "@/components/shared/progress-bar";
 import { MonthPicker } from "@/components/shared/url-filters";
 import { PlanGoalsSummary, PlanGoalsTable } from "@/features/plans/plan-goals-table";
 import { currentPlanWhere, planSpan } from "@/server/services/periods";
+import { recomputePlan } from "@/server/services/progress";
 import { SyncFailureNotice } from "@/features/plans/goal-achievement";
 import { WeeklyDistributionEditor } from "@/features/plans/weekly-distribution-editor";
 import { ManagerNotes, PlanWorkflowActions, WeeksOverview, firstSyncIssue, manualAccess, planCapabilities } from "@/features/plans/plan-sections";
@@ -95,6 +96,7 @@ export default async function MyPlanPage({ searchParams }: { searchParams: Searc
   }
 
   const ref = await db.monthlyPlan.findUnique({ where: { employeeId_year_month: { employeeId: user.employeeId, year, month } }, select: { id: true } });
+  if (ref) await recomputePlan(ref.id, undefined, { refreshReports: false });
   const plan = ref ? await getPlanDetail(ref.id) : null;
   if (!plan || plan.goals.length === 0) {
     return (
