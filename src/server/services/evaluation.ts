@@ -9,6 +9,7 @@ import { addDays, diffDays, fromDateKey, monthEnd, monthStart, toDateKey, todayK
 import { resolveExecutionPeriod } from "@/lib/execution-period";
 import { getRatingLabel, scoreEvaluation, timelinessMark, TIMELINESS_FULL_MARK, validateEvaluation, type DutyInput } from "@/lib/evaluation";
 import { num } from "@/lib/num";
+import { dutyOf } from "@/lib/duties";
 import { getCompanyFresh } from "./company";
 
 /**
@@ -240,6 +241,25 @@ async function recalculate(tx: Tx, evaluationId: string) {
   await tx.performanceEvaluation.update({ where: { id: evaluationId }, data: { computedScore: result.finalScore, finalScore: final, ratingLabel: getRatingLabel(final) } });
 }
 
+const normalizeDutyTitle = (title: string) =>
+  title
+    .replace(/^الواجب\s+[^:：]+[:：]\s*/u, "")
+    .replace(/[.،؛:\s]+$/u, "")
+    .trim();
+
+const normalizedWeights = (raw: number[]) => {
+  if (raw.length === 0) return [];
+  const safe = raw.map((w) => Math.max(0, Number.isFinite(w) ? w : 0));
+  const sum = safe.reduce((a, b) => a + b, 0);
+  if (sum <= 0) return safe.map(() => 100 / safe.length);
+  return safe.map((w) => (w / sum) * 100);
+};
+
+/**
+ * Sync GOALS duties directly from the current monthly plan.
+ * The manager configures the job template once; every month targets, achieved values,
+ * added/removed goals and KPI weights are derived automatically from that month's plan.
+ */
 /** Pull automatic values (plan, reports, goals, ad-hoc tasks) into indicators the manager has not changed. */
 async function pullAutomatic(tx: Tx, evaluationId: string) {
   const e = await tx.performanceEvaluation.findUniqueOrThrow({ where: { id: evaluationId }, include: evaluationInclude });
@@ -247,36 +267,88 @@ async function pullAutomatic(tx: Tx, evaluationId: string) {
   const template = e.templateId ? await tx.evaluationTemplate.findUnique({ where: { id: e.templateId }, include: { duties: { include: { indicators: true } } } }) : null;
   const configOf = (title: string) => template?.duties.flatMap((d) => d.indicators).find((i) => i.title === title)?.sourceConfig ?? null;
 
+  const goalDuties = e.duties.filter((d) => d.kind === "GOALS");
+  const templateDuties = template?.duties ?? [];
+  const activePlanGoals = (ctx.plan?.goals ?? []).filter(
+    (g) => g.status !== "CANCELLED" && !g.isAdHoc && (num(g.targetValue) > 0 || num(g.achievedValue) > 0),
+  );
+
+  const templateDutyForGoal = (goal: (typeof activePlanGoals)[number]) =>
+    templateDuties.find((td) =>
+      td.indicators.some((i) => i.sourceType === "MONTHLY_GOAL" && goalMatches(goal.name, i.sourceConfig)),
+    ) ?? null;
+
+  const evaluationDutyForGoal = (goal: (typeof activePlanGoals)[number]) => {
+    const requested = normalizeDutyTitle(dutyOf(goal));
+    const named = goalDuties.find((d) => normalizeDutyTitle(d.title) === requested);
+    if (named) return named;
+    const td = templateDutyForGoal(goal);
+    if (td) {
+      const byTitle = goalDuties.find((d) => normalizeDutyTitle(d.title) === normalizeDutyTitle(td.title));
+      if (byTitle) return byTitle;
+      const byOrder = goalDuties.find((d) => d.sortOrder === td.sortOrder);
+      if (byOrder) return byOrder;
+    }
+    return goalDuties[0] ?? null;
+  };
+
   for (const duty of e.duties) {
-    // Goal values may be manually overridden by the manager, but the KPI weights still
-    // belong to the official evaluation template. A value override must never freeze an
-    // obsolete weight (e.g. September's old 30/35/35 instead of 100/0/0).
-    const goalIndicators = duty.indicators.filter((ind) => ind.sourceType === "MONTHLY_GOAL");
-    if (goalIndicators.length > 0) {
-      const measured = goalIndicators.map((ind) => ({ ind, m: measure(ind.sourceType, configOf(ind.title), ctx) }));
-      const active = measured.filter((x) => x.m);
-      const templateWeights = active.map(({ ind }) => {
-        const source = template?.duties.flatMap((d) => d.indicators).find((i) => i.title === ind.title);
-        return source ? num(source.weight) : num(ind.weight);
-      });
-      const baseSum = templateWeights.reduce((a, b) => a + Math.max(0, b), 0);
-      for (const { ind, m } of measured) {
-        if (!m) {
-          await tx.evaluationIndicator.update({
-            where: { id: ind.id },
-            data: ind.isOverridden ? { weight: 0, sourceId: null } : { achieved: 0, target: 0, weight: 0, sourceId: null },
-          });
-          continue;
+    if (duty.kind === "GOALS") {
+      const goals = activePlanGoals.filter((g) => evaluationDutyForGoal(g)?.id === duty.id);
+      const expectedIds = new Set(goals.map((g) => g.id));
+      const current = duty.indicators.filter((ind) => ind.sourceType === "MONTHLY_GOAL");
+
+      // Remove obsolete automatic placeholders/old goals. A manager-overridden orphan is
+      // retained for audit history but excluded from the score.
+      for (const ind of current) {
+        if (ind.sourceId && expectedIds.has(ind.sourceId)) continue;
+        if (ind.isOverridden) {
+          await tx.evaluationIndicator.update({ where: { id: ind.id }, data: { weight: 0 } });
+        } else {
+          await tx.evaluationIndicator.delete({ where: { id: ind.id } });
         }
-        const activeIndex = active.findIndex((x) => x.ind.id === ind.id);
-        const base = Math.max(0, templateWeights[activeIndex] ?? 0);
-        const normalizedWeight = baseSum > 0 ? (base / baseSum) * 100 : 100 / active.length;
-        await tx.evaluationIndicator.update({
-          where: { id: ind.id },
-          data: ind.isOverridden
-            ? { weight: normalizedWeight, sourceId: m.sourceId ?? ind.sourceId }
-            : { achieved: m.achieved, target: m.target, weight: normalizedWeight, sourceId: m.sourceId ?? ind.sourceId, ...(m.notes !== undefined && !ind.notes ? { notes: m.notes } : {}) },
-        });
+      }
+
+      const templateDuty =
+        templateDuties.find((td) => normalizeDutyTitle(td.title) === normalizeDutyTitle(duty.title)) ??
+        templateDuties.find((td) => td.sortOrder === duty.sortOrder) ??
+        null;
+
+      const matchedRules = goals.map((goal) =>
+        templateDuty?.indicators.find((i) => i.sourceType === "MONTHLY_GOAL" && goalMatches(goal.name, i.sourceConfig)) ?? null,
+      );
+
+      // Known KPI rules keep their one-time template weights. New goals use the monthly
+      // plan weight. If all applicable template weights are zero (e.g. the primary KPI
+      // is absent this month), the actual plan weights take over automatically.
+      let rawWeights = goals.map((goal, i) => (matchedRules[i] ? num(matchedRules[i]!.weight) : num(goal.weight)));
+      if (rawWeights.reduce((a, b) => a + Math.max(0, b), 0) <= 0) rawWeights = goals.map((goal) => num(goal.weight));
+      const weights = normalizedWeights(rawWeights);
+
+      for (const [i, goal] of goals.entries()) {
+        const rule = matchedRules[i];
+        const existing = current.find((ind) => ind.sourceId === goal.id);
+        const description = goal.description?.trim() || rule?.description || `إنجاز «${goal.name}» من إجمالي المستهدف الشهري.`;
+        const base = {
+          title: goal.name,
+          description,
+          achieved: num(goal.achievedValue),
+          target: num(goal.targetValue),
+          weight: weights[i] ?? 0,
+          sourceType: "MONTHLY_GOAL" as const,
+          sourceId: goal.id,
+          sortOrder: goal.sortOrder,
+        };
+        if (existing) {
+          await tx.evaluationIndicator.update({
+            where: { id: existing.id },
+            data: existing.isOverridden
+              ? { weight: base.weight, sourceId: goal.id, sortOrder: base.sortOrder }
+              : base,
+          });
+        } else {
+          await tx.evaluationIndicator.create({ data: { dutyId: duty.id, ...base } });
+        }
       }
     }
 
@@ -375,13 +447,25 @@ export async function createEvaluation(user: AuthUser | null, employeeId: string
   }, { timeout: 60_000 });
 }
 
-/** Re-pull automatic values (manager changes are kept) and recompute. */
-export async function refreshEvaluation(user: AuthUser, evaluationId: string) {
-  await loadForEdit(user, evaluationId);
+async function refreshDraftEvaluationData(evaluationId: string) {
+  const row = await db.performanceEvaluation.findUnique({ where: { id: evaluationId }, select: { status: true } });
+  if (!row || row.status !== "DRAFT") return;
   await db.$transaction(async (tx) => {
     await pullAutomatic(tx, evaluationId);
     await recalculate(tx, evaluationId);
   }, { timeout: 60_000 });
+}
+
+/** Recalculate an existing draft evaluation whenever its plan changes. */
+export async function refreshEvaluationForPlan(planId: string) {
+  const row = await db.performanceEvaluation.findUnique({ where: { monthlyPlanId: planId }, select: { id: true, status: true } });
+  if (row?.status === "DRAFT") await refreshDraftEvaluationData(row.id);
+}
+
+/** Re-pull automatic values (manager changes are kept) and recompute. */
+export async function refreshEvaluation(user: AuthUser, evaluationId: string) {
+  await loadForEdit(user, evaluationId);
+  await refreshDraftEvaluationData(evaluationId);
 }
 
 export interface IndicatorPatch {
@@ -586,6 +670,7 @@ export async function previewEvaluation(employeeId: string, year: number, month:
 // ---------------------------------------------------------------------------
 
 export async function getEvaluation(evaluationId: string) {
+  await refreshDraftEvaluationData(evaluationId);
   const e = await db.performanceEvaluation.findUnique({ where: { id: evaluationId }, include: evaluationInclude });
   if (!e) return null;
   const goals = e.monthlyPlanId ? await db.monthlyGoal.findMany({ where: { planId: e.monthlyPlanId, status: { not: "CANCELLED" } }, select: { id: true, name: true, achievedValue: true, targetValue: true }, orderBy: { sortOrder: "asc" } }) : [];
