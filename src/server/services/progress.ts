@@ -139,6 +139,45 @@ export async function recomputePlan(planId: string, cache = new ItemCache(), opt
     return x === y || (x.length >= 12 && y.length >= 12 && (x.includes(y) || y.includes(x)));
   };
 
+  // Historical/imported monthly reports are a frozen evidence source. They are used
+  // only as a fallback for ONE_TIME goals when the live task linkage is missing.
+  // Matching by goalId is preferred; title matching is only a legacy fallback.
+  const monthlyReport = await db.monthlyReport.findUnique({
+    where: { monthlyPlanId: plan.id },
+    select: { content: true },
+  });
+  const reportContent =
+    monthlyReport?.content && typeof monthlyReport.content === "object"
+      ? (monthlyReport.content as {
+          goals?: Array<{ goalId?: string; name?: string; status?: string; achieved?: number; target?: number; progressPct?: number }>;
+          adHocTasks?: Array<{ title?: string; status?: string; progress?: number; achieved?: number; target?: number }>;
+        })
+      : null;
+  const reportGoals = Array.isArray(reportContent?.goals) ? reportContent!.goals! : [];
+  const reportAdHoc = Array.isArray(reportContent?.adHocTasks) ? reportContent!.adHocTasks! : [];
+  const reportSaysGoalDone = (goal: { id: string; name: string; targetValue: unknown }) => {
+    const targetValue = num(goal.targetValue);
+    const row =
+      reportGoals.find((g) => g.goalId === goal.id) ??
+      reportGoals.find((g) => typeof g.name === "string" && sameWorkTitle(g.name, goal.name));
+    if (
+      row &&
+      (row.status === "COMPLETED" ||
+        Number(row.progressPct ?? 0) >= 99.999 ||
+        (targetValue > 0 && Number(row.achieved ?? 0) >= targetValue))
+    ) {
+      return true;
+    }
+    return reportAdHoc.some(
+      (task) =>
+        typeof task.title === "string" &&
+        sameWorkTitle(task.title, goal.name) &&
+        (task.status === "COMPLETED" ||
+          Number(task.progress ?? 0) >= 100 ||
+          (Number(task.target ?? 0) > 0 && Number(task.achieved ?? 0) >= Number(task.target ?? 0))),
+    );
+  };
+
   const writes: Prisma.PrismaPromise<unknown>[] = [];
   const now = new Date();
 
@@ -175,6 +214,7 @@ export async function recomputePlan(planId: string, cache = new ItemCache(), opt
             toDateKey(task.assignedDate) >= start &&
             toDateKey(task.assignedDate) <= end,
         );
+      const reportDone = goal.distributionMode === "ONE_TIME" && reportSaysGoalDone(goal);
       const result = distributionProgress(
         goal.distributionMode,
         goal.goalType,
@@ -182,7 +222,7 @@ export async function recomputePlan(planId: string, cache = new ItemCache(), opt
         [
           ...goal.dailyTasks,
           ...dailyFallback,
-          ...(adHocDone ? [{ achieved: target, target, status: "COMPLETED", source: "AD_HOC_TASK" }] : []),
+          ...(adHocDone || reportDone ? [{ achieved: target, target, status: "COMPLETED", source: "AD_HOC_TASK" }] : []),
         ],
         num(goal.manualAdjust),
       );
@@ -251,6 +291,7 @@ export async function recomputePlan(planId: string, cache = new ItemCache(), opt
               toDateKey(task.assignedDate) >= wStart &&
               toDateKey(task.assignedDate) <= wEnd,
           );
+        const reportDone = goal.distributionMode === "ONE_TIME" && target > 0 && reportSaysGoalDone(goal);
         const result = distributionProgress(
           goal.distributionMode,
           goal.goalType,
@@ -258,7 +299,7 @@ export async function recomputePlan(planId: string, cache = new ItemCache(), opt
           [
             ...wg.dailyTasks,
             ...dailyFallback,
-            ...(adHocDone ? [{ achieved: target, target, status: "COMPLETED", source: "AD_HOC_TASK" }] : []),
+            ...(adHocDone || reportDone ? [{ achieved: target, target, status: "COMPLETED", source: "AD_HOC_TASK" }] : []),
           ],
           num(wg.manualAdjust),
         );
