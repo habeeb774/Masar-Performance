@@ -2,6 +2,7 @@ import "server-only";
 import { db } from "@/server/db";
 import { UserError } from "@/server/action";
 import { activeRatingBands } from "@/server/services/performance";
+import { createEvaluation, getEvaluation } from "@/server/services/evaluation";
 import { exportFileName, type ExportDuty } from "@/lib/performance-export";
 import { num } from "@/lib/num";
 import { renderPerformanceWorkbook } from "./performance-xlsx";
@@ -17,27 +18,14 @@ const stripDutyPrefix = (title: string) => title.replace(/^الواجب\s+[^:：
  * monthly evaluation.
  */
 export async function buildEmployeePerformanceFile(employeeId: string, year: number, month: number) {
-  const [employee, evaluation] = await Promise.all([
-    db.employee.findUniqueOrThrow({
-      where: { id: employeeId },
-      select: { fullName: true, jobTitle: { select: { name: true } }, department: { select: { name: true, parent: { select: { name: true } } } } },
-    }),
-    db.performanceEvaluation.findUnique({
-      where: { employeeId_year_month: { employeeId, year, month } },
-      include: {
-        duties: {
-          orderBy: { sortOrder: "asc" },
-          include: { indicators: { orderBy: { sortOrder: "asc" } } },
-        },
-      },
-    }),
-  ]);
+  const employee = await db.employee.findUniqueOrThrow({
+    where: { id: employeeId },
+    select: { fullName: true, jobTitle: { select: { name: true } }, department: { select: { name: true, parent: { select: { name: true } } } } },
+  });
 
-  if (!evaluation) {
-    throw new UserError(
-      `لا يوجد تقييم رسمي لشهر ${month}/${year} للموظف ${employee.fullName}. أنشئ التقييم الرسمي أولًا ثم صدّر ملف الموارد البشرية.`,
-    );
-  }
+  const created = await createEvaluation(null, employeeId, year, month);
+  const evaluation = await getEvaluation(created.id);
+  if (!evaluation) throw new UserError(`تعذر إنشاء تقييم ${employee.fullName} لهذا الشهر`);
 
   const duties: ExportDuty[] = evaluation.duties.map((duty) => ({
     title: stripDutyPrefix(duty.title),
