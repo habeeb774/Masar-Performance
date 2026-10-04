@@ -82,7 +82,10 @@ export async function updateTaskProgress(user: AuthUser, taskId: string, input: 
     ? { notes: input.notes, delayReason: input.delayReason, ...(input.status === "BLOCKED" || input.status === "CANCELLED" ? { status: input.status } : {}) }
     : {
         status: input.status,
-        achieved: input.achieved ?? task.achieved,
+        achieved:
+          input.status === "COMPLETED"
+            ? Math.max(Number(input.achieved ?? task.achieved), Number(task.target))
+            : (input.achieved ?? task.achieved),
         progress: input.status === "COMPLETED" ? 100 : (input.progress ?? task.progress),
         notes: input.notes,
         delayReason: input.delayReason,
@@ -176,7 +179,7 @@ export async function updateDailyTask(user: AuthUser, taskId: string, input: z.i
       date: fromDateKey(input.date),
       deadline: input.deadline ? fromDateKey(input.deadline) : null,
       target: input.target,
-      achieved: input.achieved,
+      achieved: input.status === "COMPLETED" ? Math.max(Number(input.achieved), Number(task.target)) : input.achieved,
       progress: input.status === "COMPLETED" ? 100 : input.progress,
       status: input.status,
       priority: input.priority,
