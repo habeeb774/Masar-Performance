@@ -4,7 +4,7 @@ import { db } from "@/server/db";
 import { computeBreakdown, type EvalItem, type ProgressBreakdown } from "@/lib/notion/progress";
 import { parseFilterRule } from "@/lib/notion/filter-rule";
 import type { SystemStatus } from "@/lib/notion/status";
-import { monthEnd, monthStart, toDateKey, todayKey } from "@/lib/dates";
+import { fromDateKey, monthEnd, monthStart, toDateKey, todayKey } from "@/lib/dates";
 import { deriveGoalStatus, deriveTaskStatus } from "@/lib/goal-status";
 import { num, pct } from "@/lib/num";
 import { distributionProgress, manualAchieved } from "@/lib/distribution-progress";
@@ -103,6 +103,21 @@ export async function recomputePlan(planId: string, cache = new ItemCache(), opt
   const mEnd = monthEnd(plan.year, plan.month);
   // the plan's real span follows its 7-day periods, so each day counts in one plan only
   const { start: pStart, end: pEnd } = await planSpan(plan);
+
+  // Older/manual task rows can exist as completed without a monthlyGoalId even
+  // though their title exactly matches a one-time goal. Include those rows as a
+  // safe fallback so completed work never shows as 0% in the plan.
+  const unlinkedCompleted = await db.dailyTask.findMany({
+    where: {
+      employeeId: plan.employeeId,
+      monthlyGoalId: null,
+      status: "COMPLETED",
+      date: { gte: fromDateKey(pStart), lte: fromDateKey(pEnd) },
+    },
+    select: { achieved: true, target: true, status: true, source: true, weeklyGoalId: true, title: true, date: true },
+  });
+  const normTitle = (value: string) => value.replace(/\s+/g, " ").trim().toLocaleLowerCase("ar");
+
   const writes: Prisma.PrismaPromise<unknown>[] = [];
   const now = new Date();
 
@@ -121,7 +136,22 @@ export async function recomputePlan(planId: string, cache = new ItemCache(), opt
     let sourceValue: number | null | undefined;
     let progress: number;
     if (goal.distributionMode !== "DISTRIBUTED") {
-      const result = distributionProgress(goal.distributionMode, goal.goalType, target, goal.dailyTasks, num(goal.manualAdjust));
+      const fallback =
+        goal.distributionMode === "ONE_TIME"
+          ? unlinkedCompleted.filter(
+              (task) =>
+                normTitle(task.title) === normTitle(goal.name) &&
+                toDateKey(task.date) >= start &&
+                toDateKey(task.date) <= end,
+            )
+          : [];
+      const result = distributionProgress(
+        goal.distributionMode,
+        goal.goalType,
+        target,
+        [...goal.dailyTasks, ...fallback],
+        num(goal.manualAdjust),
+      );
       achieved = result.achieved;
       progress = result.progress;
     } else if (isNotion) {
@@ -169,7 +199,22 @@ export async function recomputePlan(planId: string, cache = new ItemCache(), opt
       let breakdown: ProgressBreakdown | null = null;
       let progress: number;
       if (goal.distributionMode !== "DISTRIBUTED") {
-        const result = distributionProgress(goal.distributionMode, goal.goalType, target, wg.dailyTasks, num(wg.manualAdjust));
+        const fallback =
+          goal.distributionMode === "ONE_TIME"
+            ? unlinkedCompleted.filter(
+                (task) =>
+                  normTitle(task.title) === normTitle(goal.name) &&
+                  toDateKey(task.date) >= wStart &&
+                  toDateKey(task.date) <= wEnd,
+              )
+            : [];
+        const result = distributionProgress(
+          goal.distributionMode,
+          goal.goalType,
+          target,
+          [...wg.dailyTasks, ...fallback],
+          num(wg.manualAdjust),
+        );
         achieved = result.achieved;
         progress = result.progress;
       } else if (isNotion) {
