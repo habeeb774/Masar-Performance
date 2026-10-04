@@ -1,35 +1,66 @@
 import "server-only";
 import { db } from "@/server/db";
 import { UserError } from "@/server/action";
-import { activeRatingBands, reviewForExport } from "@/server/services/performance";
-import { buildDuties, exportFileName, type ExportCategory } from "@/lib/performance-export";
+import { activeRatingBands } from "@/server/services/performance";
+import { exportFileName, type ExportDuty } from "@/lib/performance-export";
 import { num } from "@/lib/num";
 import { renderPerformanceWorkbook } from "./performance-xlsx";
 
-const FINAL = ["APPROVED", "ACKNOWLEDGED"];
+const stripDutyPrefix = (title: string) => title.replace(/^الواجب\s+[^:：]+[:：]\s*/u, "").trim();
 
-/** Read-only: builds the HR workbook for one employee and month from stored data. */
+/**
+ * Read-only HR export.
+ *
+ * IMPORTANT: the official monthly PerformanceEvaluation is the single source of truth.
+ * Do not rebuild HR Excel from the legacy KPI review, because that can use different
+ * goals/weights/targets and produce a different final score than the manager-approved
+ * monthly evaluation.
+ */
 export async function buildEmployeePerformanceFile(employeeId: string, year: number, month: number) {
-  const employee = await db.employee.findUniqueOrThrow({
-    where: { id: employeeId },
-    select: { fullName: true, jobTitle: { select: { name: true } }, department: { select: { name: true, parent: { select: { name: true } } } } },
-  });
-  const data = await reviewForExport(employeeId, year, month);
+  const [employee, evaluation] = await Promise.all([
+    db.employee.findUniqueOrThrow({
+      where: { id: employeeId },
+      select: { fullName: true, jobTitle: { select: { name: true } }, department: { select: { name: true, parent: { select: { name: true } } } } },
+    }),
+    db.performanceEvaluation.findUnique({
+      where: { employeeId_year_month: { employeeId, year, month } },
+      include: {
+        duties: {
+          orderBy: { sortOrder: "asc" },
+          include: { indicators: { orderBy: { sortOrder: "asc" } } },
+        },
+      },
+    }),
+  ]);
 
-  const goals = (data.ctx.plan?.goals ?? [])
-    .filter((g) => g.status !== "CANCELLED")
-    .map((g) => ({ name: g.name, dutyName: g.dutyName, category: g.category, unit: g.unit, target: num(g.targetValue), achieved: num(g.achievedValue), status: g.status }));
-  const adHoc = data.ctx.adHoc
-    .filter((t) => t.includeInEvaluation && t.status !== "CANCELLED")
-    .map((t) => ({ title: t.title, status: t.status, progress: t.progress, weight: num(t.weight) }));
-  const duties = buildDuties(
-    data.results.map((r) => ({ ...r, category: r.category as ExportCategory })),
-    goals,
-    adHoc,
-  );
-  if (duties.length === 0) throw new UserError(`لا توجد مؤشرات أداء لـ ${employee.fullName} في هذا الشهر`);
+  if (!evaluation) {
+    throw new UserError(
+      `لا يوجد تقييم رسمي لشهر ${month}/${year} للموظف ${employee.fullName}. أنشئ التقييم الرسمي أولًا ثم صدّر ملف الموارد البشرية.`,
+    );
+  }
+
+  const duties: ExportDuty[] = evaluation.duties.map((duty) => ({
+    title: stripDutyPrefix(duty.title),
+    weight: num(duty.weight),
+    rows: duty.indicators.map((indicator) => ({
+      name: indicator.title,
+      indicator: indicator.description ?? indicator.title,
+      note: indicator.notes ?? "",
+      achieved: num(indicator.achieved),
+      target: num(indicator.target),
+      weight: num(indicator.weight),
+    })),
+  }));
+
+  if (duties.length === 0 || duties.every((d) => d.rows.length === 0)) {
+    throw new UserError(`لا توجد مؤشرات في التقييم الرسمي لـ ${employee.fullName} في هذا الشهر`);
+  }
 
   const department = employee.department ? [employee.department.name, employee.department.parent?.name].filter(Boolean).join(" / ") : "—";
+  const computed = num(evaluation.computedScore);
+  const final = num(evaluation.finalScore);
+  const adjustment = evaluation.overrideScore !== null ? final - computed : 0;
+
   const buffer = await renderPerformanceWorkbook(
     {
       employeeName: employee.fullName,
@@ -37,13 +68,14 @@ export async function buildEmployeePerformanceFile(employeeId: string, year: num
       department,
       year,
       month,
-      draftNote: data.preview ? "تقييم أولي — لم يُحسب التقييم الشهري بعد" : data.status && !FINAL.includes(data.status) ? "مسودة — التقييم لم يُعتمد بعد" : null,
-      adjustment: data.adjustment,
-      adjustmentReason: data.adjustmentReason,
-      managerNotes: data.managerNotes,
+      draftNote: evaluation.status === "APPROVED" ? null : "مسودة — التقييم الرسمي لم يُعتمد بعد",
+      adjustment,
+      adjustmentReason: evaluation.overrideReason,
+      managerNotes: evaluation.managerNotes,
       ratingBands: await activeRatingBands(),
     },
     duties,
   );
+
   return { fileName: exportFileName(employee.fullName, year, month), buffer, employeeName: employee.fullName };
 }
