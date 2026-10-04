@@ -1,10 +1,22 @@
 import { num, pct } from "./num";
 
-export type DistributionProgressTask = { achieved: unknown; status: string; source?: string };
+export type DistributionProgressTask = { achieved: unknown; target?: unknown; status: string; source?: string };
 
 export function manualAchieved(goalType: string, dailyTasks: DistributionProgressTask[], adjust: number) {
   const tasks = dailyTasks.filter((task) => task.status !== "CANCELLED");
-  const fromTasks = goalType === "BOOLEAN" ? (tasks.some((task) => task.status === "COMPLETED") ? 1 : 0) : tasks.reduce((sum, task) => sum + num(task.achieved), 0);
+  const fromTasks =
+    goalType === "BOOLEAN"
+      ? tasks.some((task) => task.status === "COMPLETED")
+        ? 1
+        : 0
+      : tasks.reduce((sum, task) => {
+          const achieved = num(task.achieved);
+          const target = num(task.target);
+          // In Masar, COMPLETED means the task target was fulfilled. Older rows may
+          // have status=COMPLETED but achieved=0 because the status dialog did not
+          // fill the numeric value; count them as their target instead of 0.
+          return sum + (task.status === "COMPLETED" && target > achieved ? target : achieved);
+        }, 0);
   const total = fromTasks + adjust;
   return Math.max(goalType === "BOOLEAN" ? Math.min(total, 1) : total, 0);
 }
