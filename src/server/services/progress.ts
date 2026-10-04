@@ -107,16 +107,37 @@ export async function recomputePlan(planId: string, cache = new ItemCache(), opt
   // Older/manual task rows can exist as completed without a monthlyGoalId even
   // though their title exactly matches a one-time goal. Include those rows as a
   // safe fallback so completed work never shows as 0% in the plan.
-  const unlinkedCompleted = await db.dailyTask.findMany({
-    where: {
-      employeeId: plan.employeeId,
-      monthlyGoalId: null,
-      status: "COMPLETED",
-      date: { gte: fromDateKey(pStart), lte: fromDateKey(pEnd) },
-    },
-    select: { achieved: true, target: true, status: true, source: true, weeklyGoalId: true, title: true, date: true },
-  });
-  const normTitle = (value: string) => value.replace(/\s+/g, " ").trim().toLocaleLowerCase("ar");
+  const [completedDailyFallback, completedAdHocFallback] = await Promise.all([
+    db.dailyTask.findMany({
+      where: {
+        employeeId: plan.employeeId,
+        status: "COMPLETED",
+        date: { gte: fromDateKey(pStart), lte: fromDateKey(pEnd) },
+      },
+      select: { achieved: true, target: true, status: true, source: true, weeklyGoalId: true, monthlyGoalId: true, title: true, date: true },
+    }),
+    db.adHocTask.findMany({
+      where: {
+        employeeId: plan.employeeId,
+        status: "COMPLETED",
+        assignedDate: { gte: fromDateKey(pStart), lte: fromDateKey(pEnd) },
+      },
+      select: { id: true, title: true, assignedDate: true, compensatesGoalId: true, status: true },
+    }),
+  ]);
+  const normTitle = (value: string) =>
+    value
+      .replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)))
+      .replace(/(?:^|\s)بتاريخ\s+\d{1,2}(?:\s*[-\/]\s*\d{1,2})?(?:\s*[-\/]\s*\d{2,4})?/g, " ")
+      .replace(/[ـ،,:؛.\-_()\[\]{}]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toLocaleLowerCase("ar");
+  const sameWorkTitle = (a: string, b: string) => {
+    const x = normTitle(a);
+    const y = normTitle(b);
+    return x === y || (x.length >= 12 && y.length >= 12 && (x.includes(y) || y.includes(x)));
+  };
 
   const writes: Prisma.PrismaPromise<unknown>[] = [];
   const now = new Date();
@@ -136,20 +157,33 @@ export async function recomputePlan(planId: string, cache = new ItemCache(), opt
     let sourceValue: number | null | undefined;
     let progress: number;
     if (goal.distributionMode !== "DISTRIBUTED") {
-      const fallback =
+      const dailyFallback =
         goal.distributionMode === "ONE_TIME"
-          ? unlinkedCompleted.filter(
+          ? completedDailyFallback.filter(
               (task) =>
-                normTitle(task.title) === normTitle(goal.name) &&
+                task.monthlyGoalId !== goal.id &&
+                sameWorkTitle(task.title, goal.name) &&
                 toDateKey(task.date) >= start &&
                 toDateKey(task.date) <= end,
             )
           : [];
+      const adHocDone =
+        goal.distributionMode === "ONE_TIME" &&
+        completedAdHocFallback.some(
+          (task) =>
+            (task.compensatesGoalId === goal.id || sameWorkTitle(task.title, goal.name)) &&
+            toDateKey(task.assignedDate) >= start &&
+            toDateKey(task.assignedDate) <= end,
+        );
       const result = distributionProgress(
         goal.distributionMode,
         goal.goalType,
         target,
-        [...goal.dailyTasks, ...fallback],
+        [
+          ...goal.dailyTasks,
+          ...dailyFallback,
+          ...(adHocDone ? [{ achieved: target, target, status: "COMPLETED", source: "AD_HOC_TASK" }] : []),
+        ],
         num(goal.manualAdjust),
       );
       achieved = result.achieved;
@@ -199,20 +233,33 @@ export async function recomputePlan(planId: string, cache = new ItemCache(), opt
       let breakdown: ProgressBreakdown | null = null;
       let progress: number;
       if (goal.distributionMode !== "DISTRIBUTED") {
-        const fallback =
+        const dailyFallback =
           goal.distributionMode === "ONE_TIME"
-            ? unlinkedCompleted.filter(
+            ? completedDailyFallback.filter(
                 (task) =>
-                  normTitle(task.title) === normTitle(goal.name) &&
+                  task.monthlyGoalId !== goal.id &&
+                  sameWorkTitle(task.title, goal.name) &&
                   toDateKey(task.date) >= wStart &&
                   toDateKey(task.date) <= wEnd,
               )
             : [];
+        const adHocDone =
+          goal.distributionMode === "ONE_TIME" &&
+          completedAdHocFallback.some(
+            (task) =>
+              (task.compensatesGoalId === goal.id || sameWorkTitle(task.title, goal.name)) &&
+              toDateKey(task.assignedDate) >= wStart &&
+              toDateKey(task.assignedDate) <= wEnd,
+          );
         const result = distributionProgress(
           goal.distributionMode,
           goal.goalType,
           target,
-          [...wg.dailyTasks, ...fallback],
+          [
+            ...wg.dailyTasks,
+            ...dailyFallback,
+            ...(adHocDone ? [{ achieved: target, target, status: "COMPLETED", source: "AD_HOC_TASK" }] : []),
+          ],
           num(wg.manualAdjust),
         );
         achieved = result.achieved;
