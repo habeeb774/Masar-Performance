@@ -9,6 +9,7 @@ import { notifyUsers } from "./notifications";
 import { ensureDueReports, refreshDraftsForDataSource } from "./reports";
 import { recomputeAllActive, recomputeForDataSource } from "./progress";
 import { PERMISSIONS } from "@/lib/permissions";
+import { ensureThursdayRecurringTasks } from "./recurring-tasks";
 
 /** Notify owners when items were sent back for revision during a sync. */
 export async function notifyRevisions(itemIds: string[]) {
@@ -91,6 +92,8 @@ export async function runDailyJobs() {
   ).count;
 
   await recomputeAllActive();
+
+  summary.recurringTasks = await ensureThursdayRecurringTasks(today);
 
   const generated = await ensureDueReports({ employeeIds: "ALL", notify: true });
   summary.weeklyReports = generated.weekly;
