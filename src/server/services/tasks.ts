@@ -6,13 +6,10 @@ import { UserError } from "@/server/action";
 import { assertEmployeeAccess, type AuthUser } from "@/server/auth/session";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
 import { formatDateAr, fromDateKey } from "@/lib/dates";
-import type { adHocTaskSchema, dailyTaskSchema, taskProgressSchema } from "@/lib/validation";
+import type { adHocTaskSchema, dailyTaskSchema, taskPostponeSchema, taskProgressSchema } from "@/lib/validation";
 import { notifyEmployee } from "./notifications";
 import { recomputePlan } from "./progress";
 import { assertTaskInPlan } from "./periods";
-import { taskCompletion } from "@/lib/task-completion";
-import { num } from "@/lib/num";
-import { refreshDraftEvaluationsForEmployee } from "./evaluation";
 
 async function recomputeForGoal(monthlyGoalId: string | null) {
   if (!monthlyGoalId) return;
@@ -50,6 +47,9 @@ export async function createDailyTask(user: AuthUser, input: z.infer<typeof dail
       date: fromDateKey(input.date),
       deadline: input.deadline ? fromDateKey(input.deadline) : null,
       target: input.target,
+      achieved: input.achieved,
+      progress: input.progress,
+      status: input.status,
       priority: input.priority,
       monthlyGoalId: input.monthlyGoalId,
       weeklyGoalId,
@@ -57,7 +57,7 @@ export async function createDailyTask(user: AuthUser, input: z.infer<typeof dail
       delayReason: input.delayReason,
       source: "MANUAL",
       createdById: user.id,
-      ...taskCompletion({ status: input.status, target: input.target, achieved: input.achieved, progress: input.progress }),
+      completedAt: input.status === "COMPLETED" ? new Date() : null,
     },
   });
   await audit({ user, action: "task.create", entityType: "DailyTask", entityId: task.id, after: input });
@@ -78,15 +78,88 @@ export async function updateTaskProgress(user: AuthUser, taskId: string, input: 
   const isOwner = task.employeeId === user.employeeId;
   if (!isOwner && !hasPermission(user, PERMISSIONS.TASKS_ASSIGN)) throw new UserError("لا يمكنك تعديل هذه المهمة");
   const notionDriven = task.monthlyGoal?.source === "NOTION" && task.source !== "MANUAL";
+  const requestedAchieved = Number(input.achieved ?? task.achieved);
+  const target = Number(task.target);
+  const requestedProgress = input.progress ?? task.progress;
+  const protectedStatus = input.status === "BLOCKED" || input.status === "CANCELLED";
+  const reachedTarget = target > 0 && requestedAchieved >= target;
+  const reachedFullProgress = requestedProgress >= 100;
+  const resolvedStatus = !protectedStatus && (reachedTarget || reachedFullProgress) ? "COMPLETED" : input.status;
+
   const data = notionDriven
-    ? { notes: input.notes, delayReason: input.delayReason, ...(input.status === "BLOCKED" || input.status === "CANCELLED" ? { status: input.status } : {}) }
+    ? { notes: input.notes, delayReason: input.delayReason, ...(protectedStatus ? { status: input.status } : {}) }
     : {
-        ...taskCompletion({ status: input.status, target: num(task.target), achieved: input.achieved ?? num(task.achieved), progress: input.progress ?? task.progress, completedAt: task.completedAt }),
+        status: resolvedStatus,
+        achieved: resolvedStatus === "COMPLETED" && target > 0 ? Math.max(requestedAchieved, target) : requestedAchieved,
+        progress: resolvedStatus === "COMPLETED" ? 100 : requestedProgress,
         notes: input.notes,
         delayReason: input.delayReason,
+        completedAt: resolvedStatus === "COMPLETED" ? (task.completedAt ?? new Date()) : null,
       };
   const updated = await db.dailyTask.update({ where: { id: taskId }, data });
   await audit({ user, action: "task.update", entityType: "DailyTask", entityId: taskId, before: task, after: updated, diff: true });
+  await recomputeForGoal(task.monthlyGoalId);
+  return updated;
+}
+
+export async function postponeDailyTask(user: AuthUser, taskId: string, input: z.infer<typeof taskPostponeSchema>) {
+  const task = await db.dailyTask.findUniqueOrThrow({
+    where: { id: taskId },
+    include: { monthlyGoal: true },
+  });
+  assertEmployeeAccess(user, task.employeeId);
+  if (task.employeeId !== user.employeeId && !hasPermission(user, PERMISSIONS.TASKS_ASSIGN)) {
+    throw new UserError("لا يمكنك تأجيل هذه المهمة");
+  }
+  if (task.status === "COMPLETED" || task.status === "CANCELLED") {
+    throw new UserError("لا يمكن تأجيل مهمة مكتملة أو ملغاة");
+  }
+  const notionDriven = task.monthlyGoal?.source === "NOTION" && task.source !== "MANUAL";
+  if (notionDriven) {
+    throw new UserError("هذه المهمة مرتبطة بـ Notion ولا يمكن تغيير تاريخها من النظام");
+  }
+
+  const currentDate = task.date.toISOString().slice(0, 10);
+  if (input.date <= currentDate) {
+    throw new UserError("اختر تاريخًا بعد تاريخ المهمة الحالي");
+  }
+
+  let weeklyGoalId = task.weeklyGoalId;
+  if (task.monthlyGoalId) {
+    await assertTaskInPlan(task.monthlyGoalId, input.date);
+    weeklyGoalId =
+      (
+        await db.weeklyGoal.findFirst({
+          where: {
+            monthlyGoalId: task.monthlyGoalId,
+            weeklyPlan: {
+              startDate: { lte: fromDateKey(input.date) },
+              endDate: { gte: fromDateKey(input.date) },
+            },
+          },
+          select: { id: true },
+        })
+      )?.id ?? null;
+  }
+
+  const updated = await db.dailyTask.update({
+    where: { id: taskId },
+    data: {
+      date: fromDateKey(input.date),
+      weeklyGoalId,
+      delayReason: input.reason ?? task.delayReason,
+    },
+  });
+
+  await audit({
+    user,
+    action: "task.postpone",
+    entityType: "DailyTask",
+    entityId: taskId,
+    before: task,
+    after: updated,
+    diff: true,
+  });
   await recomputeForGoal(task.monthlyGoalId);
   return updated;
 }
@@ -96,7 +169,6 @@ export async function updateDailyTask(user: AuthUser, taskId: string, input: z.i
   assertEmployeeAccess(user, task.employeeId);
   if (input.monthlyGoalId) await assertTaskInPlan(input.monthlyGoalId, input.date);
   if (task.source !== "MANUAL") throw new UserError("هذه المهمة مولّدة من الخطة — عدّل التوزيع بدلًا من ذلك");
-  if (task.status === "COMPLETED" && task.monthlyGoalId && input.monthlyGoalId !== task.monthlyGoalId) throw new UserError("لا يمكن فصل مهمة مكتملة عن هدفها؛ يلزم إجراء مراجعة صريح");
   if (task.employeeId !== user.employeeId && !hasPermission(user, PERMISSIONS.TASKS_ASSIGN)) throw new UserError("لا يمكنك تعديل هذه المهمة");
   let weeklyGoalId: string | null = null;
   if (input.monthlyGoalId) {
@@ -104,6 +176,15 @@ export async function updateDailyTask(user: AuthUser, taskId: string, input: z.i
     if (goal.employeeId !== task.employeeId) throw new UserError("الهدف لا يخص هذا الموظف");
     weeklyGoalId = (await db.weeklyGoal.findFirst({ where: { monthlyGoalId: goal.id, weeklyPlan: { startDate: { lte: fromDateKey(input.date) }, endDate: { gte: fromDateKey(input.date) } } } }))?.id ?? null;
   }
+  const protectedStatus = input.status === "BLOCKED" || input.status === "CANCELLED";
+  const reachedTarget = Number(input.target) > 0 && Number(input.achieved) >= Number(input.target);
+  const reachedFullProgress = Number(input.progress) >= 100;
+  const resolvedStatus = !protectedStatus && (reachedTarget || reachedFullProgress) ? "COMPLETED" : input.status;
+  const resolvedAchieved =
+    resolvedStatus === "COMPLETED" && Number(input.target) > 0
+      ? Math.max(Number(input.achieved), Number(input.target))
+      : Number(input.achieved);
+
   const updated = await db.dailyTask.update({
     where: { id: taskId },
     data: {
@@ -112,12 +193,15 @@ export async function updateDailyTask(user: AuthUser, taskId: string, input: z.i
       date: fromDateKey(input.date),
       deadline: input.deadline ? fromDateKey(input.deadline) : null,
       target: input.target,
+      achieved: resolvedAchieved,
+      progress: resolvedStatus === "COMPLETED" ? 100 : input.progress,
+      status: resolvedStatus,
       priority: input.priority,
       monthlyGoalId: input.monthlyGoalId,
       weeklyGoalId,
       notes: input.notes,
       delayReason: input.delayReason,
-      ...taskCompletion({ status: input.status, target: input.target, achieved: input.achieved, progress: input.progress, completedAt: task.completedAt }),
+      completedAt: resolvedStatus === "COMPLETED" ? (task.completedAt ?? new Date()) : null,
     },
   });
   await audit({ user, action: "task.update", entityType: "DailyTask", entityId: taskId, before: task, after: updated, diff: true });
@@ -162,19 +246,12 @@ export async function createAdHocTask(user: AuthUser, input: z.infer<typeof adHo
     body: input.dueDate ? `موعد التسليم ${formatDateAr(input.dueDate)}` : null,
     link: "/my-tasks",
   });
-  await refreshDraftEvaluationsForEmployee(input.employeeId);
   return task;
 }
 
 export async function updateAdHocTask(user: AuthUser, taskId: string, input: z.infer<typeof adHocTaskSchema>) {
   const task = await db.adHocTask.findUniqueOrThrow({ where: { id: taskId } });
   assertEmployeeAccess(user, task.employeeId);
-  if (!hasPermission(user, PERMISSIONS.TASKS_ASSIGN)) throw new UserError("غير مسموح");
-  assertEmployeeAccess(user, input.employeeId);
-  if (input.compensatesGoalId) {
-    const goal = await db.monthlyGoal.findUniqueOrThrow({ where: { id: input.compensatesGoalId } });
-    if (goal.employeeId !== input.employeeId) throw new UserError("الهدف المعوَّض لا يخص الموظف");
-  }
   const updated = await db.adHocTask.update({
     where: { id: taskId },
     data: {
@@ -184,8 +261,6 @@ export async function updateAdHocTask(user: AuthUser, taskId: string, input: z.i
     },
   });
   await audit({ user, action: "adhoc.update", entityType: "AdHocTask", entityId: taskId, before: task, after: updated, diff: true });
-  await refreshDraftEvaluationsForEmployee(task.employeeId);
-  if (updated.employeeId !== task.employeeId) await refreshDraftEvaluationsForEmployee(updated.employeeId);
   return updated;
 }
 
@@ -193,16 +268,24 @@ export async function updateAdHocProgress(user: AuthUser, taskId: string, input:
   const task = await db.adHocTask.findUniqueOrThrow({ where: { id: taskId } });
   assertEmployeeAccess(user, task.employeeId);
   if (task.employeeId !== user.employeeId && !hasPermission(user, PERMISSIONS.TASKS_ASSIGN)) throw new UserError("غير مسموح");
+  const requestedProgress = input.progress ?? task.progress;
+  const protectedStatus = input.status === "BLOCKED" || input.status === "CANCELLED";
+  const resolvedStatus = !protectedStatus && requestedProgress >= 100 ? "COMPLETED" : input.status;
   const updated = await db.adHocTask.update({
     where: { id: taskId },
     data: {
-      ...(() => { const { status, progress, completedAt } = taskCompletion({ status: input.status, target: 0, achieved: 0, progress: input.progress ?? task.progress, completedAt: task.completedAt }); return { status, progress, completedAt }; })(),
+      status: resolvedStatus,
+      progress: resolvedStatus === "COMPLETED" ? 100 : requestedProgress,
       notes: input.notes,
       delayReason: input.delayReason,
+      completedAt: resolvedStatus === "COMPLETED" ? (task.completedAt ?? new Date()) : null,
     },
   });
   await audit({ user, action: "adhoc.update", entityType: "AdHocTask", entityId: taskId, before: task, after: updated, diff: true });
-  await refreshDraftEvaluationsForEmployee(task.employeeId);
+  if (task.compensatesGoalId) {
+    const goal = await db.monthlyGoal.findUnique({ where: { id: task.compensatesGoalId }, select: { planId: true } });
+    if (goal) await recomputePlan(goal.planId);
+  }
   return updated;
 }
 
@@ -212,5 +295,4 @@ export async function deleteAdHocTask(user: AuthUser, taskId: string) {
   assertEmployeeAccess(user, task.employeeId);
   await db.adHocTask.delete({ where: { id: taskId } });
   await audit({ user, action: "adhoc.delete", entityType: "AdHocTask", entityId: taskId, before: task });
-  await refreshDraftEvaluationsForEmployee(task.employeeId);
 }

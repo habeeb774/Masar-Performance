@@ -55,6 +55,7 @@ beforeAll(async () => {
   const plan = await plans.createMonthlyPlan(manager, { employeeId: employee.employeeId!, year: YEAR, month: MONTH, templateId: null, useTemplate: false, executionStartDate: "2036-09-01" });
   planId = plan.id;
   await plans.addGoal(manager, planId, goal("إضافة 100 منتج", "DISTRIBUTED", 100, "2036-09-01", "2036-09-30"));
+  await plans.addGoal(manager, planId, goal("تجهيز عروض اليوم الوطني بتاريخ 14", "DISTRIBUTED", 1, "2036-09-01", "2036-09-30"));
   await plans.addGoal(manager, planId, goal("تصميم بنر", "ONE_TIME", 1, "2036-09-01", "2036-09-23"));
   await plans.addGoal(manager, planId, goal("متابعة يومية", "DAILY", 1, "2036-09-01", "2036-09-07"));
   await plans.approvePlan(manager, planId, "اختبار طرق التوزيع");
@@ -71,6 +72,32 @@ describe("distribution modes", () => {
     const tasks = await db.dailyTask.findMany({ where: { monthlyGoalId: goalRow.id, source: "DISTRIBUTED" } });
     expect(weekly.reduce((sum, row) => sum + num(row.targetValue), 0)).toBe(100);
     expect(tasks.reduce((sum, task) => sum + num(task.target), 0)).toBe(100);
+  });
+
+  it("repairs a distributed one-task goal from completed legacy work with the same title", async () => {
+    const goalRow = await db.monthlyGoal.findFirstOrThrow({ where: { planId, name: "تجهيز عروض اليوم الوطني بتاريخ 14" } });
+    await db.dailyTask.updateMany({
+      where: { monthlyGoalId: goalRow.id },
+      data: { status: "NOT_STARTED", achieved: 0, progress: 0 },
+    });
+    await db.dailyTask.create({
+      data: {
+        employeeId: employee.employeeId!,
+        title: "تجهيز عروض اليوم الوطني",
+        date: new Date("2036-09-14T00:00:00.000Z"),
+        target: 1,
+        achieved: 1,
+        progress: 100,
+        status: "COMPLETED",
+        source: "MANUAL",
+      },
+    });
+
+    await recomputePlan(planId);
+    const updated = await db.monthlyGoal.findUniqueOrThrow({ where: { id: goalRow.id } });
+    expect(num(updated.achievedValue)).toBe(1);
+    expect(num(updated.progressPct)).toBe(100);
+    expect(updated.status).toBe("COMPLETED");
   });
 
   it("creates one one-time week/task on the due date and stays idempotent", async () => {

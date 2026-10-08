@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { TaskPriorityMark, TaskStatusControl, TaskStatusMarker } from "@/features/tasks/task-status-control";
 import { useServerAction } from "@/hooks/use-server-action";
-import { updateAdHocAction, updateTaskAction } from "@/actions/tasks";
+import { postponeTaskAction, updateAdHocAction } from "@/actions/tasks";
 import { addDays, formatDateAr, formatDayAr } from "@/lib/dates";
 import { formatNumber } from "@/lib/num";
 import type { PriorityKey, TaskStatusKey } from "@/lib/labels";
@@ -79,23 +79,12 @@ export function DailyTaskItem({
 }) {
   const router = useRouter();
   const [details, setDetails] = useState(false);
-  const postponeAction = useServerAction(updateTaskAction, { onSuccess: () => router.refresh() });
-  const canPostpone = task.source === "MANUAL" && task.status !== "COMPLETED" && task.status !== "CANCELLED";
-  const postponeTo = (newDate: string) =>
+  const postponeAction = useServerAction(postponeTaskAction, { onSuccess: () => router.refresh() });
+  const canPostpone = !task.notionDriven && task.status !== "COMPLETED" && task.status !== "CANCELLED";
+  const postponeTo = (newDate: string, reason?: string) =>
     postponeAction.run(task.id, {
-      title: task.title,
-      description: task.description,
       date: newDate,
-      deadline: task.deadline,
-      target: task.target,
-      achieved: task.achieved,
-      progress: task.progress,
-      status: task.status,
-      priority: task.priority,
-      monthlyGoalId: task.monthlyGoalId,
-      notes: task.notes,
-      delayReason: task.delayReason,
-      employeeId: task.employeeId,
+      reason: reason ?? null,
     });
   const meta: MetaPart[] = [];
   if (showDate && task.date !== today) meta.push({ text: formatDayAr(task.date) });
@@ -131,6 +120,7 @@ export function DailyTaskItem({
                   ? {
                       onTomorrow: () => postponeTo(addDays(task.date, 1)),
                       onNextWeek: () => postponeTo(addDays(task.date, 7)),
+                      onCustomDate: (date, reason) => postponeTo(date, reason),
                       pending: postponeAction.pending,
                     }
                   : undefined
@@ -205,6 +195,7 @@ export function AdHocTaskItem({
                   ? {
                       onTomorrow: () => postponeTo(addDays(baseDate, 1)),
                       onNextWeek: () => postponeTo(addDays(baseDate, 7)),
+                      onCustomDate: (date) => postponeTo(date),
                       pending: postponeAction.pending,
                     }
                   : undefined

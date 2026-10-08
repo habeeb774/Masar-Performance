@@ -9,10 +9,23 @@ import { ProgressBar } from "@/components/shared/progress-bar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatDateTimeAr } from "@/lib/dates";
+import { formatNumber } from "@/lib/num";
 import { REPORT_STATUS_LABELS } from "@/lib/labels";
 import type { ReportListRow } from "@/server/queries/reports";
 
-export function ReportListTable({ rows, showEmployee = true, emptyTitle = "لا توجد تقارير" }: { rows: ReportListRow[]; showEmployee?: boolean; emptyTitle?: string }) {
+export function ReportListTable({
+  rows,
+  showEmployee = true,
+  emptyTitle = "لا توجد تقارير",
+  progressHeader = "الإنجاز الموزون",
+  showOfficialEvaluation = false,
+}: {
+  rows: ReportListRow[];
+  showEmployee?: boolean;
+  emptyTitle?: string;
+  progressHeader?: string;
+  showOfficialEvaluation?: boolean;
+}) {
   const columns: ColumnDef<ReportListRow, unknown>[] = [
     ...(showEmployee
       ? [
@@ -41,7 +54,7 @@ export function ReportListTable({ rows, showEmployee = true, emptyTitle = "لا 
     { accessorKey: "status", header: "الحالة", cell: ({ row }) => <EnumBadge map={REPORT_STATUS_LABELS} value={row.original.status} /> },
     {
       accessorKey: "progress",
-      header: "الإنجاز الموزون",
+      header: progressHeader,
       enableSorting: true,
       cell: ({ row }) =>
         row.original.progress === null ? (
@@ -57,6 +70,25 @@ export function ReportListTable({ rows, showEmployee = true, emptyTitle = "لا 
           </div>
         ),
     },
+    ...(showOfficialEvaluation
+      ? [
+          {
+            id: "officialEvaluation",
+            header: "التقييم الرسمي",
+            cell: ({ row }) =>
+              row.original.evaluationScore === null || row.original.evaluationScore === undefined ? (
+                <span className="text-muted-foreground">—</span>
+              ) : row.original.evaluationId ? (
+                <Link href={`/performance/evaluations/${row.original.evaluationId}`} className="inline-flex items-center gap-2 whitespace-nowrap hover:underline">
+                  <span className="font-semibold tabular-nums">{formatNumber(row.original.evaluationScore, 2)}%</span>
+                  {row.original.evaluationRating && <Badge variant="outline">{row.original.evaluationRating}</Badge>}
+                </Link>
+              ) : (
+                <span className="font-semibold tabular-nums">{formatNumber(row.original.evaluationScore, 2)}%</span>
+              ),
+          } satisfies ColumnDef<ReportListRow, unknown>,
+        ]
+      : []),
     {
       accessorKey: "submittedAt",
       header: "تاريخ الإرسال",

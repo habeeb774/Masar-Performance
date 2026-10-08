@@ -4,7 +4,7 @@ import { db } from "@/server/db";
 import { computeBreakdown, type EvalItem, type ProgressBreakdown } from "@/lib/notion/progress";
 import { parseFilterRule } from "@/lib/notion/filter-rule";
 import type { SystemStatus } from "@/lib/notion/status";
-import { monthEnd, monthStart, toDateKey, todayKey } from "@/lib/dates";
+import { fromDateKey, monthEnd, monthStart, toDateKey, todayKey } from "@/lib/dates";
 import { deriveGoalStatus, deriveTaskStatus } from "@/lib/goal-status";
 import { num, pct } from "@/lib/num";
 import { distributionProgress, manualAchieved } from "@/lib/distribution-progress";
@@ -79,7 +79,7 @@ export async function breakdownFor(
 }
 
 const planInclude = {
-  goals: { include: { dailyTasks: { select: { achieved: true, status: true, source: true, weeklyGoalId: true } } } },
+  goals: { include: { dailyTasks: { select: { achieved: true, target: true, status: true, source: true, weeklyGoalId: true } } } },
   weeklyPlans: {
     include: {
       goals: { include: { dailyTasks: true } },
@@ -108,6 +108,87 @@ export async function recomputePlan(planId: string, cache = new ItemCache(), opt
   const mEnd = monthEnd(plan.year, plan.month);
   // the plan's real span follows its 7-day periods, so each day counts in one plan only
   const { start: pStart, end: pEnd } = await planSpan(plan);
+
+  // Older/manual task rows can exist as completed without a monthlyGoalId even
+  // though their title exactly matches a one-time goal. Include those rows as a
+  // safe fallback so completed work never shows as 0% in the plan.
+  const [completedDailyFallback, completedAdHocFallback] = await Promise.all([
+    db.dailyTask.findMany({
+      where: {
+        employeeId: plan.employeeId,
+        status: "COMPLETED",
+        date: { gte: fromDateKey(pStart), lte: fromDateKey(pEnd) },
+      },
+      select: { achieved: true, target: true, status: true, source: true, weeklyGoalId: true, monthlyGoalId: true, title: true, date: true },
+    }),
+    db.adHocTask.findMany({
+      where: {
+        employeeId: plan.employeeId,
+        status: "COMPLETED",
+        assignedDate: { gte: fromDateKey(pStart), lte: fromDateKey(pEnd) },
+      },
+      select: { id: true, title: true, assignedDate: true, compensatesGoalId: true, status: true },
+    }),
+  ]);
+  const normTitle = (value: string) =>
+    value
+      .replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)))
+      .replace(/(?:^|\s)بتاريخ\s+\d{1,2}(?:\s*[-\/]\s*\d{1,2})?(?:\s*[-\/]\s*\d{2,4})?/g, " ")
+      .replace(/[ـ،,:؛.\-_()\[\]{}]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toLocaleLowerCase("ar");
+  const sameWorkTitle = (a: string, b: string) => {
+    const x = normTitle(a);
+    const y = normTitle(b);
+    return x === y || (x.length >= 12 && y.length >= 12 && (x.includes(y) || y.includes(x)));
+  };
+  // Legacy repair for single-task goals only: an orphan manual task (linked to no goal)
+  // completed under the same title. Quantity goals never take work by title.
+  const legacyDone = (name: string, from: string, to: string) =>
+    completedDailyFallback.some(
+      (task) => task.monthlyGoalId === null && task.source === "MANUAL" && sameWorkTitle(task.title, name) && toDateKey(task.date) >= from && toDateKey(task.date) <= to,
+    );
+
+  // Historical/imported monthly reports are a frozen evidence source. They are used
+  // only as a fallback for ONE_TIME goals when the live task linkage is missing.
+  // Matching by goalId is preferred; title matching is only a legacy fallback.
+  const monthlyReport = await db.monthlyReport.findUnique({
+    where: { monthlyPlanId: plan.id },
+    select: { content: true },
+  });
+  const reportContent =
+    monthlyReport?.content && typeof monthlyReport.content === "object"
+      ? (monthlyReport.content as {
+          goals?: Array<{ goalId?: string; name?: string; status?: string; achieved?: number; target?: number; progressPct?: number }>;
+          adHocTasks?: Array<{ title?: string; status?: string; progress?: number; achieved?: number; target?: number }>;
+        })
+      : null;
+  const reportGoals = Array.isArray(reportContent?.goals) ? reportContent!.goals! : [];
+  const reportAdHoc = Array.isArray(reportContent?.adHocTasks) ? reportContent!.adHocTasks! : [];
+  const reportSaysGoalDone = (goal: { id: string; name: string; targetValue: unknown }) => {
+    const targetValue = num(goal.targetValue);
+    const row =
+      reportGoals.find((g) => g.goalId === goal.id) ??
+      reportGoals.find((g) => typeof g.name === "string" && sameWorkTitle(g.name, goal.name));
+    if (
+      row &&
+      (row.status === "COMPLETED" ||
+        Number(row.progressPct ?? 0) >= 99.999 ||
+        (targetValue > 0 && Number(row.achieved ?? 0) >= targetValue))
+    ) {
+      return true;
+    }
+    return reportAdHoc.some(
+      (task) =>
+        typeof task.title === "string" &&
+        sameWorkTitle(task.title, goal.name) &&
+        (task.status === "COMPLETED" ||
+          Number(task.progress ?? 0) >= 100 ||
+          (Number(task.target ?? 0) > 0 && Number(task.achieved ?? 0) >= Number(task.target ?? 0))),
+    );
+  };
+
   const writes: Prisma.PrismaPromise<unknown>[] = [];
 
   for (const goal of plan.goals) {
@@ -125,7 +206,37 @@ export async function recomputePlan(planId: string, cache = new ItemCache(), opt
     let sourceValue: number | null | undefined;
     let progress: number;
     if (goal.distributionMode !== "DISTRIBUTED") {
-      const result = distributionProgress(goal.distributionMode, goal.goalType, target, goal.dailyTasks, num(goal.manualAdjust));
+      const dailyFallback =
+        goal.distributionMode === "ONE_TIME"
+          ? completedDailyFallback.filter(
+              (task) =>
+                // legacy rows only: a task linked to any goal is counted there, never twice
+          task.monthlyGoalId === null &&
+                sameWorkTitle(task.title, goal.name) &&
+                toDateKey(task.date) >= start &&
+                toDateKey(task.date) <= end,
+            )
+          : [];
+      const adHocDone =
+        goal.distributionMode === "ONE_TIME" &&
+        completedAdHocFallback.some(
+          (task) =>
+            (task.compensatesGoalId === goal.id || sameWorkTitle(task.title, goal.name)) &&
+            toDateKey(task.assignedDate) >= start &&
+            toDateKey(task.assignedDate) <= end,
+        );
+      const reportDone = goal.distributionMode === "ONE_TIME" && reportSaysGoalDone(goal);
+      const result = distributionProgress(
+        goal.distributionMode,
+        goal.goalType,
+        target,
+        [
+          ...goal.dailyTasks,
+          ...dailyFallback,
+          ...(adHocDone || reportDone ? [{ achieved: target, target, status: "COMPLETED", source: "AD_HOC_TASK" }] : []),
+        ],
+        num(goal.manualAdjust),
+      );
       achieved = result.achieved;
       progress = result.progress;
     } else if (isNotion) {
@@ -136,6 +247,7 @@ export async function recomputePlan(planId: string, cache = new ItemCache(), opt
       progress = pct(achieved, target);
     } else {
       achieved = manualAchieved(goal.goalType, goal.dailyTasks, num(goal.manualAdjust));
+      if (target <= 1 && (reportSaysGoalDone(goal) || legacyDone(goal.name, start, end))) achieved = Math.max(achieved, target);
       progress = pct(achieved, target);
     }
     const status = deriveGoalStatus({
@@ -173,7 +285,37 @@ export async function recomputePlan(planId: string, cache = new ItemCache(), opt
       let breakdown: ProgressBreakdown | null = null;
       let progress: number;
       if (goal.distributionMode !== "DISTRIBUTED") {
-        const result = distributionProgress(goal.distributionMode, goal.goalType, target, wg.dailyTasks, num(wg.manualAdjust));
+        const dailyFallback =
+          goal.distributionMode === "ONE_TIME"
+            ? completedDailyFallback.filter(
+                (task) =>
+                  // legacy rows only: a task linked to any goal is counted there, never twice
+          task.monthlyGoalId === null &&
+                  sameWorkTitle(task.title, goal.name) &&
+                  toDateKey(task.date) >= wStart &&
+                  toDateKey(task.date) <= wEnd,
+              )
+            : [];
+        const adHocDone =
+          goal.distributionMode === "ONE_TIME" &&
+          completedAdHocFallback.some(
+            (task) =>
+              (task.compensatesGoalId === goal.id || sameWorkTitle(task.title, goal.name)) &&
+              toDateKey(task.assignedDate) >= wStart &&
+              toDateKey(task.assignedDate) <= wEnd,
+          );
+        const reportDone = goal.distributionMode === "ONE_TIME" && target > 0 && reportSaysGoalDone(goal);
+        const result = distributionProgress(
+          goal.distributionMode,
+          goal.goalType,
+          target,
+          [
+            ...wg.dailyTasks,
+            ...dailyFallback,
+            ...(adHocDone || reportDone ? [{ achieved: target, target, status: "COMPLETED", source: "AD_HOC_TASK" }] : []),
+          ],
+          num(wg.manualAdjust),
+        );
         achieved = result.achieved;
         progress = result.progress;
       } else if (isNotion) {
@@ -182,6 +324,7 @@ export async function recomputePlan(planId: string, cache = new ItemCache(), opt
         progress = pct(achieved, target);
       } else {
         achieved = manualAchieved("NUMERIC", wg.dailyTasks, num(wg.manualAdjust));
+        if (target <= 1 && (reportSaysGoalDone(goal) || legacyDone(goal.name, wStart, wEnd))) achieved = Math.max(achieved, target);
         progress = pct(achieved, target);
       }
       writes.push(
@@ -235,8 +378,9 @@ export async function recomputePlan(planId: string, cache = new ItemCache(), opt
   if (opts.refreshReports !== false) {
     const { refreshPlanWeeklyReports } = await import("./weekly-report-metrics");
     await refreshPlanWeeklyReports(planId);
-    const { refreshDraftEvaluationsForPlan } = await import("./evaluation");
-    await refreshDraftEvaluationsForPlan(planId);
+    // drafts follow the data; approved evaluations are never touched
+    const { refreshEvaluationForPlan } = await import("./evaluation");
+    await refreshEvaluationForPlan(planId);
     const monthly = await db.monthlyReport.findUnique({ where: { monthlyPlanId: planId }, select: { id: true, status: true } });
     if (monthly && ["DRAFT", "RETURNED"].includes(monthly.status)) {
       const { buildMonthlyContent, monthlyText } = await import("./reports");

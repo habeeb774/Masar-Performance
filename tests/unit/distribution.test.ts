@@ -55,6 +55,14 @@ describe("weekly and daily suggestions", () => {
 });
 
 describe("distribution progress", () => {
+  it("counts a completed numeric task as its full target even when old achieved data is zero", () => {
+    expect(
+      distributionProgress("DISTRIBUTED", "NUMERIC", 1, [
+        { achieved: 0, target: 1, status: "COMPLETED", source: "DISTRIBUTED" },
+      ]),
+    ).toEqual({ achieved: 1, progress: 100 });
+  });
+
   it("computes daily progress from completed days", () => {
     const tasks = Array.from({ length: 5 }, (_, index) => ({ achieved: index < 3 ? 1 : 0, status: index < 3 ? "COMPLETED" : "NOT_STARTED", source: "DISTRIBUTED" }));
     expect(distributionProgress("DAILY", "BOOLEAN", 1, tasks)).toEqual({ achieved: 3, progress: 60 });

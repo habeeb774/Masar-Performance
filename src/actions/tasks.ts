@@ -6,7 +6,7 @@ import { db } from "@/server/db";
 import { runAction } from "@/server/action";
 import { actionPermission, actionUser } from "@/server/auth/session";
 import { PERMISSIONS } from "@/lib/permissions";
-import { adHocTaskSchema, dailyTaskSchema, idSchema, taskProgressSchema } from "@/lib/validation";
+import { adHocTaskSchema, dailyTaskSchema, idSchema, taskPostponeSchema, taskProgressSchema } from "@/lib/validation";
 import { toDateKey } from "@/lib/dates";
 import { num } from "@/lib/num";
 import type { PriorityKey } from "@/lib/labels";
@@ -62,6 +62,14 @@ export async function updateTaskProgressAction(taskId: string, input: z.input<ty
     await tasks.updateTaskProgress(user, idSchema.parse(taskId), taskProgressSchema.parse(input));
     refresh();
   }, "تم تحديث المهمة");
+}
+
+export async function postponeTaskAction(taskId: string, input: z.input<typeof taskPostponeSchema>) {
+  return runAction(async () => {
+    const user = await actionUser();
+    await tasks.postponeDailyTask(user, idSchema.parse(taskId), taskPostponeSchema.parse(input));
+    refresh();
+  }, "تم تأجيل المهمة");
 }
 
 export async function deleteTaskAction(taskId: string) {

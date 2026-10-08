@@ -238,7 +238,7 @@ export function KpiResultsTable({ results, canEdit }: { results: KpiResultRow[];
               <TableHead className="text-start">الدرجة</TableHead>
               <TableHead className="text-start">الوزن</TableHead>
               <TableHead className="text-start">الدرجة الموزونة</TableHead>
-              <TableHead className="text-start">النوع</TableHead>
+              {canEdit && <TableHead className="text-start">النوع</TableHead>}
               {canEdit && <TableHead className="text-end">إجراء</TableHead>}
             </TableRow>
           </TableHeader>
@@ -279,16 +279,18 @@ export function KpiResultsTable({ results, canEdit }: { results: KpiResultRow[];
                     </TableCell>
                     <TableCell className="tabular-nums">{formatNumber(r.weight, 2)}</TableCell>
                     <TableCell className="font-semibold tabular-nums">{formatNumber(r.weightedScore, 2)}</TableCell>
-                    <TableCell>
-                      <div className="flex flex-col items-start gap-1">
-                        {r.isAutomatic ? <StatusBadge tone="info">آلي</StatusBadge> : <StatusBadge tone="neutral">يدوي</StatusBadge>}
-                        {r.isOverridden && (
-                          <StatusBadge tone="warning" className="max-w-48 truncate">
-                            معدّل
-                          </StatusBadge>
-                        )}
-                      </div>
-                    </TableCell>
+                    {canEdit && (
+                      <TableCell>
+                        <div className="flex flex-col items-start gap-1">
+                          {r.isAutomatic ? <StatusBadge tone="info">آلي</StatusBadge> : <StatusBadge tone="neutral">يدوي</StatusBadge>}
+                          {r.isOverridden && (
+                            <StatusBadge tone="warning" className="max-w-48 truncate">
+                              معدّل
+                            </StatusBadge>
+                          )}
+                        </div>
+                      </TableCell>
+                    )}
                     {canEdit && (
                       <TableCell className="text-end">
                         <Button size="sm" variant="outline" onClick={() => setEditing(r)}>
@@ -299,7 +301,7 @@ export function KpiResultsTable({ results, canEdit }: { results: KpiResultRow[];
                   </TableRow>
                   {open && (
                     <TableRow className="bg-muted/20 hover:bg-muted/20">
-                      <TableCell colSpan={canEdit ? 11 : 10} className="whitespace-normal">
+                      <TableCell colSpan={canEdit ? 11 : 9} className="whitespace-normal">
                         {r.isOverridden && r.overrideReason && (
                           <p className="mb-3 rounded-md bg-warning-soft px-2.5 py-1.5 text-xs text-warning">سبب التعديل: {r.overrideReason}</p>
                         )}
@@ -315,9 +317,11 @@ export function KpiResultsTable({ results, canEdit }: { results: KpiResultRow[];
               <TableCell colSpan={6}>الإجمالي</TableCell>
               <TableCell className="tabular-nums">{formatNumber(totalWeight, 2)}</TableCell>
               <TableCell className="tabular-nums">{formatNumber(totalWeighted, 2)}</TableCell>
-              <TableCell colSpan={canEdit ? 2 : 1} className="text-xs font-normal text-muted-foreground">
-                {Math.abs(totalWeight - 100) > 0.01 && "تم تطبيع النتيجة على مجموع الأوزان"}
-              </TableCell>
+              {canEdit && (
+                <TableCell colSpan={2} className="text-xs font-normal text-muted-foreground">
+                  {Math.abs(totalWeight - 100) > 0.01 && "تم تطبيع النتيجة على مجموع الأوزان"}
+                </TableCell>
+              )}
             </TableRow>
           </TableBody>
         </Table>

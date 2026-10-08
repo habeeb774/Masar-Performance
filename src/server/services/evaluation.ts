@@ -9,6 +9,7 @@ import { addDays, diffDays, fromDateKey, monthEnd, monthStart, toDateKey, todayK
 import { resolveExecutionPeriod } from "@/lib/execution-period";
 import { getRatingLabel, scoreEvaluation, timelinessMark, TIMELINESS_FULL_MARK, validateEvaluation, type DutyInput } from "@/lib/evaluation";
 import { num } from "@/lib/num";
+import { dutyOf } from "@/lib/duties";
 import { getCompanyFresh } from "./company";
 
 /**
@@ -28,7 +29,7 @@ const ON_TIME = "في أول يوم درجة كاملة 5 وعلى كل يوم �
 const DONE = "إنجاز المهمة المكلّف بها بالكامل وفق المطلوب.";
 
 export const DEFAULT_TEMPLATE = {
-  name: "قالب تقييم مسؤول المنتجات والتصاميم — 20/25/20/35",
+  name: "قالب تقييم مسؤول المنتجات والتصاميم",
   jobTitleName: "مسؤول المنتجات والتصاميم",
   duties: [
     {
@@ -47,7 +48,8 @@ export const DEFAULT_TEMPLATE = {
       kind: "GOALS",
       weight: 25,
       indicators: [
-        { title: "إضافة المنتجات الجديدة للمتجر", description: "عدد المنتجات التي تم إدخالها للمتجر من إجمالي العدد المستهدف.", target: 0, weight: 100, sourceType: "MONTHLY_GOAL", sourceConfig: { goalNameIncludes: ["إضافة منتجات", "إضافة المنتجات"] } },
+        { title: "إضافة المنتجات الجديدة للمتجر", description: "عدد المنتجات التي تم إدخالها للمتجر من إجمالي العدد المستهدف.", target: 0, weight: 50, sourceType: "MONTHLY_GOAL", sourceConfig: { goalNameIncludes: ["إضافة منتجات", "إضافة المنتجات"] } },
+        { title: "تعديل المنتجات الموجودة في المتجر", description: "عدد المنتجات التي تم تعديلها في المتجر من إجمالي العدد المستهدف.", target: 0, weight: 50, sourceType: "MONTHLY_GOAL", sourceConfig: { goalNameIncludes: ["تعديل المنتجات", "تعديل منتجات", "المنتجات الموجودة"] } },
       ],
     },
     {
@@ -55,9 +57,9 @@ export const DEFAULT_TEMPLATE = {
       kind: "GOALS",
       weight: 20,
       indicators: [
-        { title: "ربط المنتجات بمقاطع الانستقرام في المتجر", description: "عدد المقاطع التي تم ربطها بالمنتجات من إجمالي المقاطع التي تم نشرها.", target: 0, weight: 30, sourceType: "MONTHLY_GOAL", sourceConfig: { goalNameIncludes: ["Instagram", "الانستقرام", "انستقرام"] } },
-        { title: "تصميم صور المقالات وتعديلها على المتجر", description: "عدد المقالات التي تم تصميم صورها وتعديلها.", target: 0, weight: 35, sourceType: "MONTHLY_GOAL", sourceConfig: { goalNameIncludes: ["مقالات"] } },
-        { title: "تصميم بنرات جديدة للمتجر", description: "عدد البنرات الجديدة المنجزة.", target: 0, weight: 35, sourceType: "MONTHLY_GOAL", sourceConfig: { goalNameIncludes: ["بنرات جديدة"] } },
+        { title: "ربط المنتجات بمقاطع الانستقرام في المتجر", description: "عدد المقاطع التي تم ربطها بالمنتجات من إجمالي المقاطع التي تم نشرها.", target: 0, weight: 100, sourceType: "MONTHLY_GOAL", sourceConfig: { goalNameIncludes: ["Instagram", "الانستقرام", "انستقرام"] } },
+        { title: "تصميم صور المقالات وتعديلها على المتجر", description: "عدد المقالات التي تم تصميم صورها وتعديلها.", target: 0, weight: 0, sourceType: "MONTHLY_GOAL", sourceConfig: { goalNameIncludes: ["مقالات"] } },
+        { title: "تصميم بنرات جديدة للمتجر", description: "عدد البنرات الجديدة المنجزة.", target: 0, weight: 0, sourceType: "MONTHLY_GOAL", sourceConfig: { goalNameIncludes: ["بنرات جديدة"] } },
       ],
     },
     { title: "الواجب الرابع: مهام مستجدة كُلّف بها خلال الشهر", kind: "AD_HOC", weight: 35, indicators: [] },
@@ -65,48 +67,78 @@ export const DEFAULT_TEMPLATE = {
 } as const;
 
 /** The default template, created once (idempotent) — also how production gets it without a seed. */
+const defaultDutiesCreate = () =>
+  DEFAULT_TEMPLATE.duties.map((d, di) => ({
+    title: d.title,
+    kind: d.kind,
+    weight: d.weight,
+    sortOrder: di,
+    indicators: {
+      create: d.indicators.map((x, ii) => ({
+        title: x.title,
+        description: x.description,
+        notes: "notes" in x ? x.notes : null,
+        target: x.target,
+        weight: x.weight,
+        sourceType: x.sourceType,
+        sourceConfig: "sourceConfig" in x ? (x.sourceConfig as unknown as Prisma.InputJsonValue) : undefined,
+        sortOrder: ii,
+      })),
+    },
+  }));
+
+/**
+ * Keep the code-owned default template aligned with the currently approved HR model.
+ * Existing monthly evaluations are snapshots and are never rewritten here.
+ */
 export async function ensureDefaultEvaluationTemplate(tx: Tx | typeof db = db) {
-  const existing = await tx.evaluationTemplate.findFirst({ where: { name: DEFAULT_TEMPLATE.name } });
-  if (existing) return existing;
+  const existing = await tx.evaluationTemplate.findFirst({
+    where: { name: DEFAULT_TEMPLATE.name },
+    include: { duties: { orderBy: { sortOrder: "asc" }, include: { indicators: { orderBy: { sortOrder: "asc" } } } } },
+  });
   const jobTitle = await tx.jobTitle.findFirst({ where: { name: DEFAULT_TEMPLATE.jobTitleName } });
-  if (!jobTitle) throw new UserError("أعد قالب تقييم مرتبطًا بالمسمى الوظيفي أولًا");
-  return tx.evaluationTemplate.create({
-    data: {
-      name: DEFAULT_TEMPLATE.name,
-      jobTitleId: jobTitle.id,
-      duties: {
-        create: DEFAULT_TEMPLATE.duties.map((d, di) => ({
-          title: d.title,
-          kind: d.kind,
-          weight: d.weight,
-          sortOrder: di,
-          indicators: {
-            create: d.indicators.map((x, ii) => ({
-              title: x.title,
-              description: x.description,
-              notes: "notes" in x ? x.notes : null,
-              target: x.target,
-              weight: x.weight,
-              sourceType: x.sourceType,
-              sourceConfig: "sourceConfig" in x ? (x.sourceConfig as unknown as Prisma.InputJsonValue) : undefined,
-              sortOrder: ii,
-            })),
-          },
-        })),
+
+  if (!existing) {
+    return tx.evaluationTemplate.create({
+      data: {
+        name: DEFAULT_TEMPLATE.name,
+        jobTitleId: jobTitle?.id ?? null,
+        duties: { create: defaultDutiesCreate() },
       },
+    });
+  }
+
+  const current = existing.duties.map((d) => ({
+    title: d.title,
+    kind: d.kind,
+    weight: num(d.weight),
+    indicators: d.indicators.map((i) => ({ title: i.title, weight: num(i.weight), sourceType: i.sourceType })),
+  }));
+  const official = DEFAULT_TEMPLATE.duties.map((d) => ({
+    title: d.title,
+    kind: d.kind,
+    weight: d.weight,
+    indicators: d.indicators.map((i) => ({ title: i.title, weight: i.weight, sourceType: i.sourceType })),
+  }));
+
+  if (JSON.stringify(current) === JSON.stringify(official)) return existing;
+
+  return tx.evaluationTemplate.update({
+    where: { id: existing.id },
+    data: {
+      jobTitleId: existing.jobTitleId ?? jobTitle?.id ?? null,
+      duties: { deleteMany: {}, create: defaultDutiesCreate() },
     },
   });
 }
 
 async function templateFor(jobTitleId: string | null) {
-  const include = { duties: { orderBy: { sortOrder: "asc" as const }, include: { indicators: { orderBy: { sortOrder: "asc" as const } } } } };
-  if (!jobTitleId) throw new UserError("اربط الموظف بمسمى وظيفي وقالب تقييم أولًا");
-  const configured = await db.evaluationTemplate.findFirst({ where: { jobTitleId, isActive: true }, include, orderBy: { updatedAt: "desc" } });
-  if (configured) return configured;
-  const title = await db.jobTitle.findUniqueOrThrow({ where: { id: jobTitleId } });
-  if (title.name !== DEFAULT_TEMPLATE.jobTitleName) throw new UserError("لا يوجد قالب تقييم نشط لهذا المسمى الوظيفي");
   await ensureDefaultEvaluationTemplate();
-  return db.evaluationTemplate.findFirstOrThrow({ where: { jobTitleId, name: DEFAULT_TEMPLATE.name, isActive: true }, include });
+  const include = { duties: { orderBy: { sortOrder: "asc" as const }, include: { indicators: { orderBy: { sortOrder: "asc" as const } } } } };
+  return (
+    (jobTitleId ? await db.evaluationTemplate.findFirst({ where: { jobTitleId, isActive: true }, include, orderBy: { updatedAt: "desc" } }) : null) ??
+    (await db.evaluationTemplate.findFirstOrThrow({ where: { name: DEFAULT_TEMPLATE.name }, include }))
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -138,7 +170,7 @@ const loadPlan = (planId: string | null) =>
     : Promise.resolve(null);
 
 /** Duty 1 sources and goal-fed indicators. */
-function measure(sourceType: string, sourceConfig: unknown, ctx: Context, sourceId?: string | null): Measured | null {
+function measure(sourceType: string, sourceConfig: unknown, ctx: Context): Measured | null {
   const plan = ctx.plan;
   switch (sourceType) {
     case "MONTHLY_PLAN": {
@@ -162,9 +194,7 @@ function measure(sourceType: string, sourceConfig: unknown, ctx: Context, source
       return { achieved: timelinessMark(late), target: TIMELINESS_FULL_MARK, sourceId: plan?.report?.id ?? null, notes: sent ? (late! > 0 ? `سُلم متأخرًا ${late} يوم` : "سُلم في موعده") : "لم يُرسل التقرير الشهري بعد" };
     }
     case "MONTHLY_GOAL": {
-      const candidates = plan?.goals.filter((g) => g.status !== "CANCELLED" && (sourceId ? g.id === sourceId : goalMatches(g.name, sourceConfig))) ?? [];
-      // A stored ID is authoritative. Never silently rebind on a rename or ambiguity.
-      const goal = candidates.length === 1 ? candidates[0] : null;
+      const goal = plan?.goals.find((g) => g.status !== "CANCELLED" && goalMatches(g.name, sourceConfig));
       if (!goal) return null;
       return { achieved: num(goal.achievedValue), target: num(goal.targetValue), sourceId: goal.id };
     }
@@ -198,9 +228,7 @@ export function toDutyInputs(e: Pick<EvaluationDetail, "duties">): DutyInput[] {
 
 /** Store every indicator / duty / final score from the current inputs (no data is pulled here). */
 async function recalculate(tx: Tx, evaluationId: string) {
-  await tx.$queryRaw`SELECT "id" FROM "PerformanceEvaluation" WHERE "id" = ${evaluationId} FOR UPDATE`;
   const e = await tx.performanceEvaluation.findUniqueOrThrow({ where: { id: evaluationId }, include: evaluationInclude });
-  if (e.status === "APPROVED") throw new UserError("التقييم معتمد — أعد فتحه للتعديل");
   const result = scoreEvaluation(toDutyInputs(e), { capAt100: e.capAt100 });
   for (const [di, d] of e.duties.entries()) {
     await tx.evaluationDuty.update({ where: { id: d.id }, data: { score: result.duties[di].score } });
@@ -213,35 +241,143 @@ async function recalculate(tx: Tx, evaluationId: string) {
   await tx.performanceEvaluation.update({ where: { id: evaluationId }, data: { computedScore: result.finalScore, finalScore: final, ratingLabel: getRatingLabel(final) } });
 }
 
+const normalizeDutyTitle = (title: string) =>
+  title
+    .replace(/^الواجب\s+[^:：]+[:：]\s*/u, "")
+    .replace(/[.،؛:\s]+$/u, "")
+    .trim();
+
+const normalizedWeights = (raw: number[]) => {
+  if (raw.length === 0) return [];
+  const safe = raw.map((w) => Math.max(0, Number.isFinite(w) ? w : 0));
+  const sum = safe.reduce((a, b) => a + b, 0);
+  if (sum <= 0) return safe.map(() => 100 / safe.length);
+  return safe.map((w) => (w / sum) * 100);
+};
+
+/**
+ * Sync GOALS duties directly from the current monthly plan.
+ * The manager configures the job template once; every month targets, achieved values,
+ * added/removed goals and KPI weights are derived automatically from that month's plan.
+ */
 /** Pull automatic values (plan, reports, goals, ad-hoc tasks) into indicators the manager has not changed. */
 async function pullAutomatic(tx: Tx, evaluationId: string) {
-  await tx.$queryRaw`SELECT "id" FROM "PerformanceEvaluation" WHERE "id" = ${evaluationId} FOR UPDATE`;
   const e = await tx.performanceEvaluation.findUniqueOrThrow({ where: { id: evaluationId }, include: evaluationInclude });
-  if (e.status === "APPROVED") throw new UserError("التقييم معتمد — أعد فتحه للتعديل");
   const ctx = await context(e);
   const template = e.templateId ? await tx.evaluationTemplate.findUnique({ where: { id: e.templateId }, include: { duties: { include: { indicators: true } } } }) : null;
   const configOf = (title: string) => template?.duties.flatMap((d) => d.indicators).find((i) => i.title === title)?.sourceConfig ?? null;
 
+  const goalDuties = e.duties.filter((d) => d.kind === "GOALS");
+  const templateDuties = template?.duties ?? [];
+  const activePlanGoals = (ctx.plan?.goals ?? []).filter(
+    (g) => g.status !== "CANCELLED" && !g.isAdHoc && (num(g.targetValue) > 0 || num(g.achievedValue) > 0),
+  );
+
+  const templateDutyForGoal = (goal: (typeof activePlanGoals)[number]) =>
+    templateDuties.find((td) =>
+      td.indicators.some((i) => i.sourceType === "MONTHLY_GOAL" && goalMatches(goal.name, i.sourceConfig)),
+    ) ?? null;
+
+  const evaluationDutyForGoal = (goal: (typeof activePlanGoals)[number]) => {
+    const requested = normalizeDutyTitle(dutyOf(goal));
+    const named = goalDuties.find((d) => normalizeDutyTitle(d.title) === requested);
+    if (named) return named;
+    const td = templateDutyForGoal(goal);
+    if (td) {
+      const byTitle = goalDuties.find((d) => normalizeDutyTitle(d.title) === normalizeDutyTitle(td.title));
+      if (byTitle) return byTitle;
+      const byOrder = goalDuties.find((d) => d.sortOrder === td.sortOrder);
+      if (byOrder) return byOrder;
+    }
+    return goalDuties[0] ?? null;
+  };
+
   for (const duty of e.duties) {
+    if (duty.kind === "GOALS") {
+      const goals = activePlanGoals.filter((g) => evaluationDutyForGoal(g)?.id === duty.id);
+      const expectedIds = new Set(goals.map((g) => g.id));
+      const current = duty.indicators.filter((ind) => ind.sourceType === "MONTHLY_GOAL");
+
+      // Remove obsolete automatic placeholders/old goals. A manager-overridden orphan is
+      // retained for audit history but excluded from the score.
+      for (const ind of current) {
+        if (ind.sourceId && expectedIds.has(ind.sourceId)) continue;
+        if (ind.isOverridden) {
+          await tx.evaluationIndicator.update({ where: { id: ind.id }, data: { weight: 0 } });
+        } else {
+          await tx.evaluationIndicator.delete({ where: { id: ind.id } });
+        }
+      }
+
+      const templateDuty =
+        templateDuties.find((td) => normalizeDutyTitle(td.title) === normalizeDutyTitle(duty.title)) ??
+        templateDuties.find((td) => td.sortOrder === duty.sortOrder) ??
+        null;
+
+      const matchedRules = goals.map((goal) =>
+        templateDuty?.indicators.find((i) => i.sourceType === "MONTHLY_GOAL" && goalMatches(goal.name, i.sourceConfig)) ?? null,
+      );
+
+      // Known KPI rules keep their one-time template weights. New goals use the monthly
+      // plan weight. If all applicable template weights are zero (e.g. the primary KPI
+      // is absent this month), the actual plan weights take over automatically.
+      let rawWeights = goals.map((goal, i) => (matchedRules[i] ? num(matchedRules[i]!.weight) : num(goal.weight)));
+      if (rawWeights.reduce((a, b) => a + Math.max(0, b), 0) <= 0) rawWeights = goals.map((goal) => num(goal.weight));
+      const weights = normalizedWeights(rawWeights);
+
+      for (const [i, goal] of goals.entries()) {
+        const rule = matchedRules[i];
+        const existing = current.find((ind) => ind.sourceId === goal.id);
+        const description = goal.description?.trim() || rule?.description || `إنجاز «${goal.name}» من إجمالي المستهدف الشهري.`;
+        const base = {
+          title: goal.name,
+          description,
+          achieved: num(goal.achievedValue),
+          target: num(goal.targetValue),
+          weight: weights[i] ?? 0,
+          sourceType: "MONTHLY_GOAL" as const,
+          sourceId: goal.id,
+          sortOrder: goal.sortOrder,
+        };
+        if (existing) {
+          await tx.evaluationIndicator.update({
+            where: { id: existing.id },
+            data: existing.isOverridden
+              ? { weight: base.weight, sourceId: goal.id, sortOrder: base.sortOrder }
+              : base,
+          });
+        } else {
+          await tx.evaluationIndicator.create({ data: { dutyId: duty.id, ...base } });
+        }
+      }
+    }
+
     for (const ind of duty.indicators) {
-      if (ind.isOverridden || ind.sourceType === "MANUAL" || ind.sourceType === "AD_HOC_TASK") continue;
-      const m = measure(ind.sourceType, configOf(ind.title), ctx, ind.sourceId);
+      if (ind.isOverridden || ind.sourceType === "MANUAL" || ind.sourceType === "AD_HOC_TASK" || ind.sourceType === "MONTHLY_GOAL") continue;
+      const m = measure(ind.sourceType, configOf(ind.title), ctx);
       if (!m) continue;
       await tx.evaluationIndicator.update({ where: { id: ind.id }, data: { achieved: m.achieved, target: m.target, sourceId: m.sourceId ?? ind.sourceId, ...(m.notes !== undefined && !ind.notes ? { notes: m.notes } : {}) } });
     }
+
     if (duty.kind !== "AD_HOC") continue;
-    // duty 4: every ad-hoc task marked «تدخل في التقييم» within the period, with its evaluation weight
+    // Duty 4: explicit task weights are respected; unweighted tasks share the remaining weight automatically.
     const tasks = await adHocTasksFor(e.employeeId, ctx.start, ctx.end);
+    const explicit = tasks.reduce((sum, t) => sum + Math.max(0, num(t.weight)), 0);
+    const unweighted = tasks.filter((t) => num(t.weight) <= 0);
+    const remaining = Math.max(0, 100 - explicit);
+    const automaticWeight = unweighted.length > 0 ? remaining / unweighted.length : 0;
+    const resolvedWeight = (task: (typeof tasks)[number]) => (num(task.weight) > 0 ? num(task.weight) : automaticWeight);
+
     const linked = new Map(duty.indicators.filter((i) => i.sourceType === "AD_HOC_TASK" && i.sourceId).map((i) => [i.sourceId!, i]));
     let order = duty.indicators.length;
     for (const t of tasks) {
       const done = t.status === "COMPLETED" ? 1 : 0;
       const existing = linked.get(t.id);
       if (existing) {
-        if (!existing.isOverridden) await tx.evaluationIndicator.update({ where: { id: existing.id }, data: { title: t.title, achieved: done, target: 1, weight: num(t.weight) } });
+        if (!existing.isOverridden) await tx.evaluationIndicator.update({ where: { id: existing.id }, data: { title: t.title, achieved: done, target: 1, weight: resolvedWeight(t) } });
         continue;
       }
-      await tx.evaluationIndicator.create({ data: { dutyId: duty.id, title: t.title, description: DONE, achieved: done, target: 1, weight: num(t.weight), sourceType: "AD_HOC_TASK", sourceId: t.id, sortOrder: order++ } });
+      await tx.evaluationIndicator.create({ data: { dutyId: duty.id, title: t.title, description: DONE, achieved: done, target: 1, weight: resolvedWeight(t), sourceType: "AD_HOC_TASK", sourceId: t.id, sortOrder: order++ } });
     }
   }
 }
@@ -273,7 +409,10 @@ export async function createEvaluation(user: AuthUser | null, employeeId: string
     assertEmployeeAccess(user, employeeId);
   }
   const existing = await db.performanceEvaluation.findUnique({ where: { employeeId_year_month: { employeeId, year, month } } });
-  if (existing) return existing;
+  if (existing) {
+    if (existing.status === "DRAFT") await refreshDraftEvaluationData(existing.id);
+    return existing;
+  }
   const employee = await db.employee.findUniqueOrThrow({ where: { id: employeeId }, select: { jobTitleId: true } });
   const template = await templateFor(employee.jobTitleId);
   const plan = await db.monthlyPlan.findUnique({ where: { employeeId_year_month: { employeeId, year, month } }, include: { weeklyPlans: { select: { startDate: true, endDate: true } } } });
@@ -311,29 +450,25 @@ export async function createEvaluation(user: AuthUser | null, employeeId: string
   }, { timeout: 60_000 });
 }
 
-/** Re-pull automatic values (manager changes are kept) and recompute. */
-export async function refreshEvaluation(user: AuthUser, evaluationId: string) {
-  await loadForEdit(user, evaluationId);
+async function refreshDraftEvaluationData(evaluationId: string) {
+  const row = await db.performanceEvaluation.findUnique({ where: { id: evaluationId }, select: { status: true } });
+  if (!row || row.status !== "DRAFT") return;
   await db.$transaction(async (tx) => {
     await pullAutomatic(tx, evaluationId);
     await recalculate(tx, evaluationId);
   }, { timeout: 60_000 });
 }
 
-/** Automatic propagation refreshes existing drafts only, never creates or rewrites approvals. */
-export async function refreshDraftEvaluationsForPlan(planId: string) {
-  const evaluations = await db.performanceEvaluation.findMany({ where: { monthlyPlanId: planId, status: "DRAFT" }, select: { id: true } });
-  for (const e of evaluations) await db.$transaction(async tx => {
-    await tx.$queryRaw`SELECT "id" FROM "PerformanceEvaluation" WHERE "id" = ${e.id} FOR UPDATE`;
-    if ((await tx.performanceEvaluation.findUniqueOrThrow({ where: { id: e.id } })).status !== "DRAFT") return;
-    await pullAutomatic(tx, e.id);
-    await recalculate(tx, e.id);
-  }, { timeout: 60_000 });
+/** Recalculate an existing draft evaluation whenever its plan changes. */
+export async function refreshEvaluationForPlan(planId: string) {
+  const row = await db.performanceEvaluation.findUnique({ where: { monthlyPlanId: planId }, select: { id: true, status: true } });
+  if (row?.status === "DRAFT") await refreshDraftEvaluationData(row.id);
 }
 
-export async function refreshDraftEvaluationsForEmployee(employeeId: string) {
-  const plans = await db.performanceEvaluation.findMany({ where: { employeeId, status: "DRAFT", monthlyPlanId: { not: null } }, select: { monthlyPlanId: true }, distinct: ["monthlyPlanId"] });
-  for (const p of plans) if (p.monthlyPlanId) await refreshDraftEvaluationsForPlan(p.monthlyPlanId);
+/** Re-pull automatic values (manager changes are kept) and recompute. */
+export async function refreshEvaluation(user: AuthUser, evaluationId: string) {
+  await loadForEdit(user, evaluationId);
+  await refreshDraftEvaluationData(evaluationId);
 }
 
 export interface IndicatorPatch {
@@ -352,13 +487,26 @@ export async function updateIndicator(user: AuthUser, indicatorId: string, patch
   await loadForEdit(user, before.duty.evaluationId);
   for (const k of ["achieved", "target", "weight"] as const) if (patch[k] !== undefined && (!Number.isFinite(patch[k]) || patch[k]! < 0)) throw new UserError("القيم يجب أن تكون أرقامًا موجبة");
   if (patch.weight !== undefined && patch.weight > 100) throw new UserError("وزن المؤشر لا يتجاوز 100%");
-  const valueChanged = (patch.achieved !== undefined && patch.achieved !== num(before.achieved)) || (patch.target !== undefined && patch.target !== num(before.target));
-  if (valueChanged && !reason?.trim()) throw new UserError("اكتب سبب تغيير المستهدف أو الإنجاز");
+  const targetChanged = patch.target !== undefined && patch.target !== num(before.target);
+  const valueChanged =
+    (patch.achieved !== undefined && patch.achieved !== num(before.achieved)) ||
+    targetChanged ||
+    (patch.weight !== undefined && patch.weight !== num(before.weight));
+  if (targetChanged && !reason?.trim()) throw new UserError("سبب تعديل المستهدف مطلوب");
+
+  const targetReasonNote =
+    targetChanged && reason?.trim() && patch.notes === undefined
+      ? { notes: before.notes ? `${before.notes}\nسبب تعديل المستهدف: ${reason.trim()}` : `سبب تعديل المستهدف: ${reason.trim()}` }
+      : {};
+
   await db.$transaction(async (tx) => {
     const after = await tx.evaluationIndicator.update({
       where: { id: indicatorId },
-      data: { ...patch, ...(valueChanged && before.sourceType !== "MANUAL" ? { isOverridden: true } : {}) },
+      data: { ...patch, ...targetReasonNote, ...(valueChanged && before.sourceType !== "MANUAL" ? { isOverridden: true } : {}) },
     });
+    // Re-apply official automatic/template weights after a manager edit while preserving
+    // the manager's overridden achieved/target values.
+    await pullAutomatic(tx, before.duty.evaluationId);
     await recalculate(tx, before.duty.evaluationId);
     await audit({ user, action: "evaluation.indicator.update", entityType: "EvaluationIndicator", entityId: indicatorId, before, after, diff: true, reason }, tx);
   });
@@ -408,6 +556,9 @@ export async function removeIndicator(user: AuthUser, indicatorId: string, reaso
   await loadForEdit(user, ind.duty.evaluationId);
   await db.$transaction(async (tx) => {
     await tx.evaluationIndicator.delete({ where: { id: indicatorId } });
+    // removing an ad-hoc row is the manager's decision that the task does not count:
+    // record it on the task so the automatic sync does not bring the row back
+    if (ind.sourceType === "AD_HOC_TASK" && ind.sourceId) await tx.adHocTask.updateMany({ where: { id: ind.sourceId }, data: { includeInEvaluation: false } });
     await recalculate(tx, ind.duty.evaluationId);
     await audit({ user, action: "evaluation.indicator.delete", entityType: "EvaluationIndicator", entityId: indicatorId, before: ind, reason }, tx);
   });
@@ -439,7 +590,7 @@ export async function overrideFinalScore(user: AuthUser, evaluationId: string, s
 
 export async function updateEvaluationNotes(user: AuthUser, evaluationId: string, managerNotes: string | null) {
   const e = await loadForEdit(user, evaluationId);
-  await db.performanceEvaluation.updateMany({ where: { id: evaluationId, status: { not: "APPROVED" } }, data: { managerNotes } });
+  await db.performanceEvaluation.update({ where: { id: evaluationId }, data: { managerNotes } });
   await audit({ user, action: "evaluation.notes", entityType: "PerformanceEvaluation", entityId: evaluationId, before: { managerNotes: e.managerNotes }, after: { managerNotes } });
 }
 
@@ -525,6 +676,7 @@ export async function previewEvaluation(employeeId: string, year: number, month:
 // ---------------------------------------------------------------------------
 
 export async function getEvaluation(evaluationId: string) {
+  await refreshDraftEvaluationData(evaluationId);
   const e = await db.performanceEvaluation.findUnique({ where: { id: evaluationId }, include: evaluationInclude });
   if (!e) return null;
   const goals = e.monthlyPlanId ? await db.monthlyGoal.findMany({ where: { planId: e.monthlyPlanId, status: { not: "CANCELLED" } }, select: { id: true, name: true, achievedValue: true, targetValue: true }, orderBy: { sortOrder: "asc" } }) : [];

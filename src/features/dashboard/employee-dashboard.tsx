@@ -16,6 +16,7 @@ import type { AdHocTaskRow, DailyTaskRow } from "@/server/queries/tasks";
 import { formatDateAr, formatDateTimeAr, formatDayAr, monthLabel } from "@/lib/dates";
 import { formatNumber, formatPct, num } from "@/lib/num";
 import { NOTION_STATUS_LABELS } from "@/lib/labels";
+import { cn } from "@/lib/utils";
 
 type Data = Awaited<ReturnType<typeof getEmployeeDashboard>>;
 
@@ -54,7 +55,7 @@ export function EmployeeDashboard({
   const alerts = [
     stats.delayed > 0 && { icon: AlarmClock, tone: "text-danger", text: `${formatNumber(stats.delayed)} مهام متأخرة`, href: "/my-tasks" },
     stats.needsRevision > 0 && { icon: RotateCcw, tone: "text-warning", text: `${formatNumber(stats.needsRevision)} عناصر تحتاج تحسين`, href: "/my-plan" },
-    dueReminders > 0 && { icon: BellRing, tone: "text-primary", text: `${formatNumber(dueReminders)} تذكيرات حان موعدها`, href: "/reminders" },
+    dueReminders > 0 && { icon: BellRing, tone: "text-danger", text: `${formatNumber(dueReminders)} تذكيرات حان موعدها`, href: "/reminders" },
   ].filter((a): a is { icon: typeof AlarmClock; tone: string; text: string; href: string } => !!a);
 
   return (
@@ -116,7 +117,7 @@ export function EmployeeDashboard({
       {alerts.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {alerts.map(({ icon: Icon, tone, text, href }) => (
-            <Link key={text} href={href} className="inline-flex items-center gap-2 rounded-xl border bg-card px-3 py-2 text-sm hover:bg-accent/50">
+            <Link key={text} href={href} className={cn("inline-flex items-center gap-2 rounded-xl border bg-card px-3 py-2 text-sm hover:bg-accent/50", href === "/reminders" && "border-danger/40 bg-danger/10 text-danger hover:bg-danger/15")}>
               <Icon className={`size-4 ${tone}`} /> {text}
             </Link>
           ))}

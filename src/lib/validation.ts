@@ -246,6 +246,11 @@ export const taskProgressSchema = z.object({
   delayReason: optionalText(1000),
 });
 
+export const taskPostponeSchema = z.object({
+  date: dateKeySchema,
+  reason: optionalText(1000),
+});
+
 export const adHocTaskSchema = z.object({
   employeeId: idSchema,
   title: nameSchema,
