@@ -7,6 +7,7 @@ import { addDays, fromDateKey, startOfWeek, toDateKey, todayKey } from "@/lib/da
 import { num } from "@/lib/num";
 import { isOverdue } from "@/lib/goal-status";
 import type { PriorityKey, TaskStatusKey } from "@/lib/labels";
+import { ensureThursdayRecurringTasks } from "@/server/services/recurring-tasks";
 
 // ---------------------------------------------------------------------------
 //  Serializable row shapes shared with client components
@@ -197,6 +198,7 @@ export async function getMyTasks(
   const employeeId = user.employeeId!;
   const company = await getCompany();
   const today = todayKey(company.timezone);
+  await ensureThursdayRecurringTasks(today, employeeId);
   const todayDate = fromDateKey(today);
   const weekStart = startOfWeek(today, company.weekStartDay);
   const weekEnd = addDays(weekStart, 6);
