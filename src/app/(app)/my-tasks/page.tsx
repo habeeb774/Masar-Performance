@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { AlarmClock, CalendarCheck2, ClipboardList, UserX } from "lucide-react";
+import { AlarmClock, CalendarCheck2, UserX } from "lucide-react";
 import type { SearchParams } from "@/lib/params";
 import { pageParams, str } from "@/lib/params";
 import { requireUser } from "@/server/auth/session";
@@ -9,7 +9,6 @@ import { formatDateAr, formatDayAr } from "@/lib/dates";
 import { TASK_STATUSES } from "@/lib/labels";
 import { EmptyState, PageHeader, SectionTitle } from "@/components/shared/page";
 import { FilterBar, Pager, SearchInput } from "@/components/shared/url-filters";
-import { Card, CardContent } from "@/components/ui/card";
 import { UrlTabs } from "@/features/tasks/url-tabs";
 import { ManualTaskDialog } from "@/features/tasks/manual-task-dialog";
 import { AdHocTaskItem, DailyTaskItem } from "@/features/tasks/my-task-list";
@@ -77,12 +76,15 @@ export default async function MyTasksPage({ searchParams }: { searchParams: Sear
         ]}
       />
 
-      <FilterBar>
-        <SearchInput placeholder="بحث في المهام…" />
-      </FilterBar>
+      {/* short lists (today / week / late) need no search */}
+      {(view === "all" || filtered) && (
+        <FilterBar>
+          <SearchInput placeholder="بحث في المهام…" />
+        </FilterBar>
+      )}
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <section className="space-y-3 lg:col-span-2">
+      <div className={data.adHoc.length > 0 ? "grid gap-6 lg:grid-cols-3" : "space-y-6"}>
+        <section className={data.adHoc.length > 0 ? "space-y-3 lg:col-span-2" : "space-y-3"}>
           <SectionTitle>{title}</SectionTitle>
           {view === "today" && !filtered ? (
             <TodayTasksPanel daily={data.daily} adHoc={data.adHoc} today={data.today} goals={data.goals} currentUserId={user.id} canManage={canManage} />
@@ -90,7 +92,7 @@ export default async function MyTasksPage({ searchParams }: { searchParams: Sear
             <EmptyState
               icon={view === "overdue" ? AlarmClock : CalendarCheck2}
               title={filtered ? "لا توجد مهام مطابقة للفلترة" : view === "overdue" ? "لا توجد مهام متأخرة" : "لا توجد مهام في هذه الفترة"}
-              description={filtered ? "جرّب تغيير الحالة أو كلمة البحث." : "وزّع أهداف الأسبوع على الأيام من صفحة أسبوعي، أو أضف مهمة يدوية."}
+              description={filtered ? "جرّب كلمة بحث أخرى." : "تظهر مهامك هنا تلقائيًا بعد اعتماد خطتك."}
             />
           ) : view === "today" ? (
             <div className="space-y-2">
@@ -115,24 +117,19 @@ export default async function MyTasksPage({ searchParams }: { searchParams: Sear
           {view === "all" && <Pager page={page} pageSize={pageSize} total={data.dailyTotal} />}
         </section>
 
-        <aside className="space-y-3">
-          <SectionTitle>
-            {view === "all" ? "كل التكليفات المستجدة" : view === "overdue" ? "تكليفات متأخرة" : "التكليفات المفتوحة"}
-          </SectionTitle>
-          {data.adHoc.length === 0 ? (
-            <Card>
-              <CardContent>
-                <EmptyState icon={ClipboardList} title="لا توجد تكليفات" description="ستظهر هنا المهام المستجدة التي يكلفك بها المدير." className="border-0 py-6" />
-              </CardContent>
-            </Card>
-          ) : (
+        {/* ad-hoc assignments only take space when there are some */}
+        {data.adHoc.length > 0 && (
+          <aside className="space-y-3">
+            <SectionTitle>
+              {view === "all" ? "كل التكليفات المستجدة" : view === "overdue" ? "تكليفات متأخرة" : "التكليفات المفتوحة"}
+            </SectionTitle>
             <div className="space-y-2">
               {data.adHoc.map((t) => (
                 <AdHocTaskItem key={t.id} task={t} today={data.today} currentUserId={user.id} canManage={canManage} />
               ))}
             </div>
-          )}
-        </aside>
+          </aside>
+        )}
       </div>
     </>
   );

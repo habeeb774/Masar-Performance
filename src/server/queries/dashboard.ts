@@ -75,8 +75,9 @@ export async function getEmployeeDashboard(user: AuthUser) {
       take: 3,
       select: { id: true, weekStart: true, managerComment: true, status: true, reviewedAt: true },
     }),
-    db.performanceReview.findFirst({
-      where: { employeeId, status: { in: ["APPROVED", "ACKNOWLEDGED"] } },
+    // the official evaluation the manager approved — the same one «أدائي» shows
+    db.performanceEvaluation.findFirst({
+      where: { employeeId, status: "APPROVED" },
       orderBy: [{ year: "desc" }, { month: "desc" }],
     }),
   ]);

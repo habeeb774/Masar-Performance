@@ -68,14 +68,9 @@ export default async function PerformanceAnalyticsPage({ searchParams }: { searc
                 size="default"
               />
             )}
-            <Button variant="outline" asChild>
-              <Link href={`/performance/reviews?year=${year}&month=${month}`}>
-                التقييمات الشهرية <ArrowLeft />
-              </Link>
-            </Button>
             <Button asChild>
               <Link href={`/performance/evaluations?year=${year}&month=${month}`}>
-                التقييم الرسمي الشهري <ArrowLeft />
+                التقييمات الشهرية <ArrowLeft />
               </Link>
             </Button>
           </>

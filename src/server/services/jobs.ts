@@ -1,6 +1,6 @@
 import "server-only";
 import { db } from "@/server/db";
-import { diffDays, fromDateKey, toDateKey, todayKey } from "@/lib/dates";
+import { addDays, diffDays, fromDateKey, toDateKey, todayKey } from "@/lib/dates";
 import { currentPlanWhere, planSpan } from "./periods";
 import { num } from "@/lib/num";
 import { dueDataSources, syncDataSource } from "@/server/notion/sync";
@@ -95,6 +95,8 @@ export async function runDailyJobs() {
 
   summary.recurringTasks = await ensureThursdayRecurringTasks(today);
 
+  summary.evaluations = await ensureDraftEvaluations(today);
+
   const generated = await ensureDueReports({ employeeIds: "ALL", notify: true });
   summary.weeklyReports = generated.weekly;
   summary.monthlyReports = generated.monthly;
@@ -179,4 +181,27 @@ export async function runDailyJobs() {
   await db.session.deleteMany({ where: { expiresAt: { lt: new Date() } } });
   await db.rateLimit.deleteMany({ where: { windowStart: { lt: new Date(Date.now() - 24 * 60 * 60 * 1000) } } });
   return summary;
+}
+
+/**
+ * Every running (or recently ended) plan gets its official evaluation draft automatically, so the
+ * manager only reviews and approves — no «إنشاء التقييم» click. Existing evaluations are left as they are.
+ */
+async function ensureDraftEvaluations(today: string) {
+  const since = fromDateKey(addDays(today, -45));
+  const plans = await db.monthlyPlan.findMany({
+    where: { status: { in: ["IN_PROGRESS", "COMPLETED"] }, evaluation: null, executionEndDate: { gte: since } },
+    select: { employeeId: true, year: true, month: true },
+  });
+  const { createEvaluation } = await import("./evaluation");
+  let created = 0;
+  for (const p of plans) {
+    try {
+      await createEvaluation(null, p.employeeId, p.year, p.month);
+      created++;
+    } catch (e) {
+      console.error("[jobs] draft evaluation failed", p, e);
+    }
+  }
+  return created;
 }
