@@ -187,7 +187,7 @@ export async function runDailyJobs() {
  * Every running (or recently ended) plan gets its official evaluation draft automatically, so the
  * manager only reviews and approves — no «إنشاء التقييم» click. Existing evaluations are left as they are.
  */
-async function ensureDraftEvaluations(today: string) {
+export async function ensureDraftEvaluations(today: string) {
   const since = fromDateKey(addDays(today, -45));
   const plans = await db.monthlyPlan.findMany({
     where: { status: { in: ["IN_PROGRESS", "COMPLETED"] }, evaluation: null, executionEndDate: { gte: since } },
