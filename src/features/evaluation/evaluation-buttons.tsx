@@ -5,6 +5,7 @@ import { CheckCircle2, ClipboardPlus, LockOpen } from "lucide-react";
 import { approveEvaluationAction, createEvaluationAction, reopenEvaluationAction } from "@/actions/evaluation";
 import { useServerAction } from "@/hooks/use-server-action";
 import { Button } from "@/components/ui/button";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 
 export function CreateEvaluationButton({ employeeId, year, month }: { employeeId: string; year: number; month: number }) {
   const router = useRouter();
@@ -37,13 +38,22 @@ export function ApproveEvaluationButton({ evaluationId, label = "اعتماد ا
   const router = useRouter();
   const approve = useServerAction(approveEvaluationAction, { onSuccess: () => router.refresh() });
   return (
-    <Button
-      disabled={approve.pending}
-      onClick={() => {
-        if (confirm("اعتماد التقييم يثبّت النتيجة النهائية. متابعة؟")) approve.run(evaluationId);
-      }}
-    >
-      <CheckCircle2 /> {label}
-    </Button>
+    <AlertDialog>
+      <AlertDialogTrigger asChild>
+        <Button disabled={approve.pending}>
+          <CheckCircle2 /> {label}
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>اعتماد التقييم</AlertDialogTitle>
+          <AlertDialogDescription>يثبّت الاعتماد النتيجة النهائية ولا تتغير بعدها إلا بإعادة فتح التقييم.</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>إلغاء</AlertDialogCancel>
+          <AlertDialogAction onClick={() => approve.run(evaluationId)}>اعتماد</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
