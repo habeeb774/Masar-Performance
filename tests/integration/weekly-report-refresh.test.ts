@@ -128,7 +128,7 @@ describe("weekly report = live weekly goals", () => {
     await expect(manual.setManualAchievement(employee, goalB, { delta: -10, date: dayIn(weeks[2]) })).rejects.toThrow();
   });
 
-  it("case 2 / 3: a submitted, reviewed report refreshes its numbers and keeps every note", async () => {
+  it("case 2 / 3: a submitted, reviewed report freezes numbers and keeps every note", async () => {
     const w2 = weeks[1];
     const report = await reportOf(w2.id);
     await updateWeeklyNotes(employee, report.id, { employeeNotes: "ملاحظتي", highlights: "أبرز", blockers: "معوق", carryOver: "مرحّل" });
@@ -141,9 +141,8 @@ describe("weekly report = live weekly goals", () => {
     const live = await getWeeklyReportMetrics(w2.id);
     const after = await reportOf(w2.id);
     expect(live.weightedProgress).toBeGreaterThan(sentProgress);
-    expect(totals(after).weightedProgress).toBe(live.weightedProgress);
-    expect((after.content as unknown as WeeklyReportContent).originalTotals?.weightedProgress).toBe(sentProgress);
-    expect(after.generatedText).toContain(`نسبة الإنجاز الموزونة: ${formatPct(live.weightedProgress)}`);
+    expect(after.content).toEqual(sent.content);
+    expect(after.generatedText).toBe(sent.generatedText);
     expect(after).toMatchObject({
       status: "REVIEWED",
       employeeNotes: "ملاحظتي",
@@ -155,21 +154,21 @@ describe("weekly report = live weekly goals", () => {
       reviewedAt: sent.reviewedAt,
       approvedAt: sent.approvedAt,
     });
-    expect((await getWeeklyReport(report.id))!.metricsUpdated).toBe(true);
+    expect((await getWeeklyReport(report.id))!.metricsUpdated).toBe(false);
   });
 
-  it("case 4: a changed monthly-goal weight changes the report's weighted progress", async () => {
+  it("case 4: a changed monthly-goal weight changes live progress; the reviewed report stays frozen", async () => {
     const w2 = weeks[1];
-    const before = totals(await reportOf(w2.id)).weightedProgress;
+    const sent = await reportOf(w2.id);
+    const before = (await getWeeklyReportMetrics(w2.id)).weightedProgress;
     await db.monthlyGoal.update({ where: { id: goalA }, data: { weight: 90 } });
     await db.monthlyGoal.update({ where: { id: goalB }, data: { weight: 10 } });
     await recomputePlan(planId);
     const live = await getWeeklyReportMetrics(w2.id);
-    const after = await reportOf(w2.id);
-    expect(after.content).toBeTruthy();
-    expect(totals(after).weightedProgress).toBe(live.weightedProgress);
     expect(live.weightedProgress).not.toBe(before);
-    expect((after.content as unknown as WeeklyReportContent).goals.find((g) => g.goalId === goalA)?.weight).toBe(90);
+    expect(live.goals.find((g) => g.goalId === goalA)?.weight).toBe(90);
+    // reviewed = frozen: the snapshot is never silently rewritten
+    expect((await reportOf(w2.id)).content).toEqual(sent.content);
   });
 
   it("case 8 / 9: the rebuild script is a dry run by default and --apply writes numbers only", async () => {

@@ -33,7 +33,7 @@ export function TaskDetailSheet({
       <SheetContent side="left" className="w-full overflow-y-auto sm:max-w-lg">
         <SheetHeader className="pe-10">
           <div className="flex flex-wrap items-center gap-2">
-            {isAdHoc ? <StatusBadge tone="primary">تكليف مستجد</StatusBadge> : <StatusBadge tone="neutral">{TASK_SOURCE_LABELS[task.source]}</StatusBadge>}
+            {isAdHoc ? <StatusBadge tone="primary">تكليف مستجد</StatusBadge> : canManage && <StatusBadge tone="neutral">{TASK_SOURCE_LABELS[task.source]}</StatusBadge>}
             {task.kind === "daily" && task.notionDriven && <NotionSyncedTag />}
             {task.overdue && <StatusBadge tone="danger">متأخرة</StatusBadge>}
           </div>
@@ -51,7 +51,7 @@ export function TaskDetailSheet({
             </KeyValue>
             {task.kind === "daily" ? (
               <>
-                <KeyValue label="المصدر">{TASK_SOURCE_LABELS[task.source]}</KeyValue>
+                {canManage && <KeyValue label="المصدر">{TASK_SOURCE_LABELS[task.source]}</KeyValue>}
                 <KeyValue label="التاريخ">{formatDateAr(task.date)}</KeyValue>
                 <KeyValue label="الموعد النهائي">{formatDateAr(task.deadline)}</KeyValue>
                 {task.goalName && <KeyValue label="الهدف المرتبط">{task.goalName}</KeyValue>}

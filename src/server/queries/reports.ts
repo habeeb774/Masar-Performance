@@ -107,7 +107,7 @@ export async function listWeeklyReports(user: AuthUser, f: ReportListFilters, ow
   return {
     total,
     rows: rows.map<ReportListRow>((r) => {
-      const p = liveWeeklyProgress(r.content, live.get(r.weeklyPlanId), r.submittedAt);
+      const p = liveWeeklyProgress(r.content, ["DRAFT", "RETURNED"].includes(r.status) ? live.get(r.weeklyPlanId) : undefined, r.submittedAt);
       return {
         id: r.id,
         href: `/reports/weekly/${r.id}`,
@@ -276,9 +276,10 @@ export async function getWeeklyReport(id: string) {
   if (!r) return null;
   const snapshot = normalizeWeekly(r.content);
   const live = (await getWeeklyReportMetricsMany([r.weeklyPlanId])).get(r.weeklyPlanId)!;
-  const p = liveWeeklyProgress(r.content, live, r.submittedAt);
+  const editable = ["DRAFT", "RETURNED"].includes(r.status);
+  const p = liveWeeklyProgress(r.content, editable ? live : undefined, r.submittedAt);
   // the numbers shown come from the live weekly goals; tasks, batches and text stay the snapshot
-  const content: WeeklyReportContent = live.goalsCount > 0 ? { ...snapshot, goals: live.goals, totals: live.totals } : snapshot;
+  const content: WeeklyReportContent = editable && live.goalsCount > 0 ? { ...snapshot, goals: live.goals, totals: live.totals } : snapshot;
   return {
     id: r.id,
     employeeId: r.employeeId,
@@ -404,7 +405,7 @@ export async function getMyPendingReports(employeeId: string): Promise<MyPending
         title: `تقرير الفترة ${r.weeklyPlan.weekIndex} — ${monthLabel(r.weeklyPlan.monthlyPlan.year, r.weeklyPlan.monthlyPlan.month)}`,
         period: `${formatDateAr(r.weekStart)} – ${formatDateAr(r.weekEnd)}`,
         status: r.status,
-        progress: liveWeeklyProgress(r.content, live.get(r.weeklyPlanId), r.submittedAt).progress,
+        progress: liveWeeklyProgress(r.content, ["DRAFT", "RETURNED"].includes(r.status) ? live.get(r.weeklyPlanId) : undefined, r.submittedAt).progress,
         managerComment: r.status === "RETURNED" ? r.managerComment : null,
       },
     })),

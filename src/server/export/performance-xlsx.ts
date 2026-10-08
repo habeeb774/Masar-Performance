@@ -141,7 +141,8 @@ export async function renderPerformanceWorkbook(header: SheetHeader, duties: Exp
     const first = r;
     for (const row of duty.rows) {
       apply(isAdHoc ? shape.adhoc : shape.kpi, r);
-      const degree = cap((row.achieved / row.target) * 100);
+      // a zero-target row (e.g. a 0-weight KPI this month) scores 0 instead of #DIV/0!
+      const degree = row.target > 0 ? cap((row.achieved / row.target) * 100) : 0;
       set(`B${r}`, row.name);
       set(`D${r}`, row.indicator);
       set(`E${r}`, row.note || null);
@@ -150,7 +151,7 @@ export async function renderPerformanceWorkbook(header: SheetHeader, duties: Exp
       set(`H${r}`, row.weight);
       if (!Number.isInteger(row.weight)) ws.getCell(`H${r}`).numFmt = "0.00";
       // the template's formulas; the degree is capped at 100 (current system rule)
-      set(`I${r}`, f(`MIN((F${r}/G${r})*100,100)`, degree));
+      set(`I${r}`, f(row.target > 0 ? `MIN((F${r}/G${r})*100,100)` : "0", degree));
       set(`J${r}`, f(`I${r}*H${r}/100`, (degree * row.weight) / 100));
       ws.mergeCells(`B${r}:C${r}`);
       r++;
@@ -159,7 +160,7 @@ export async function renderPerformanceWorkbook(header: SheetHeader, duties: Exp
     apply(shape.subtotal, r);
     set(`B${r}`, `إجمالي نتيجة ${heading.split(":")[0]}`);
     set(`H${r}`, f(`SUM(H${first}:H${last})`, duty.rows.reduce((a, x) => a + x.weight, 0)));
-    set(`I${r}`, f(`SUM(I${first}:I${last})`, duty.rows.reduce((a, x) => a + cap((x.achieved / x.target) * 100), 0)));
+    set(`I${r}`, f(`SUM(I${first}:I${last})`, duty.rows.reduce((a, x) => a + (x.target > 0 ? cap((x.achieved / x.target) * 100) : 0), 0)));
     set(`J${r}`, f(`SUM(J${first}:J${last})`, dutyResult(duty.rows)));
     ws.mergeCells(`B${r}:G${r}`);
     subtotalRows.push(r);

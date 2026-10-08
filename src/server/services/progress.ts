@@ -97,14 +97,18 @@ const planInclude = {
 export async function recomputePlan(planId: string, cache = new ItemCache(), opts: { refreshReports?: boolean } = {}) {
   const company = await getCompanyFresh();
   const today = todayKey(company.timezone);
-  const plan = await db.monthlyPlan.findUnique({ where: { id: planId }, include: planInclude });
+  const now = new Date();
+  const exists = await db.$transaction(async tx => {
+  // Concurrent task edits may request overlapping recomputations. Serialize the
+  // read + derived writes so an older calculation cannot overwrite a newer one.
+  await tx.$queryRaw`SELECT "id" FROM "MonthlyPlan" WHERE "id" = ${planId} FOR UPDATE`;
+  const plan = await tx.monthlyPlan.findUnique({ where: { id: planId }, include: planInclude });
   if (!plan) return;
   const mStart = monthStart(plan.year, plan.month);
   const mEnd = monthEnd(plan.year, plan.month);
   // the plan's real span follows its 7-day periods, so each day counts in one plan only
   const { start: pStart, end: pEnd } = await planSpan(plan);
   const writes: Prisma.PrismaPromise<unknown>[] = [];
-  const now = new Date();
 
   for (const goal of plan.goals) {
     const target = num(goal.targetValue);
@@ -142,7 +146,7 @@ export async function recomputePlan(planId: string, cache = new ItemCache(), opt
       today,
     });
     writes.push(
-      db.monthlyGoal.update({
+      tx.monthlyGoal.update({
         where: { id: goal.id },
         data: {
           achievedValue: achieved,
@@ -181,7 +185,7 @@ export async function recomputePlan(planId: string, cache = new ItemCache(), opt
         progress = pct(achieved, target);
       }
       writes.push(
-        db.weeklyGoal.update({
+        tx.weeklyGoal.update({
           where: { id: wg.id },
           data: {
             achievedValue: achieved,
@@ -207,7 +211,7 @@ export async function recomputePlan(planId: string, cache = new ItemCache(), opt
             today,
           });
           writes.push(
-            db.dailyTask.update({
+            tx.dailyTask.update({
               where: { id: task.id },
               data: {
                 achieved: tb.completed,
@@ -224,10 +228,21 @@ export async function recomputePlan(planId: string, cache = new ItemCache(), opt
 
   // recompute writes are idempotent derived values — run them concurrently (bounded by the pool)
   for (let i = 0; i < writes.length; i += 8) await Promise.all(writes.slice(i, i + 8));
+  return true;
+  }, { timeout: 120_000 });
+  if (!exists) return;
 
   if (opts.refreshReports !== false) {
     const { refreshPlanWeeklyReports } = await import("./weekly-report-metrics");
     await refreshPlanWeeklyReports(planId);
+    const { refreshDraftEvaluationsForPlan } = await import("./evaluation");
+    await refreshDraftEvaluationsForPlan(planId);
+    const monthly = await db.monthlyReport.findUnique({ where: { monthlyPlanId: planId }, select: { id: true, status: true } });
+    if (monthly && ["DRAFT", "RETURNED"].includes(monthly.status)) {
+      const { buildMonthlyContent, monthlyText } = await import("./reports");
+      const content = await buildMonthlyContent(planId);
+      await db.monthlyReport.updateMany({ where: { id: monthly.id, status: { in: ["DRAFT", "RETURNED"] } }, data: { content: content as unknown as Prisma.InputJsonValue, generatedText: monthlyText(content), generatedAt: now } });
+    }
   }
 }
 

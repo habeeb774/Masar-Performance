@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, Briefcase, Building2, CalendarDays, Mail, Phone, Target, UserRound } from "lucide-react";
+import { ArrowLeft, Briefcase, Building2, CalendarDays, ClipboardCheck, Download, Mail, Phone, Target } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { EmptyState, NotionSyncedTag, PageHeader } from "@/components/shared/page";
@@ -11,7 +11,9 @@ import type { IdParams, SearchParams } from "@/lib/params";
 import { int } from "@/lib/params";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
 import { GOAL_STATUS_LABELS, PLAN_STATUS_LABELS } from "@/lib/labels";
-import { formatDateAr, monthLabel } from "@/lib/dates";
+import { formatDateAr, monthLabel, shiftMonth } from "@/lib/dates";
+import { db } from "@/server/db";
+import { ApproveEvaluationButton, CreateEvaluationButton } from "@/features/evaluation/evaluation-buttons";
 import { formatNumber, formatPct } from "@/lib/num";
 import { requireEmployeeAccess } from "@/server/auth/session";
 import { getEmployeeProfile, getPerformanceHistory } from "@/server/queries/performance";
@@ -30,6 +32,12 @@ export default async function EmployeeProfilePage({ params, searchParams }: { pa
   const [profile, history] = await Promise.all([getEmployeeProfile(id), getPerformanceHistory(id, range, !isReviewer)]);
   if (!profile) notFound();
   const { employee: e, plan } = profile;
+  // end of month: the latest official evaluation, or the month just closed when none exists yet
+  const evaluation = isReviewer
+    ? await db.performanceEvaluation.findFirst({ where: { employeeId: id }, orderBy: [{ year: "desc" }, { month: "desc" }], select: { id: true, year: true, month: true, status: true, finalScore: true, ratingLabel: true } })
+    : null;
+  const closed = shiftMonth(profile.year, profile.month, -1);
+  const canApprove = hasPermission(user, PERMISSIONS.PERFORMANCE_APPROVE);
 
   const contacts = [
     { icon: Briefcase, label: e.jobTitle ?? "بدون مسمى وظيفي" },
@@ -61,42 +69,8 @@ export default async function EmployeeProfilePage({ params, searchParams }: { pa
         }
       />
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid gap-4">
         <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <UserRound className="size-4 text-muted-foreground" /> البيانات الأساسية
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2.5 text-sm">
-            {contacts.map((c) => (
-              <div key={c.label} className="flex items-center gap-2">
-                <c.icon className="size-4 shrink-0 text-muted-foreground" />
-                <span dir={c.ltr ? "ltr" : undefined} className="truncate">
-                  {c.label}
-                </span>
-              </div>
-            ))}
-            <div className="flex items-center gap-2 border-t pt-2.5">
-              <span className="text-muted-foreground">المدير المباشر:</span>
-              {e.manager ? (
-                <Link href={`/employees/${e.manager.id}`} className="font-medium hover:underline">
-                  {e.manager.fullName}
-                </Link>
-              ) : (
-                <span>—</span>
-              )}
-            </div>
-            {e.notionAlias && (
-              <div className="flex items-center gap-2">
-                <span className="text-muted-foreground">الاسم في Notion:</span>
-                <span className="font-medium">{e.notionAlias}</span>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="lg:col-span-2">
           <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
             <div>
               <CardTitle className="flex items-center gap-2 text-base">
@@ -123,7 +97,7 @@ export default async function EmployeeProfilePage({ params, searchParams }: { pa
               <div className="space-y-4">
                 <div>
                   <div className="mb-1.5 flex items-center justify-between text-sm">
-                    <span className="font-medium">الإنجاز الموزون</span>
+                    <span className="font-medium">إنجاز الشهر</span>
                     <span className="font-semibold tabular-nums">{formatPct(plan.progress)}</span>
                   </div>
                   <ProgressBar value={plan.progress} size="lg" />
@@ -141,7 +115,7 @@ export default async function EmployeeProfilePage({ params, searchParams }: { pa
                             <EnumBadge map={GOAL_STATUS_LABELS} value={g.status} />
                           </div>
                           <p className="mt-0.5 text-xs text-muted-foreground tabular-nums">
-                            {formatNumber(g.achieved)} / {formatNumber(g.target)} {g.unit} · الوزن {formatNumber(g.weight)}%
+                            {formatNumber(g.achieved)} / {formatNumber(g.target)} {g.unit}
                           </p>
                         </div>
                         <ProgressBar value={g.progress} showLabel size="sm" className="sm:w-48" />
@@ -154,6 +128,75 @@ export default async function EmployeeProfilePage({ params, searchParams }: { pa
           </CardContent>
         </Card>
       </div>
+
+      {isReviewer && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <ClipboardCheck className="size-4 text-muted-foreground" /> التقييم الشهري
+            </CardTitle>
+            {evaluation && <CardDescription>{monthLabel(evaluation.year, evaluation.month)}</CardDescription>}
+          </CardHeader>
+          <CardContent>
+            {!evaluation ? (
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-sm text-muted-foreground">لم يُنشأ تقييم {monthLabel(closed.year, closed.month)} بعد.</p>
+                <CreateEvaluationButton employeeId={id} year={closed.year} month={closed.month} />
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div className="flex items-baseline gap-3">
+                  <span className="text-3xl font-bold tabular-nums">{formatNumber(Math.round(Number(evaluation.finalScore) * 100) / 100)}</span>
+                  <span className="text-sm text-muted-foreground">/ 100</span>
+                  {evaluation.ratingLabel && <StatusBadge tone="info">{evaluation.ratingLabel}</StatusBadge>}
+                  {evaluation.status === "APPROVED" ? <StatusBadge tone="success">معتمد</StatusBadge> : <StatusBadge tone="warning">بانتظار الاعتماد</StatusBadge>}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {evaluation.status !== "APPROVED" && canApprove && <ApproveEvaluationButton evaluationId={evaluation.id} />}
+                  <Button variant="outline" asChild>
+                    <Link href={`/performance/evaluations/${evaluation.id}`}>مراجعة التقييم</Link>
+                  </Button>
+                  <Button variant="outline" asChild>
+                    <a href={`/api/export/performance?employee=${id}&year=${evaluation.year}&month=${evaluation.month}`}>
+                      <Download /> تصدير للموارد البشرية
+                    </a>
+                  </Button>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      <details className="rounded-xl border bg-card">
+        <summary className="cursor-pointer list-none p-4 text-sm font-semibold">البيانات الأساسية</summary>
+        <div className="space-y-2.5 border-t p-4 text-sm">
+            {contacts.map((c) => (
+              <div key={c.label} className="flex items-center gap-2">
+                <c.icon className="size-4 shrink-0 text-muted-foreground" />
+                <span dir={c.ltr ? "ltr" : undefined} className="truncate">
+                  {c.label}
+                </span>
+              </div>
+            ))}
+            <div className="flex items-center gap-2 border-t pt-2.5">
+              <span className="text-muted-foreground">المدير المباشر:</span>
+              {e.manager ? (
+                <Link href={`/employees/${e.manager.id}`} className="font-medium hover:underline">
+                  {e.manager.fullName}
+                </Link>
+              ) : (
+                <span>—</span>
+              )}
+            </div>
+            {e.notionAlias && (
+              <div className="flex items-center gap-2">
+                <span className="text-muted-foreground">الاسم في Notion:</span>
+                <span className="font-medium">{e.notionAlias}</span>
+              </div>
+            )}
+        </div>
+      </details>
 
       <PerformanceHistory rows={history} range={range} basePath={`/employees/${id}`} reviewHref={isReviewer || isSelf ? (rid) => `/performance/reviews/${rid}` : undefined} />
     </div>

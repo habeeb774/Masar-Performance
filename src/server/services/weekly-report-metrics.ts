@@ -2,7 +2,7 @@ import "server-only";
 import type { Prisma } from "@/generated/prisma/client";
 import { db } from "@/server/db";
 import type { WeeklyReportContent } from "@/lib/report-types";
-import { planMetricsRefresh, snapshotDiffers, weeklyReportMetrics, weeklyText, type WeeklyReportMetrics } from "@/lib/weekly-report";
+import { snapshotDiffers, weeklyReportMetrics, weeklyText, type WeeklyReportMetrics } from "@/lib/weekly-report";
 
 /**
  * WeeklyGoal = current truth, WeeklyReport.content = snapshot.
@@ -55,7 +55,7 @@ const REBUILDABLE = ["DRAFT", "RETURNED"];
 export async function refreshWeeklyReportMetricsMany(weeklyPlanIds: string[]) {
   if (weeklyPlanIds.length === 0) return 0;
   const reports = await db.weeklyReport.findMany({
-    where: { weeklyPlanId: { in: weeklyPlanIds } },
+    where: { weeklyPlanId: { in: weeklyPlanIds }, status: { in: ["DRAFT", "RETURNED"] } },
     select: { id: true, weeklyPlanId: true, status: true, content: true, generatedText: true },
   });
   if (reports.length === 0) return 0;
@@ -70,16 +70,9 @@ export async function refreshWeeklyReportMetricsMany(weeklyPlanIds: string[]) {
       // a draft follows the data fully (lazy import: reports.ts depends on progress.ts)
       const { buildWeeklyContent } = await import("./reports");
       const fresh = await buildWeeklyContent(r.weeklyPlanId);
-      await db.weeklyReport.update({
-        where: { id: r.id },
+      await db.weeklyReport.updateMany({
+        where: { id: r.id, status: { in: ["DRAFT", "RETURNED"] } },
         data: { content: fresh as unknown as Prisma.InputJsonValue, generatedText: weeklyText(fresh), generatedAt: now },
-      });
-    } else {
-      const plan = planMetricsRefresh({ content, generatedText: r.generatedText }, metrics, now);
-      if (!plan.changed) continue;
-      await db.weeklyReport.update({
-        where: { id: r.id },
-        data: { content: plan.content as unknown as Prisma.InputJsonValue, generatedText: plan.generatedText },
       });
     }
     updated++;

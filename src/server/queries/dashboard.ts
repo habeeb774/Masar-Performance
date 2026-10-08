@@ -129,6 +129,8 @@ export async function getEmployeeDashboard(user: AuthUser) {
   };
 }
 
+import { STANDING_ORDER, teamStanding } from "@/features/team/standing";
+
 export async function getManagerDashboard(user: AuthUser) {
   const company = await getCompany();
   const today = todayKey(company.timezone);
@@ -196,8 +198,12 @@ export async function getManagerDashboard(user: AuthUser) {
       worked: totals.worked,
     };
   });
+  // the manager's first question is "who is behind?": worst standing first, then lowest progress
+  const pace = (+today.slice(8, 10) / new Date(Date.UTC(year, month, 0)).getUTCDate()) * 100;
+  const ranked = rows.map((r) => ({ ...r, standing: teamStanding(r, pace) }));
+  ranked.sort((a, b) => STANDING_ORDER[a.standing] - STANDING_ORDER[b.standing] || (a.planId ? a.monthly : -1) - (b.planId ? b.monthly : -1) || a.name.localeCompare(b.name, "ar"));
 
-  const withPlans = rows.filter((r) => r.planId);
+  const withPlans = ranked.filter((r) => r.planId);
   const trend = Array.from({ length: 6 }, (_, i) => {
     const m = shiftMonth(year, month, -5 + i);
     const list = trendReviews.filter((r) => r.year === m.year && r.month === m.month);
@@ -244,17 +250,17 @@ export async function getManagerDashboard(user: AuthUser) {
     today,
     year,
     month,
-    rows,
+    rows: ranked,
     attention,
     stats: {
-      employees: rows.length,
+      employees: ranked.length,
       avgMonthly: withPlans.length ? round2(withPlans.reduce((a, r) => a + r.monthly, 0) / withPlans.length) : 0,
-      delayed: rows.reduce((a, r) => a + r.delayed, 0),
+      delayed: ranked.reduce((a, r) => a + r.delayed, 0),
       reportsPending: weeklyPending + monthlyPending,
       plansPending,
-      pendingApproval: rows.reduce((a, r) => a + r.pendingApproval, 0),
-      needsRevision: rows.reduce((a, r) => a + r.needsRevision, 0),
-      withoutPlan: rows.filter((r) => !r.planId).length,
+      pendingApproval: ranked.reduce((a, r) => a + r.pendingApproval, 0),
+      needsRevision: ranked.reduce((a, r) => a + r.needsRevision, 0),
+      withoutPlan: ranked.filter((r) => !r.planId).length,
     },
     lowestCommitment: [...withPlans].sort((a, b) => a.monthly - b.monthly).slice(0, 3),
     trend,

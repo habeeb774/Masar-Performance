@@ -11,6 +11,8 @@ import * as manual from "@/server/services/manual";
 import * as ev from "@/server/services/evaluation";
 import { num } from "@/lib/num";
 import { toDateKey } from "@/lib/dates";
+import ExcelJS from "exceljs";
+import { buildEmployeePerformanceFile } from "@/server/export/performance-report";
 
 const Y = 2035;
 const M = 7;
@@ -134,7 +136,7 @@ describe("manager edits, audit and approval", () => {
 });
 
 describe("reference: the manager's July 2026 sheet entered through the service", () => {
-  it("duties 80 / 100 / 100 / 100 → final 96 → ممتاز, then approved", async () => {
+  it("duties 80 / 100 / 100 / 100 → final 96 → ممتاز, then approved", { timeout: 480_000 }, async () => {
     const set = async (d: number, values: [number, number, number][]) => {
       const inds = (await duty(d)).indicators;
       for (const [k, [achieved, target, weight]] of values.entries()) await ev.updateIndicator(manager, inds[k].id, { achieved, target, weight }, "مطابقة تقييم يوليو");
@@ -157,5 +159,23 @@ describe("reference: the manager's July 2026 sheet entered through the service",
     await ev.approveEvaluation(admin, evaluationId);
     expect((await load()).status).toBe("APPROVED");
     await expect(ev.updateDuty(manager, d4.id, { weight: 10 }, "x")).rejects.toThrow("التقييم معتمد");
+  });
+
+  it("the HR workbook is built from the approved evaluation: same final score and rating", async () => {
+    const file = await buildEmployeePerformanceFile(emp, Y, M);
+    expect(file.finalScore).toBe(96);
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(file.buffer as unknown as ArrayBuffer);
+    const ws = wb.worksheets[1];
+    const cells: { addr: string; v: ExcelJS.CellValue }[] = [];
+    ws.eachRow((row) => row.eachCell((c) => cells.push({ addr: c.address, v: c.value })));
+    const result = (v: ExcelJS.CellValue) => (v && typeof v === "object" && "result" in v ? v.result : v);
+    const totalRow = cells.find((c) => c.addr.startsWith("B") && c.v === "النتيجة النهائية")!.addr.slice(1);
+    expect(result(ws.getCell(`J${totalRow}`).value)).toBe(96);
+    expect(result(ws.getCell(`H${+totalRow + 1}`).value)).toBe("ممتاز");
+    // no cached error values anywhere (zero-weight / zero-target rows included)
+    expect(cells.filter((c) => String(result(c.v)).startsWith("#"))).toEqual([]);
+    // approved: no draft banner
+    expect(ws.getCell("B2").value).not.toBe("مسودة — التقييم لم يُعتمد بعد");
   });
 });

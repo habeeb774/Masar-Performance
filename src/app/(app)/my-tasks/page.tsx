@@ -6,9 +6,9 @@ import { requireUser } from "@/server/auth/session";
 import { getMyTasks, type DailyTaskRow, type MyTasksView } from "@/server/queries/tasks";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
 import { formatDateAr, formatDayAr } from "@/lib/dates";
-import { TASK_STATUSES, TASK_STATUS_LABELS } from "@/lib/labels";
+import { TASK_STATUSES } from "@/lib/labels";
 import { EmptyState, PageHeader, SectionTitle } from "@/components/shared/page";
-import { FilterBar, Pager, SearchInput, SelectFilter } from "@/components/shared/url-filters";
+import { FilterBar, Pager, SearchInput } from "@/components/shared/url-filters";
 import { Card, CardContent } from "@/components/ui/card";
 import { UrlTabs } from "@/features/tasks/url-tabs";
 import { ManualTaskDialog } from "@/features/tasks/manual-task-dialog";
@@ -79,12 +79,6 @@ export default async function MyTasksPage({ searchParams }: { searchParams: Sear
 
       <FilterBar>
         <SearchInput placeholder="بحث في المهام…" />
-        <SelectFilter
-          param="status"
-          placeholder="الحالة"
-          allLabel="كل الحالات"
-          options={TASK_STATUSES.map((s) => ({ value: s, label: TASK_STATUS_LABELS[s].label }))}
-        />
       </FilterBar>
 
       <div className="grid gap-6 lg:grid-cols-3">

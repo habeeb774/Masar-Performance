@@ -28,6 +28,8 @@ import { formatDateAr, formatDayAr, monthLabel } from "@/lib/dates";
 import { formatNumber, formatPct } from "@/lib/num";
 import { PLAN_STATUS_LABELS } from "@/lib/labels";
 
+import { STANDING } from "@/features/team/standing";
+
 type Data = Awaited<ReturnType<typeof getManagerDashboard>>;
 type AttentionItem = Data["attention"]["items"][number];
 
@@ -202,7 +204,7 @@ export function ManagerDashboard({
                     ) : (
                       <span className="flex-1 text-xs text-muted-foreground">بدون خطة</span>
                     )}
-                    <span className="w-20 text-end">{r.delayed > 0 && <StatusBadge tone="danger">{r.delayed} متأخرة</StatusBadge>}</span>
+                    <span className="w-24 text-end"><StatusBadge tone={STANDING[r.standing].tone}>{STANDING[r.standing].label}</StatusBadge></span>
                   </Link>
                 </li>
               ))}

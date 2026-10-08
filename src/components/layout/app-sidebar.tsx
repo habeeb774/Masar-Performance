@@ -28,13 +28,12 @@ import {
   Users,
   Workflow,
   LayoutTemplate,
-  type LucideIcon, NotebookPen } from "lucide-react";
+  type LucideIcon, NotebookPen, ChevronDown } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
   SidebarGroup,
-  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuBadge,
@@ -98,9 +97,8 @@ export function AppSidebar({ groups, badges }: { groups: NavGroup[]; badges: Rec
         </Link>
       </SidebarHeader>
       <SidebarContent>
-        {groups.map((group) => (
-          <SidebarGroup key={group.label}>
-            <SidebarGroupLabel className="text-sidebar-foreground/50">{group.label}</SidebarGroupLabel>
+        {groups.map((group) => {
+          const menu = (
             <SidebarMenu>
               {group.items.map((item) => {
                 const Icon = ICONS[item.icon];
@@ -118,8 +116,21 @@ export function AppSidebar({ groups, badges }: { groups: NavGroup[]; badges: Rec
                 );
               })}
             </SidebarMenu>
-          </SidebarGroup>
-        ))}
+          );
+          if (!group.collapsed) return <SidebarGroup key={group.label || "main"}>{menu}</SidebarGroup>;
+          const open = group.items.some((i) => isActive(i.href));
+          return (
+            <SidebarGroup key={group.label} className="py-0">
+              <details open={open || undefined} className="group/nav">
+                <summary className="flex cursor-pointer list-none items-center justify-between rounded-md px-2 py-1.5 text-xs text-sidebar-foreground/60 hover:text-sidebar-foreground group-data-[collapsible=icon]:hidden">
+                  {group.label}
+                  <ChevronDown className="size-3.5 transition-transform group-open/nav:rotate-180" />
+                </summary>
+                {menu}
+              </details>
+            </SidebarGroup>
+          );
+        })}
       </SidebarContent>
       <SidebarFooter className="border-t border-sidebar-border">
         <div className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[11px] text-sidebar-foreground/50 shadow-[var(--shadow-inset)] group-data-[collapsible=icon]:hidden">

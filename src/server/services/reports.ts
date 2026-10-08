@@ -545,7 +545,7 @@ export async function generateMonthlyReport(planId: string, opts: { force?: bool
     where: { id: planId },
     include: { report: true, employee: true },
   });
-  if (plan.report && !opts.force && !["DRAFT", "RETURNED"].includes(plan.report.status)) return plan.report;
+  if (plan.report && !["DRAFT", "RETURNED"].includes(plan.report.status)) return plan.report;
   await recomputePlan(planId);
   const content = await buildMonthlyContent(planId);
   const text = monthlyText(content);

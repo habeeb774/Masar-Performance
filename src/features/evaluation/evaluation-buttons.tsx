@@ -1,8 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { ClipboardPlus, LockOpen } from "lucide-react";
-import { createEvaluationAction, reopenEvaluationAction } from "@/actions/evaluation";
+import { CheckCircle2, ClipboardPlus, LockOpen } from "lucide-react";
+import { approveEvaluationAction, createEvaluationAction, reopenEvaluationAction } from "@/actions/evaluation";
 import { useServerAction } from "@/hooks/use-server-action";
 import { Button } from "@/components/ui/button";
 
@@ -29,6 +29,21 @@ export function ReopenEvaluationButton({ evaluationId }: { evaluationId: string 
       }}
     >
       <LockOpen /> إعادة فتح للتعديل
+    </Button>
+  );
+}
+
+export function ApproveEvaluationButton({ evaluationId, label = "اعتماد الشهر" }: { evaluationId: string; label?: string }) {
+  const router = useRouter();
+  const approve = useServerAction(approveEvaluationAction, { onSuccess: () => router.refresh() });
+  return (
+    <Button
+      disabled={approve.pending}
+      onClick={() => {
+        if (confirm("اعتماد التقييم يثبّت النتيجة النهائية. متابعة؟")) approve.run(evaluationId);
+      }}
+    >
+      <CheckCircle2 /> {label}
     </Button>
   );
 }

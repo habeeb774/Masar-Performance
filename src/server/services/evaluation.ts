@@ -28,7 +28,7 @@ const ON_TIME = "في أول يوم درجة كاملة 5 وعلى كل يوم �
 const DONE = "إنجاز المهمة المكلّف بها بالكامل وفق المطلوب.";
 
 export const DEFAULT_TEMPLATE = {
-  name: "قالب تقييم مسؤول المنتجات والتصاميم",
+  name: "قالب تقييم مسؤول المنتجات والتصاميم — 20/25/20/35",
   jobTitleName: "مسؤول المنتجات والتصاميم",
   duties: [
     {
@@ -45,7 +45,7 @@ export const DEFAULT_TEMPLATE = {
     {
       title: "الواجب الثاني: إضافة وتعديل المنتجات في المتجر",
       kind: "GOALS",
-      weight: 40,
+      weight: 25,
       indicators: [
         { title: "إضافة المنتجات الجديدة للمتجر", description: "عدد المنتجات التي تم إدخالها للمتجر من إجمالي العدد المستهدف.", target: 0, weight: 100, sourceType: "MONTHLY_GOAL", sourceConfig: { goalNameIncludes: ["إضافة منتجات", "إضافة المنتجات"] } },
       ],
@@ -60,7 +60,7 @@ export const DEFAULT_TEMPLATE = {
         { title: "تصميم بنرات جديدة للمتجر", description: "عدد البنرات الجديدة المنجزة.", target: 0, weight: 35, sourceType: "MONTHLY_GOAL", sourceConfig: { goalNameIncludes: ["بنرات جديدة"] } },
       ],
     },
-    { title: "الواجب الرابع: مهام مستجدة كُلّف بها خلال الشهر", kind: "AD_HOC", weight: 20, indicators: [] },
+    { title: "الواجب الرابع: مهام مستجدة كُلّف بها خلال الشهر", kind: "AD_HOC", weight: 35, indicators: [] },
   ],
 } as const;
 
@@ -69,10 +69,11 @@ export async function ensureDefaultEvaluationTemplate(tx: Tx | typeof db = db) {
   const existing = await tx.evaluationTemplate.findFirst({ where: { name: DEFAULT_TEMPLATE.name } });
   if (existing) return existing;
   const jobTitle = await tx.jobTitle.findFirst({ where: { name: DEFAULT_TEMPLATE.jobTitleName } });
+  if (!jobTitle) throw new UserError("أعد قالب تقييم مرتبطًا بالمسمى الوظيفي أولًا");
   return tx.evaluationTemplate.create({
     data: {
       name: DEFAULT_TEMPLATE.name,
-      jobTitleId: jobTitle?.id ?? null,
+      jobTitleId: jobTitle.id,
       duties: {
         create: DEFAULT_TEMPLATE.duties.map((d, di) => ({
           title: d.title,
@@ -98,12 +99,14 @@ export async function ensureDefaultEvaluationTemplate(tx: Tx | typeof db = db) {
 }
 
 async function templateFor(jobTitleId: string | null) {
-  await ensureDefaultEvaluationTemplate();
   const include = { duties: { orderBy: { sortOrder: "asc" as const }, include: { indicators: { orderBy: { sortOrder: "asc" as const } } } } };
-  return (
-    (jobTitleId ? await db.evaluationTemplate.findFirst({ where: { jobTitleId, isActive: true }, include, orderBy: { updatedAt: "desc" } }) : null) ??
-    (await db.evaluationTemplate.findFirstOrThrow({ where: { name: DEFAULT_TEMPLATE.name }, include }))
-  );
+  if (!jobTitleId) throw new UserError("اربط الموظف بمسمى وظيفي وقالب تقييم أولًا");
+  const configured = await db.evaluationTemplate.findFirst({ where: { jobTitleId, isActive: true }, include, orderBy: { updatedAt: "desc" } });
+  if (configured) return configured;
+  const title = await db.jobTitle.findUniqueOrThrow({ where: { id: jobTitleId } });
+  if (title.name !== DEFAULT_TEMPLATE.jobTitleName) throw new UserError("لا يوجد قالب تقييم نشط لهذا المسمى الوظيفي");
+  await ensureDefaultEvaluationTemplate();
+  return db.evaluationTemplate.findFirstOrThrow({ where: { jobTitleId, name: DEFAULT_TEMPLATE.name, isActive: true }, include });
 }
 
 // ---------------------------------------------------------------------------
@@ -135,7 +138,7 @@ const loadPlan = (planId: string | null) =>
     : Promise.resolve(null);
 
 /** Duty 1 sources and goal-fed indicators. */
-function measure(sourceType: string, sourceConfig: unknown, ctx: Context): Measured | null {
+function measure(sourceType: string, sourceConfig: unknown, ctx: Context, sourceId?: string | null): Measured | null {
   const plan = ctx.plan;
   switch (sourceType) {
     case "MONTHLY_PLAN": {
@@ -159,7 +162,9 @@ function measure(sourceType: string, sourceConfig: unknown, ctx: Context): Measu
       return { achieved: timelinessMark(late), target: TIMELINESS_FULL_MARK, sourceId: plan?.report?.id ?? null, notes: sent ? (late! > 0 ? `سُلم متأخرًا ${late} يوم` : "سُلم في موعده") : "لم يُرسل التقرير الشهري بعد" };
     }
     case "MONTHLY_GOAL": {
-      const goal = plan?.goals.find((g) => g.status !== "CANCELLED" && goalMatches(g.name, sourceConfig));
+      const candidates = plan?.goals.filter((g) => g.status !== "CANCELLED" && (sourceId ? g.id === sourceId : goalMatches(g.name, sourceConfig))) ?? [];
+      // A stored ID is authoritative. Never silently rebind on a rename or ambiguity.
+      const goal = candidates.length === 1 ? candidates[0] : null;
       if (!goal) return null;
       return { achieved: num(goal.achievedValue), target: num(goal.targetValue), sourceId: goal.id };
     }
@@ -193,7 +198,9 @@ export function toDutyInputs(e: Pick<EvaluationDetail, "duties">): DutyInput[] {
 
 /** Store every indicator / duty / final score from the current inputs (no data is pulled here). */
 async function recalculate(tx: Tx, evaluationId: string) {
+  await tx.$queryRaw`SELECT "id" FROM "PerformanceEvaluation" WHERE "id" = ${evaluationId} FOR UPDATE`;
   const e = await tx.performanceEvaluation.findUniqueOrThrow({ where: { id: evaluationId }, include: evaluationInclude });
+  if (e.status === "APPROVED") throw new UserError("التقييم معتمد — أعد فتحه للتعديل");
   const result = scoreEvaluation(toDutyInputs(e), { capAt100: e.capAt100 });
   for (const [di, d] of e.duties.entries()) {
     await tx.evaluationDuty.update({ where: { id: d.id }, data: { score: result.duties[di].score } });
@@ -208,7 +215,9 @@ async function recalculate(tx: Tx, evaluationId: string) {
 
 /** Pull automatic values (plan, reports, goals, ad-hoc tasks) into indicators the manager has not changed. */
 async function pullAutomatic(tx: Tx, evaluationId: string) {
+  await tx.$queryRaw`SELECT "id" FROM "PerformanceEvaluation" WHERE "id" = ${evaluationId} FOR UPDATE`;
   const e = await tx.performanceEvaluation.findUniqueOrThrow({ where: { id: evaluationId }, include: evaluationInclude });
+  if (e.status === "APPROVED") throw new UserError("التقييم معتمد — أعد فتحه للتعديل");
   const ctx = await context(e);
   const template = e.templateId ? await tx.evaluationTemplate.findUnique({ where: { id: e.templateId }, include: { duties: { include: { indicators: true } } } }) : null;
   const configOf = (title: string) => template?.duties.flatMap((d) => d.indicators).find((i) => i.title === title)?.sourceConfig ?? null;
@@ -216,7 +225,7 @@ async function pullAutomatic(tx: Tx, evaluationId: string) {
   for (const duty of e.duties) {
     for (const ind of duty.indicators) {
       if (ind.isOverridden || ind.sourceType === "MANUAL" || ind.sourceType === "AD_HOC_TASK") continue;
-      const m = measure(ind.sourceType, configOf(ind.title), ctx);
+      const m = measure(ind.sourceType, configOf(ind.title), ctx, ind.sourceId);
       if (!m) continue;
       await tx.evaluationIndicator.update({ where: { id: ind.id }, data: { achieved: m.achieved, target: m.target, sourceId: m.sourceId ?? ind.sourceId, ...(m.notes !== undefined && !ind.notes ? { notes: m.notes } : {}) } });
     }
@@ -311,6 +320,22 @@ export async function refreshEvaluation(user: AuthUser, evaluationId: string) {
   }, { timeout: 60_000 });
 }
 
+/** Automatic propagation refreshes existing drafts only, never creates or rewrites approvals. */
+export async function refreshDraftEvaluationsForPlan(planId: string) {
+  const evaluations = await db.performanceEvaluation.findMany({ where: { monthlyPlanId: planId, status: "DRAFT" }, select: { id: true } });
+  for (const e of evaluations) await db.$transaction(async tx => {
+    await tx.$queryRaw`SELECT "id" FROM "PerformanceEvaluation" WHERE "id" = ${e.id} FOR UPDATE`;
+    if ((await tx.performanceEvaluation.findUniqueOrThrow({ where: { id: e.id } })).status !== "DRAFT") return;
+    await pullAutomatic(tx, e.id);
+    await recalculate(tx, e.id);
+  }, { timeout: 60_000 });
+}
+
+export async function refreshDraftEvaluationsForEmployee(employeeId: string) {
+  const plans = await db.performanceEvaluation.findMany({ where: { employeeId, status: "DRAFT", monthlyPlanId: { not: null } }, select: { monthlyPlanId: true }, distinct: ["monthlyPlanId"] });
+  for (const p of plans) if (p.monthlyPlanId) await refreshDraftEvaluationsForPlan(p.monthlyPlanId);
+}
+
 export interface IndicatorPatch {
   title?: string;
   description?: string | null;
@@ -328,6 +353,7 @@ export async function updateIndicator(user: AuthUser, indicatorId: string, patch
   for (const k of ["achieved", "target", "weight"] as const) if (patch[k] !== undefined && (!Number.isFinite(patch[k]) || patch[k]! < 0)) throw new UserError("القيم يجب أن تكون أرقامًا موجبة");
   if (patch.weight !== undefined && patch.weight > 100) throw new UserError("وزن المؤشر لا يتجاوز 100%");
   const valueChanged = (patch.achieved !== undefined && patch.achieved !== num(before.achieved)) || (patch.target !== undefined && patch.target !== num(before.target));
+  if (valueChanged && !reason?.trim()) throw new UserError("اكتب سبب تغيير المستهدف أو الإنجاز");
   await db.$transaction(async (tx) => {
     const after = await tx.evaluationIndicator.update({
       where: { id: indicatorId },
@@ -413,7 +439,7 @@ export async function overrideFinalScore(user: AuthUser, evaluationId: string, s
 
 export async function updateEvaluationNotes(user: AuthUser, evaluationId: string, managerNotes: string | null) {
   const e = await loadForEdit(user, evaluationId);
-  await db.performanceEvaluation.update({ where: { id: evaluationId }, data: { managerNotes } });
+  await db.performanceEvaluation.updateMany({ where: { id: evaluationId, status: { not: "APPROVED" } }, data: { managerNotes } });
   await audit({ user, action: "evaluation.notes", entityType: "PerformanceEvaluation", entityId: evaluationId, before: { managerNotes: e.managerNotes }, after: { managerNotes } });
 }
 

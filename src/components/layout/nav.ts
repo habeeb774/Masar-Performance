@@ -39,44 +39,57 @@ export interface NavItem {
 
 export interface NavGroup {
   label: string;
+  /** rendered as a closed section unless one of its pages is open */
+  collapsed?: boolean;
   items: NavItem[];
 }
 
+const TEAM = [PERMISSIONS.PLANS_MANAGE, PERMISSIONS.PLANS_APPROVE, PERMISSIONS.TASKS_ASSIGN, PERMISSIONS.EMPLOYEES_VIEW_ALL, PERMISSIONS.PERFORMANCE_REVIEW];
+
+/** Few top-level items; everything secondary sits in a collapsed section. */
 export const NAV: NavGroup[] = [
   {
-    label: "مساحتي",
+    label: "",
     items: [
       { href: "/dashboard", label: "الرئيسية", icon: "dashboard" },
       { href: "/my-tasks", label: "مهامي", icon: "tasks", requiresEmployee: true },
       { href: "/my-plan", label: "خطتي", icon: "month", requiresEmployee: true },
+      { href: "/team", label: "الفريق", icon: "employees", anyOf: TEAM },
+      { href: "/review-center", label: "بانتظارك", icon: "reviewCenter", anyOf: [PERMISSIONS.REVIEW_CENTER] },
+    ],
+  },
+  {
+    label: "الفريق",
+    collapsed: true,
+    items: [
+      { href: "/monthly-plans", label: "خطة الفريق", icon: "plans", anyOf: [PERMISSIONS.PLANS_MANAGE, PERMISSIONS.PLANS_APPROVE] },
+      { href: "/tasks", label: "مهام الفريق", icon: "allTasks", anyOf: [PERMISSIONS.TASKS_ASSIGN] },
+      { href: "/performance", label: "أداء الفريق", icon: "kpis", anyOf: [PERMISSIONS.PERFORMANCE_REVIEW, PERMISSIONS.PERFORMANCE_APPROVE, PERMISSIONS.KPI_MANAGE] },
+      { href: "/employees", label: "الموظفون", icon: "employees", anyOf: [PERMISSIONS.EMPLOYEES_VIEW_ALL, PERMISSIONS.EMPLOYEES_MANAGE] },
+    ],
+  },
+  {
+    label: "المزيد",
+    collapsed: true,
+    items: [
       { href: "/my-reports", label: "تقاريري", icon: "reports", requiresEmployee: true },
       { href: "/my-performance", label: "أدائي", icon: "performance", requiresEmployee: true, anyOf: [PERMISSIONS.PERFORMANCE_VIEW_OWN] },
       { href: "/reminders", label: "ملاحظات وتذكيرات", icon: "reminders" },
     ],
   },
   {
-    label: "الفريق",
-    items: [
-      { href: "/review-center", label: "بانتظارك", icon: "reviewCenter", anyOf: [PERMISSIONS.REVIEW_CENTER] },
-      { href: "/monthly-plans", label: "خطة الفريق", icon: "plans", anyOf: [PERMISSIONS.PLANS_MANAGE, PERMISSIONS.PLANS_APPROVE] },
-      { href: "/tasks", label: "مهام الفريق", icon: "allTasks", anyOf: [PERMISSIONS.TASKS_ASSIGN] },
-      { href: "/employees", label: "الموظفون", icon: "employees", anyOf: [PERMISSIONS.EMPLOYEES_VIEW_ALL, PERMISSIONS.EMPLOYEES_MANAGE] },
-      { href: "/performance", label: "أداء الفريق", icon: "kpis", anyOf: [PERMISSIONS.PERFORMANCE_REVIEW, PERMISSIONS.PERFORMANCE_APPROVE, PERMISSIONS.KPI_MANAGE] },
-      { href: "/performance/evaluations", label: "التقييم الرسمي", icon: "reviews", anyOf: [PERMISSIONS.PERFORMANCE_REVIEW, PERMISSIONS.PERFORMANCE_APPROVE] },
-    ],
-  },
-  {
     label: "الإدارة",
+    collapsed: true,
     items: [
-      { href: "/notion", label: "Notion", icon: "notion", anyOf: [PERMISSIONS.NOTION_MANAGE, PERMISSIONS.NOTION_SYNC] },
-      { href: "/goals", label: "قوالب الأهداف", icon: "templates", anyOf: [PERMISSIONS.GOAL_TEMPLATES_MANAGE] },
+      { href: "/goals", label: "القوالب", icon: "templates", anyOf: [PERMISSIONS.GOAL_TEMPLATES_MANAGE] },
       {
         href: "/settings",
-        label: "الإعدادات",
+        label: "الإعدادات والصلاحيات",
         icon: "settings",
         anyOf: [PERMISSIONS.ORG_MANAGE, PERMISSIONS.ROLES_MANAGE, PERMISSIONS.KPI_MANAGE, PERMISSIONS.RATING_SCALE_MANAGE, PERMISSIONS.USERS_MANAGE],
       },
-      { href: "/audit-logs", label: "سجل التدقيق", icon: "audit", anyOf: [PERMISSIONS.AUDIT_VIEW] },
+      { href: "/notion", label: "Notion", icon: "notion", anyOf: [PERMISSIONS.NOTION_MANAGE, PERMISSIONS.NOTION_SYNC] },
+      { href: "/audit-logs", label: "سجل النشاط", icon: "audit", anyOf: [PERMISSIONS.AUDIT_VIEW] },
     ],
   },
 ];

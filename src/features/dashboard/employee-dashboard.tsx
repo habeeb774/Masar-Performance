@@ -25,10 +25,10 @@ const open = (s: string) => s !== "COMPLETED" && s !== "CANCELLED";
 /** The one task to start now: overdue first, then today's by priority. */
 function nextTask(daily: DailyTaskRow[], adHoc: AdHocTaskRow[], today: string) {
   const candidates = [
-    ...daily.filter((t) => open(t.status)).map((t) => ({ id: t.id, title: t.title, overdue: t.overdue, priority: t.priority, detail: t.target > 0 ? `${formatNumber(t.achieved)} من ${formatNumber(t.target)} ${t.unit ?? ""}` : null })),
+    ...daily.filter((t) => open(t.status)).map((t) => ({ id: t.id, title: t.title, overdue: t.overdue, priority: t.priority, progress: t.progress, detail: t.target > 0 ? `${formatNumber(t.achieved)} / ${formatNumber(t.target)} ${t.unit ?? ""}` : null })),
     ...adHoc
       .filter((t) => open(t.status) && (!t.dueDate || t.dueDate <= today))
-      .map((t) => ({ id: t.id, title: t.title, overdue: t.overdue, priority: t.priority, detail: t.assignedByName ? `تكليف من ${t.assignedByName}` : null })),
+      .map((t) => ({ id: t.id, title: t.title, overdue: t.overdue, priority: t.priority, progress: t.progress, detail: t.assignedByName ? `تكليف من ${t.assignedByName}` : null })),
   ];
   return candidates.sort((a, b) => Number(b.overdue) - Number(a.overdue) || RANK[a.priority] - RANK[b.priority])[0] ?? null;
 }
@@ -48,12 +48,9 @@ export function EmployeeDashboard({
   syncIssue?: boolean;
   dueReminders?: number;
 }) {
-  const { stats, week } = data;
+  const { stats } = data;
   const next = nextTask(data.todayTaskRows, data.adHocRows, data.today);
   const allDone = stats.todayCount > 0 && stats.todayDone >= stats.todayCount;
-  const weekGoals = (week?.goals ?? [])
-    .filter((g) => g.monthlyGoal.status !== "CANCELLED")
-    .filter((g) => num(g.targetValue) > 0 || num(g.achievedValue) > 0);
   const alerts = [
     stats.delayed > 0 && { icon: AlarmClock, tone: "text-danger", text: `${formatNumber(stats.delayed)} مهام متأخرة`, href: "/my-tasks" },
     stats.needsRevision > 0 && { icon: RotateCcw, tone: "text-warning", text: `${formatNumber(stats.needsRevision)} عناصر تحتاج تحسين`, href: "/my-plan" },
@@ -76,11 +73,12 @@ export function EmployeeDashboard({
               <div className="min-w-0 flex-1">
                 <p className="text-xs text-muted-foreground">{next.overdue ? "متأخرة — ابدأ بها" : "مهمتك التالية"}</p>
                 <p className="mt-1 truncate text-lg font-bold">{next.title}</p>
-                {next.detail && <p className="text-sm text-muted-foreground">{next.detail}</p>}
+                {next.detail && <p className="text-sm font-medium tabular-nums text-muted-foreground">{next.detail}</p>}
+                {next.progress > 0 && <ProgressBar value={next.progress} size="sm" className="mt-2 max-w-72" />}
               </div>
               <Button size="lg" asChild>
                 <Link href={`/focus/${next.id}`}>
-                  <Play /> بدء العمل
+                  <Play /> {next.progress > 0 ? "متابعة العمل" : "بدء العمل"}
                 </Link>
               </Button>
             </>
@@ -142,37 +140,22 @@ export function EmployeeDashboard({
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-base">التقدم هذا الأسبوع</CardTitle>
+            <CardTitle className="text-base">إنجاز الشهر</CardTitle>
             <Button variant="ghost" size="sm" asChild>
               <Link href="/my-plan">
                 خطتي <ArrowLeft />
               </Link>
             </Button>
           </CardHeader>
-          <CardContent>
-            {weekGoals.length === 0 ? (
-              <EmptyState title="لا توجد أهداف لهذا الأسبوع" description="سيقوم مديرك بإعداد خطتك، وتتوزع أهدافها تلقائيًا." className="py-6" />
+          <CardContent className="space-y-3">
+            {data.plan ? (
+              <>
+                <p className="text-4xl font-bold tabular-nums">{formatPct(stats.monthProgress)}</p>
+                <ProgressBar value={stats.monthProgress} />
+                <p className="text-xs text-muted-foreground">{monthLabel(data.year, data.month)}</p>
+              </>
             ) : (
-              <div className="space-y-3">
-                {weekGoals.map((g) => (
-                  <div key={g.id} className="space-y-1">
-                    <div className="flex items-baseline justify-between gap-2 text-sm">
-                      <span className="truncate">{g.monthlyGoal.name}</span>
-                      <span className="shrink-0 tabular-nums">
-                        <span className="font-semibold">{formatNumber(num(g.achievedValue))}</span>
-                        <span className="text-muted-foreground">
-                          {" "}
-                          / {formatNumber(num(g.targetValue))} {g.monthlyGoal.unit}
-                        </span>
-                      </span>
-                    </div>
-                    <ProgressBar value={num(g.progressPct)} size="sm" />
-                  </div>
-                ))}
-                <p className="pt-1 text-xs text-muted-foreground">
-                  إنجاز الشهر {formatPct(stats.monthProgress)} — {monthLabel(data.year, data.month)}
-                </p>
-              </div>
+              <EmptyState title="لا توجد خطة لهذا الشهر بعد" description="سيقوم مديرك بإعداد خطتك، وتتوزع مهامها عليك تلقائيًا." className="py-6" />
             )}
           </CardContent>
         </Card>

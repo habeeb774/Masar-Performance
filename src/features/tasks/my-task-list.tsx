@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import type { AdHocTaskRow, DailyTaskRow, GoalOption } from "@/server/queries/tasks";
 import { TaskDetailSheet } from "./task-detail-sheet";
 import { TaskRowMenu } from "./task-row-menu";
+import { ProgressBar } from "@/components/shared/progress-bar";
 
 type MetaPart = { text: string; danger?: boolean };
 
@@ -22,6 +23,7 @@ function TaskRow({
   priority,
   overdue,
   meta,
+  progress,
   onOpen,
   actions,
 }: {
@@ -30,6 +32,8 @@ function TaskRow({
   priority: PriorityKey;
   overdue: boolean;
   meta: MetaPart[];
+  /** shown as a thin bar while work is under way */
+  progress?: number;
   onOpen: () => void;
   actions: React.ReactNode;
 }) {
@@ -51,6 +55,7 @@ function TaskRow({
             ))}
           </span>
         )}
+        {progress !== undefined && progress > 0 && !done && status !== "CANCELLED" && <ProgressBar value={progress} size="sm" className="mt-1.5 max-w-56" />}
       </button>
       {actions}
     </div>
@@ -104,6 +109,7 @@ export function DailyTaskItem({
         priority={task.priority}
         overdue={task.overdue}
         meta={meta}
+        progress={task.progress}
         onOpen={() => setDetails(true)}
         actions={
           <div className="flex shrink-0 items-center">
@@ -179,7 +185,6 @@ export function AdHocTaskItem({
   const [details, setDetails] = useState(false);
   const baseDate = task.dueDate ?? task.assignedDate;
   const meta: MetaPart[] = [];
-  if (task.progress > 0 && task.status !== "COMPLETED") meta.push({ text: `${formatNumber(task.progress)}%` });
   if (task.dueDate && task.dueDate !== today && task.status !== "COMPLETED") meta.push({ text: `التسليم ${formatDateAr(task.dueDate)}`, danger: task.overdue });
   return (
     <>
@@ -189,6 +194,7 @@ export function AdHocTaskItem({
         priority={task.priority}
         overdue={task.overdue}
         meta={meta}
+        progress={task.progress}
         onOpen={() => setDetails(true)}
         actions={
           <div className="flex shrink-0 items-center">
