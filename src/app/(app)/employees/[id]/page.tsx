@@ -34,7 +34,7 @@ export default async function EmployeeProfilePage({ params, searchParams }: { pa
   const { employee: e, plan } = profile;
   // end of month: the latest official evaluation, or the month just closed when none exists yet
   const evaluation = isReviewer
-    ? await db.performanceEvaluation.findFirst({ where: { employeeId: id }, orderBy: [{ year: "desc" }, { month: "desc" }], select: { id: true, year: true, month: true, status: true, finalScore: true, ratingLabel: true } })
+    ? await db.performanceEvaluation.findFirst({ where: { employeeId: id, OR: [{ year: { lt: profile.year } }, { year: profile.year, month: { lte: profile.month } }] }, orderBy: [{ year: "desc" }, { month: "desc" }], select: { id: true, year: true, month: true, status: true, finalScore: true, ratingLabel: true } })
     : null;
   const closed = shiftMonth(profile.year, profile.month, -1);
   const canApprove = hasPermission(user, PERMISSIONS.PERFORMANCE_APPROVE);
