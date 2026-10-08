@@ -3,7 +3,9 @@ import type { Prisma } from "@/generated/prisma/client";
 import { db } from "@/server/db";
 import type { AuthUser } from "@/server/auth/session";
 import { employeeIdScope, employeeWhere } from "@/server/auth/session";
-import { toDateKey } from "@/lib/dates";
+import { fromDateKey, toDateKey, todayKey } from "@/lib/dates";
+import { validateEvaluation } from "@/lib/evaluation";
+import { getCompany } from "@/server/services/company";
 import { num } from "@/lib/num";
 import { ensureDueReports } from "@/server/services/reports";
 import { contentProgress, liveWeeklyProgress } from "./reports";
@@ -11,7 +13,8 @@ import { getBatchReviewQueue } from "./batches";
 
 export { getBatchReviewQueue };
 
-export const REVIEW_TABS = ["batches", "weekly", "monthly", "plans", "pending", "images", "content", "revision"] as const;
+/** Decisions first (evaluations, plans, reports), then the Notion work queues. */
+export const REVIEW_TABS = ["evaluations", "plans", "weekly", "monthly", "batches", "pending", "images", "content", "revision"] as const;
 export type ReviewTab = (typeof REVIEW_TABS)[number];
 
 export const NOTION_PAGE_SIZE = 50;
@@ -63,7 +66,8 @@ export function ensureTeamReports(user: AuthUser) {
 
 export async function getReviewCenterCounts(user: AuthUser) {
   const scope = employeeWhere(user);
-  const [batchQueue, weekly, monthly, plans, variance, pending, images, content, revision] = await Promise.all([
+  const [evaluations, batchQueue, weekly, monthly, plans, variance, pending, images, content, revision] = await Promise.all([
+    db.performanceEvaluation.count({ where: evaluationsDueWhere(user, await companyTodayKey()) }),
     getBatchReviewQueue(user).catch(() => []),
     db.weeklyReport.count({
       where: { ...scope, status: { in: ["SUBMITTED", "REVIEWED"] } },
@@ -82,6 +86,7 @@ export async function getReviewCenterCounts(user: AuthUser) {
     db.notionItemStage.count({ where: stageWhere(user, "revision") }),
   ]);
   return {
+    evaluations,
     batches: batchQueue.reduce((n, g) => n + g.waiting.length + g.edited.length, 0),
     weekly,
     monthly,
@@ -91,6 +96,34 @@ export async function getReviewCenterCounts(user: AuthUser) {
     content,
     revision,
   } satisfies Record<ReviewTab, number>;
+}
+
+async function companyTodayKey() {
+  return todayKey((await getCompany()).timezone);
+}
+
+/** Draft evaluations whose plan period is over — they wait for the manager's approval. */
+function evaluationsDueWhere(user: AuthUser, today: string): Prisma.PerformanceEvaluationWhereInput {
+  return { ...employeeWhere(user), status: "DRAFT", periodEnd: { lte: fromDateKey(today) } };
+}
+
+export async function getEvaluationsQueue(user: AuthUser) {
+  const rows = await db.performanceEvaluation.findMany({
+    where: evaluationsDueWhere(user, await companyTodayKey()),
+    include: { employee: { select: { fullName: true } }, duties: { include: { indicators: { select: { weight: true, target: true } } } } },
+    orderBy: [{ year: "asc" }, { month: "asc" }],
+    take: 200,
+  });
+  return rows.map((e) => ({
+    id: e.id,
+    employee: e.employee.fullName,
+    year: e.year,
+    month: e.month,
+    finalScore: num(e.finalScore),
+    ratingLabel: e.ratingLabel,
+    // same rules as approval: duty / indicator weights total 100%, no empty duty
+    ready: validateEvaluation(e.duties.map((d) => ({ title: d.title, weight: num(d.weight), indicators: d.indicators.map((i) => ({ achieved: 0, target: num(i.target), weight: num(i.weight) })) }))).length === 0,
+  }));
 }
 
 export async function getWeeklyReportsQueue(user: AuthUser) {

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, Plus, Sparkles, Trash2 } from "lucide-react";
+import { CheckCircle2, ChevronDown, Plus, Sparkles, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -48,7 +48,7 @@ export function TeamPlanDialog({
   const [start, setStart] = useState("");
   const [count, setCount] = useState(4);
   const periodValid = Number.isInteger(count) && count >= 1 && count <= 52;
-  const suggestion = useServerAction(suggestPlanPeriodAction, { onSuccess: (data) => { if (data) setStart(data.start); } });
+  const suggestion = useServerAction(suggestPlanPeriodAction, { silent: true, onSuccess: (data) => { if (data) setStart(data.start); } });
   const draft = useServerAction(teamPlanDraftAction, { silent: true });
   const save = useServerAction(createTeamPlanAction, {
     onSuccess: () => {
@@ -61,6 +61,8 @@ export function TeamPlanDialog({
     setEmployeeId(id);
     setStart("");
     setRows([]);
+    // the period follows the previous plan automatically; shown as one line, editable under «خيارات متقدمة»
+    suggestion.run(id, year, month, count);
     draft.run(id, year, month).then((r) => {
       const goals = r.ok ? (r.data?.goals ?? []) : [];
       setFrom(r.ok ? (r.data?.from ?? null) : null);
@@ -104,12 +106,6 @@ export function TeamPlanDialog({
         </DialogHeader>
 
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1"><Label htmlFor="team-execution-start">بداية فترة التنفيذ</Label><Input id="team-execution-start" type="date" value={start} onChange={(event) => setStart(event.target.value)} /></div>
-            <div className="space-y-1"><Label htmlFor="team-execution-count">عدد الأسابيع</Label><Input id="team-execution-count" type="number" min={1} max={52} value={count} onChange={(event) => setCount(Number(event.target.value))} /></div>
-          </div>
-          <Button variant="outline" size="sm" disabled={!employeeId || !periodValid || suggestion.pending} onClick={() => suggestion.run(employeeId, year, month, count)}>اقتراح بداية التنفيذ</Button>
-          <p className="text-xs text-muted-foreground">نهاية التنفيذ: {isDateKey(start) && periodValid ? formatDateAr(executionEndDate(start, count)) : "تُحسب تلقائيًا؛ البداية الفارغة تتبع نهاية الخطة السابقة"}</p>
           {!fixedEmployee && (
             <div className="space-y-1.5">
               <Label>الموظف</Label>
@@ -164,6 +160,25 @@ export function TeamPlanDialog({
                 </Button>
               </div>
             ))}
+
+          {employeeId && (
+            <p className="text-xs text-muted-foreground">
+              فترة التنفيذ: {isDateKey(start) && periodValid ? `${formatDateAr(start)} – ${formatDateAr(executionEndDate(start, count))} · ${count} أسابيع` : "تبدأ تلقائيًا بعد نهاية الخطة السابقة"}
+            </p>
+          )}
+          <details className="group rounded-lg border">
+            <summary className="flex cursor-pointer list-none items-center justify-between p-2.5 text-sm text-muted-foreground">
+              خيارات متقدمة
+              <ChevronDown className="size-4 transition-transform group-open:rotate-180" />
+            </summary>
+            <div className="space-y-3 border-t p-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1"><Label htmlFor="team-execution-start">بداية فترة التنفيذ</Label><Input id="team-execution-start" type="date" value={start} onChange={(event) => setStart(event.target.value)} /></div>
+                <div className="space-y-1"><Label htmlFor="team-execution-count">عدد الأسابيع</Label><Input id="team-execution-count" type="number" min={1} max={52} value={count} onChange={(event) => setCount(Number(event.target.value))} /></div>
+              </div>
+              <p className="text-xs text-muted-foreground">الأوزان والمصادر وتواريخ الأهداف تُضبط تلقائيًا، ويمكن تعديلها لاحقًا من صفحة الخطة.</p>
+            </div>
+          </details>
         </div>
 
         <DialogFooter>

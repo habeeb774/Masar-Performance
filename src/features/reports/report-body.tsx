@@ -2,7 +2,7 @@ import { dutyOf, groupByDuty } from "@/lib/duties";
 import { AlertTriangle, CheckCircle2, Clock3, Hourglass, RotateCcw, Target, ThumbsUp } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { NotionSyncedTag, StatCard } from "@/components/shared/page";
+import { StatCard } from "@/components/shared/page";
 import { EnumBadge, StatusBadge } from "@/components/shared/status-badge";
 import { ProgressBar } from "@/components/shared/progress-bar";
 import { formatDateAr } from "@/lib/dates";
@@ -198,7 +198,6 @@ export function GoalsTable({ goals }: { goals: ReportGoalLine[] }) {
         <TableHeader className="bg-muted/40">
           <TableRow className="hover:bg-transparent">
             <TableHead className="text-start text-xs">الهدف</TableHead>
-            <TableHead className="text-start text-xs">الوزن</TableHead>
             <TableHead className="text-start text-xs">المستهدف</TableHead>
             <TableHead className="text-start text-xs">المنجز</TableHead>
             <TableHead className="min-w-36 text-start text-xs">نسبة الإنجاز</TableHead>
@@ -210,7 +209,7 @@ export function GoalsTable({ goals }: { goals: ReportGoalLine[] }) {
             ...(groups.length > 1
               ? [
                   <TableRow key={`duty:${group.duty}`} className="bg-muted/30 hover:bg-muted/30">
-                    <TableCell colSpan={6} className="py-1.5 text-xs font-semibold">
+                    <TableCell colSpan={5} className="py-1.5 text-xs font-semibold">
                       {group.duty}
                     </TableCell>
                   </TableRow>,
@@ -219,13 +218,9 @@ export function GoalsTable({ goals }: { goals: ReportGoalLine[] }) {
             ...group.items.map((g) => (
               <TableRow key={g.goalId} className="break-inside-avoid">
                 <TableCell className="py-2.5 align-top whitespace-normal">
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="font-medium">{g.name}</span>
-                    {g.source === "NOTION" && <NotionSyncedTag className="print:hidden" />}
-                  </div>
+                  <span className="font-medium">{g.name}</span>
                   <BreakdownChips goal={g} />
                 </TableCell>
-                <TableCell className="align-top tabular-nums">{formatNumber(g.weight)}%</TableCell>
                 <TableCell className="align-top tabular-nums">
                   {formatNumber(g.target, 2)} <span className="text-xs text-muted-foreground">{g.unit}</span>
                 </TableCell>

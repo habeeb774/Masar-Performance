@@ -4,19 +4,25 @@ import { AppSidebar } from "@/components/layout/app-sidebar";
 import { AppHeader } from "@/components/layout/app-header";
 import { MobileBottomNav } from "@/components/layout/mobile-bottom-nav";
 import { visibleNav } from "@/components/layout/nav";
-import { requireUser } from "@/server/auth/session";
+import { employeeWhere, requireUser } from "@/server/auth/session";
+import { getCompany } from "@/server/services/company";
+import { fromDateKey, todayKey } from "@/lib/dates";
 import { db } from "@/server/db";
 import { unreadCount } from "@/server/services/notifications";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
 
 async function reviewBadge(user: Awaited<ReturnType<typeof requireUser>>) {
   if (!hasPermission(user, PERMISSIONS.REVIEW_CENTER)) return 0;
-  const [weekly, monthly, plans] = await Promise.all([
-    db.weeklyReport.count({ where: { status: "SUBMITTED" } }),
-    db.monthlyReport.count({ where: { status: "SUBMITTED" } }),
-    db.monthlyPlan.count({ where: { status: "SUBMITTED" } }),
+  // decisions in the manager's own scope: reports, plans and evaluations whose period is over
+  const scope = employeeWhere(user);
+  const today = fromDateKey(todayKey((await getCompany()).timezone));
+  const [weekly, monthly, plans, evaluations] = await Promise.all([
+    db.weeklyReport.count({ where: { ...scope, status: "SUBMITTED" } }),
+    db.monthlyReport.count({ where: { ...scope, status: "SUBMITTED" } }),
+    db.monthlyPlan.count({ where: { ...scope, status: "SUBMITTED" } }),
+    db.performanceEvaluation.count({ where: { ...scope, status: "DRAFT", periodEnd: { lte: today } } }),
   ]);
-  return weekly + monthly + plans;
+  return weekly + monthly + plans + evaluations;
 }
 
 export default async function AppLayout({ children }: LayoutProps<"/">) {

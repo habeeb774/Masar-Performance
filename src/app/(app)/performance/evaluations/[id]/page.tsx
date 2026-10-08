@@ -1,19 +1,20 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowRight, Printer } from "lucide-react";
+import { ArrowRight, ChevronDown, FileSpreadsheet, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/shared/page";
 import type { IdParams } from "@/lib/params";
 import { PERMISSIONS, hasPermission } from "@/lib/permissions";
-import { formatDateTimeAr, monthLabel } from "@/lib/dates";
+import { formatDateTimeAr } from "@/lib/dates";
 import { requireEmployeeAccess, requireUser } from "@/server/auth/session";
 import { getEvaluation } from "@/server/services/evaluation";
 import { toEvaluationData } from "@/features/evaluation/types";
 import { EvaluationSheet } from "@/features/evaluation/evaluation-sheet";
 import { EvaluationEditor } from "@/features/evaluation/evaluation-editor";
-import { ReopenEvaluationButton } from "@/features/evaluation/evaluation-buttons";
+import { ApproveEvaluationButton, ReopenEvaluationButton } from "@/features/evaluation/evaluation-buttons";
+import { EvaluationSummary } from "@/features/evaluation/evaluation-summary";
 
 export const metadata: Metadata = { title: "التقييم الرسمي الشهري" };
 
@@ -31,27 +32,43 @@ export default async function EvaluationPage({ params }: { params: IdParams }) {
   return (
     <div className="space-y-4">
       <PageHeader
-        title={`التقييم الرسمي — ${data.employeeName}`}
-        description={`${monthLabel(data.year, data.month)} · ${data.status === "APPROVED" ? `معتمد ${formatDateTimeAr(evaluation.approvedAt)}` : "مسودة"}`}
+        title="التقييم الشهري"
+        description={data.status === "APPROVED" ? `معتمد ${formatDateTimeAr(evaluation.approvedAt)}` : "بانتظار الاعتماد"}
         actions={
-          <>
-            <Button variant="ghost" asChild>
-              <Link href={`/performance/evaluations?year=${data.year}&month=${data.month}`}>
-                <ArrowRight /> التقييمات
-              </Link>
-            </Button>
-            <Button variant="outline" asChild>
-              <Link href={`/print/evaluations/${id}?print=1`} target="_blank">
-                <Printer /> طباعة / PDF
-              </Link>
-            </Button>
-            {data.status === "APPROVED" && canApprove && <ReopenEvaluationButton evaluationId={id} />}
-          </>
+          <Button variant="ghost" asChild>
+            <Link href={`/employees/${evaluation.employeeId}`}>
+              <ArrowRight /> صفحة الموظف
+            </Link>
+          </Button>
         }
       />
       <Card>
-        <CardContent>{editing ? <EvaluationEditor data={data} canApprove={canApprove} /> : <EvaluationSheet data={data} />}</CardContent>
+        <CardContent className="space-y-5">
+          <EvaluationSummary data={data} />
+          {/* one primary action; the rest stay secondary */}
+          <div className="flex flex-wrap items-center gap-2 border-t pt-4">
+            {data.status === "DRAFT" && canApprove && data.validation.length === 0 && <ApproveEvaluationButton evaluationId={id} label="اعتماد" />}
+            {data.status === "APPROVED" && canApprove && <ReopenEvaluationButton evaluationId={id} />}
+            <Button variant="ghost" asChild>
+              <Link href={`/print/evaluations/${id}?print=1`} target="_blank">
+                <Printer /> طباعة
+              </Link>
+            </Button>
+            <Button variant="ghost" asChild>
+              <a href={`/api/export/performance?employee=${evaluation.employeeId}&year=${data.year}&month=${data.month}`}>
+                <FileSpreadsheet /> تصدير للموارد البشرية
+              </a>
+            </Button>
+          </div>
+        </CardContent>
       </Card>
+      <details className="group rounded-xl border bg-card" open={editing && data.validation.length > 0}>
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-2 p-4 text-sm font-semibold">
+          عرض التفاصيل
+          <ChevronDown className="size-4 text-muted-foreground transition-transform group-open:rotate-180" />
+        </summary>
+        <div className="border-t p-4">{editing ? <EvaluationEditor data={data} canApprove={false} /> : <EvaluationSheet data={data} />}</div>
+      </details>
     </div>
   );
 }
