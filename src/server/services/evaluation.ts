@@ -46,10 +46,9 @@ export const DEFAULT_TEMPLATE = {
     {
       title: "الواجب الثاني: إضافة وتعديل المنتجات في المتجر",
       kind: "GOALS",
-      weight: 25,
+      weight: 40,
       indicators: [
-        { title: "إضافة المنتجات الجديدة للمتجر", description: "عدد المنتجات التي تم إدخالها للمتجر من إجمالي العدد المستهدف.", target: 0, weight: 50, sourceType: "MONTHLY_GOAL", sourceConfig: { goalNameIncludes: ["إضافة منتجات", "إضافة المنتجات"] } },
-        { title: "تعديل المنتجات الموجودة في المتجر", description: "عدد المنتجات التي تم تعديلها في المتجر من إجمالي العدد المستهدف.", target: 0, weight: 50, sourceType: "MONTHLY_GOAL", sourceConfig: { goalNameIncludes: ["تعديل المنتجات", "تعديل منتجات", "المنتجات الموجودة"] } },
+        { title: "إضافة المنتجات الجديدة للمتجر", description: "عدد المنتجات التي تم إدخالها للمتجر من إجمالي العدد المستهدف.", target: 0, weight: 100, sourceType: "MONTHLY_GOAL", sourceConfig: { goalNameIncludes: ["إضافة منتجات", "إضافة المنتجات"] } },
       ],
     },
     {
@@ -57,12 +56,12 @@ export const DEFAULT_TEMPLATE = {
       kind: "GOALS",
       weight: 20,
       indicators: [
-        { title: "ربط المنتجات بمقاطع الانستقرام في المتجر", description: "عدد المقاطع التي تم ربطها بالمنتجات من إجمالي المقاطع التي تم نشرها.", target: 0, weight: 100, sourceType: "MONTHLY_GOAL", sourceConfig: { goalNameIncludes: ["Instagram", "الانستقرام", "انستقرام"] } },
-        { title: "تصميم صور المقالات وتعديلها على المتجر", description: "عدد المقالات التي تم تصميم صورها وتعديلها.", target: 0, weight: 0, sourceType: "MONTHLY_GOAL", sourceConfig: { goalNameIncludes: ["مقالات"] } },
-        { title: "تصميم بنرات جديدة للمتجر", description: "عدد البنرات الجديدة المنجزة.", target: 0, weight: 0, sourceType: "MONTHLY_GOAL", sourceConfig: { goalNameIncludes: ["بنرات جديدة"] } },
+        { title: "ربط المنتجات بمقاطع الانستقرام في المتجر", description: "عدد المقاطع التي تم ربطها بالمنتجات من إجمالي المقاطع التي تم نشرها.", target: 0, weight: 30, sourceType: "MONTHLY_GOAL", sourceConfig: { goalNameIncludes: ["Instagram", "الانستقرام", "انستقرام"] } },
+        { title: "تصميم صور المقالات وتعديلها على المتجر", description: "عدد المقالات التي تم تصميم صورها وتعديلها.", target: 0, weight: 35, sourceType: "MONTHLY_GOAL", sourceConfig: { goalNameIncludes: ["مقالات"] } },
+        { title: "تصميم بنرات جديدة للمتجر", description: "عدد البنرات الجديدة المنجزة.", target: 0, weight: 35, sourceType: "MONTHLY_GOAL", sourceConfig: { goalNameIncludes: ["بنرات جديدة"] } },
       ],
     },
-    { title: "الواجب الرابع: مهام مستجدة كُلّف بها خلال الشهر", kind: "AD_HOC", weight: 35, indicators: [] },
+    { title: "الواجب الرابع: مهام مستجدة كُلّف بها خلال الشهر", kind: "AD_HOC", weight: 20, indicators: [] },
   ],
 } as const;
 
@@ -342,8 +341,9 @@ async function pullAutomatic(tx: Tx, evaluationId: string) {
         if (existing) {
           await tx.evaluationIndicator.update({
             where: { id: existing.id },
+            // a manager-edited indicator keeps its own weight (the manager may set weights, item 18)
             data: existing.isOverridden
-              ? { weight: base.weight, sourceId: goal.id, sortOrder: base.sortOrder }
+              ? { sourceId: goal.id, sortOrder: base.sortOrder }
               : base,
           });
         } else {

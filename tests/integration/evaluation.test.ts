@@ -75,7 +75,7 @@ describe("building an evaluation", () => {
   it("creates the 4 official duties (20 / 25 / 20 / 35) for the plan's execution period", async () => {
     evaluationId = (await ev.createEvaluation(manager, emp, Y, M)).id;
     const e = await load();
-    expect(e.duties.map((d) => [d.kind, num(d.weight)])).toEqual([["COMMITMENT", 20], ["GOALS", 25], ["GOALS", 20], ["AD_HOC", 35]]);
+    expect(e.duties.map((d) => [d.kind, num(d.weight)])).toEqual([["COMMITMENT", 20], ["GOALS", 40], ["GOALS", 20], ["AD_HOC", 20]]);
     expect([toDateKey(e.periodStart), toDateKey(e.periodEnd)]).toEqual([`${Y}-07-01`, `${Y}-07-28`]);
     expect(e.monthlyPlanId).toBe(planId);
     // creating again returns the same evaluation
@@ -87,7 +87,7 @@ describe("building an evaluation", () => {
     expect(d2.indicators.map((i) => [i.sourceType, num(i.achieved), num(i.target), num(i.weight)])).toEqual([["MONTHLY_GOAL", 141, 160, 100]]);
     expect(num(d2.score)).toBe(88.125);
     const d3 = await duty(2);
-    expect(d3.indicators.map((i) => [num(i.target), num(i.weight)])).toEqual([[6, 100], [5, 0], [3, 0]]);
+    expect(d3.indicators.map((i) => [num(i.target), num(i.weight)])).toEqual([[6, 30], [5, 35], [3, 35]]);
     expect(num((await db.monthlyGoal.findFirstOrThrow({ where: { planId, name: "إضافة منتجات جديدة" } })).achievedValue)).toBe(141);
   });
 
@@ -128,11 +128,11 @@ describe("manager edits, audit and approval", () => {
 
   it("keeps official template KPI weights after a manager overrides target or achieved values", async () => {
     const d3 = await duty(2);
-    expect(d3.indicators.map((i) => num(i.weight))).toEqual([100, 0, 0]);
+    expect(d3.indicators.map((i) => num(i.weight))).toEqual([30, 35, 35]);
     const first = d3.indicators[0];
     await ev.updateIndicator(manager, first.id, { target: 29, achieved: 29 }, "مطابقة تقييم المدير");
     const after = await duty(2);
-    expect(after.indicators.map((i) => num(i.weight))).toEqual([100, 0, 0]);
+    expect(after.indicators.map((i) => num(i.weight))).toEqual([30, 35, 35]);
     expect([num(after.indicators[0].achieved), num(after.indicators[0].target)]).toEqual([29, 29]);
   });
 
@@ -171,7 +171,7 @@ describe("reference: the manager's July 2026 sheet entered through the service",
 
     const e = await load();
     expect(e.duties.map((d) => num(d.score))).toEqual([80, 100, 100, 100]);
-    expect(e.result.duties.map((d) => d.rate)).toEqual([16, 25, 20, 35]);
+    expect(e.result.duties.map((d) => d.rate)).toEqual([16, 40, 20, 20]);
     expect(num(e.finalScore)).toBe(96);
     expect(e.ratingLabel).toBe("ممتاز");
     expect(e.validation).toEqual([]);

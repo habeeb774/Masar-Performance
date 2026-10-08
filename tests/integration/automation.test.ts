@@ -9,6 +9,8 @@ import type { AuthUser } from "@/server/auth/session";
 import * as plans from "@/server/services/plans";
 import * as manual from "@/server/services/manual";
 import { ensureDraftEvaluations } from "@/server/services/jobs";
+import { updateTaskProgress } from "@/server/services/tasks";
+import { weightedProgress } from "@/lib/weighted-progress";
 import { toDateKey } from "@/lib/dates";
 import { num } from "@/lib/num";
 
@@ -92,5 +94,50 @@ describe("automatic workflow", () => {
     const ind = e.duties[1].indicators.find((i) => i.sourceId === goalId)!;
     expect([num(ind.achieved), num(ind.score)]).toEqual([80, 100]);
     expect(num(e.duties[1].score)).toBe(100);
+  });
+});
+
+describe("every change recalculates progress and the draft evaluation", () => {
+  let editId: string;
+  const evaluationIndicators = async () =>
+    (await db.performanceEvaluation.findUniqueOrThrow({ where: { monthlyPlanId: planId }, include: { duties: { include: { indicators: true } } } })).duties.flatMap((d) => d.indicators);
+  const planProgress = async () => weightedProgress(await db.monthlyGoal.findMany({ where: { planId } }));
+  const goalInput = (g: { name: string; targetValue: unknown; unit: string; weight: unknown }, weight: number) => ({
+    name: g.name, description: null, goalType: "NUMERIC" as const, targetValue: num(g.targetValue), unit: g.unit, weight, priority: "HIGH" as const,
+    source: "MANUAL" as const, category: "PRODUCTIVITY" as const, notionDataSourceId: null, notionFilter: null, startDate: null, dueDate: null,
+  });
+
+  it("a goal added to a running plan gets weeks, tasks and an evaluation indicator automatically", async () => {
+    await plans.addGoal(manager, planId, goalInput({ name: "تعديل منتجات سابقة", targetValue: 40, unit: "منتج", weight: 50 }, 50));
+    editId = (await db.monthlyGoal.findFirstOrThrow({ where: { planId, name: "تعديل منتجات سابقة" } })).id;
+    expect(await db.weeklyGoal.count({ where: { monthlyGoalId: editId } })).toBe(4);
+    expect(await db.dailyTask.count({ where: { monthlyGoalId: editId, status: { not: "CANCELLED" } } })).toBeGreaterThan(0);
+    expect((await evaluationIndicators()).some((i) => i.sourceId === editId)).toBe(true);
+  });
+
+  it("completing a daily task: reaching its target completes it and updates goal and evaluation", async () => {
+    const task = await db.dailyTask.findFirstOrThrow({ where: { monthlyGoalId: editId, status: { not: "CANCELLED" }, target: { gt: 0 } }, orderBy: { date: "asc" } });
+    const updated = await updateTaskProgress(employee, task.id, { status: "IN_PROGRESS", achieved: num(task.target), notes: null, delayReason: null });
+    expect(updated.status).toBe("COMPLETED");
+    const goal = await db.monthlyGoal.findUniqueOrThrow({ where: { id: editId } });
+    expect(num(goal.achievedValue)).toBe(num(task.target));
+    expect(num((await evaluationIndicators()).find((i) => i.sourceId === editId)!.achieved)).toBe(num(task.target));
+  });
+
+  it("changing a goal weight changes the weighted progress and the evaluation weights", async () => {
+    const before = await planProgress();
+    const beforeWeight = num((await evaluationIndicators()).find((i) => i.sourceId === editId)!.weight);
+    const g = await db.monthlyGoal.findUniqueOrThrow({ where: { id: editId } });
+    await plans.updateGoal(manager, editId, goalInput(g, 10));
+    expect(await planProgress()).not.toBe(before);
+    expect(num((await evaluationIndicators()).find((i) => i.sourceId === editId)!.weight)).not.toBe(beforeWeight);
+  });
+
+  it("cancelling a goal removes it from progress and from the evaluation", async () => {
+    await plans.cancelGoal(manager, editId, "لم يعد مطلوبًا");
+    const goals = await db.monthlyGoal.findMany({ where: { planId } });
+    expect(await planProgress()).toBe(weightedProgress(goals.filter((x) => x.id !== editId)));
+    const ind = (await evaluationIndicators()).find((i) => i.sourceId === editId);
+    expect(ind === undefined || num(ind.weight) === 0).toBe(true);
   });
 });
