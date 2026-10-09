@@ -30,3 +30,30 @@ describe("what does the user want to do?", () => {
   });
   it("unrelated words → nothing", () => expect(ids("سيارة حمراء", manager, true)).toEqual([]));
 });
+
+describe("an action about one employee", () => {
+  it("finds the topic", async () => {
+    const { employeeTopic } = await import("@/lib/intent-actions");
+    expect(employeeTopic("تقييم حبيب")).toBe("evaluation");
+    expect(employeeTopic("خطة سارة")).toBe("plan");
+    expect(employeeTopic("مهام أحمد")).toBe("tasks");
+    expect(employeeTopic("تقرير حبيب الأسبوعي")).toBe("reports");
+    expect(employeeTopic("حبيب")).toBeNull();
+  });
+  it("recognizes the employee by a name word", async () => {
+    const { namesEmployee } = await import("@/lib/intent-actions");
+    expect(namesEmployee("تقييم حبيب", "حبيب ناظر عبدالواحد عبده")).toBe(true);
+    expect(namesEmployee("خطة ناظر", "حبيب ناظر عبدالواحد عبده")).toBe(true);
+    expect(namesEmployee("تقييم سارة", "حبيب ناظر عبدالواحد عبده")).toBe(false);
+  });
+});
+
+describe("several employees share a word", () => {
+  it("only the best-matching employees are named", async () => {
+    const { namedEmployees } = await import("@/lib/intent-actions");
+    const team = [{ fullName: "مسؤول المنتجات والتصاميم" }, { fullName: "مسؤول المحتوى وSEO" }];
+    expect(namedEmployees("خطة مسؤول المحتوى", team).map((e) => e.fullName)).toEqual(["مسؤول المحتوى وSEO"]);
+    expect(namedEmployees("تقييم مسؤول", team)).toHaveLength(2);
+    expect(namedEmployees("تقييم سارة", team)).toEqual([]);
+  });
+});

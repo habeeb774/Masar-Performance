@@ -3,7 +3,9 @@
 import { db } from "@/server/db";
 import { actionUser, employeeWhere } from "@/server/auth/session";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
-import { matchIntentActions } from "@/lib/intent-actions";
+import { employeeTopic, matchIntentActions, namedEmployees, type EmployeeTopic } from "@/lib/intent-actions";
+import { monthLabel } from "@/lib/dates";
+import type { AuthUser } from "@/server/auth/session";
 
 export interface SearchResultItem {
   id: string;
@@ -36,6 +38,42 @@ async function section<T>(name: string, fallback: T, fn: () => Promise<T>): Prom
  * Every section is queried independently so one failing query still lets the
  * others render instead of failing the whole search.
  */
+const TOPIC_PERMISSION: Record<EmployeeTopic, (keyof typeof PERMISSIONS)[]> = {
+  evaluation: ["PERFORMANCE_REVIEW", "PERFORMANCE_APPROVE"],
+  plan: ["PLANS_MANAGE", "PLANS_APPROVE"],
+  tasks: ["TASKS_ASSIGN"],
+  reports: ["REPORTS_REVIEW"],
+};
+
+/**
+ * «تقييم حبيب», «خطة سارة», «مهام أحمد»: a topic + an employee of the manager's team → a direct link
+ * to that employee's evaluation / plan / tasks / reports. Only within the user's scope and permissions.
+ */
+async function employeeIntentItems(user: AuthUser, q: string): Promise<SearchResultItem[]> {
+  const topic = employeeTopic(q);
+  if (!topic || !TOPIC_PERMISSION[topic].some((k) => hasPermission(user, PERMISSIONS[k]))) return [];
+  const scope = employeeWhere(user);
+  const employees = (
+    await db.employee.findMany({ where: { status: "ACTIVE", ...(scope.employeeId ? { id: scope.employeeId } : {}) }, select: { id: true, fullName: true }, take: 200 })
+  ).filter((e) => e.id !== user.employeeId);
+  const named = namedEmployees(q, employees);
+  const items: SearchResultItem[] = [];
+  for (const e of named.slice(0, 3)) {
+    if (topic === "evaluation") {
+      const ev = await db.performanceEvaluation.findFirst({ where: { employeeId: e.id }, orderBy: [{ year: "desc" }, { month: "desc" }], select: { id: true, year: true, month: true } });
+      items.push(ev ? { id: `intent-ev-${ev.id}`, title: `تقييم ${e.fullName}`, subtitle: monthLabel(ev.year, ev.month), href: `/performance/evaluations/${ev.id}` } : { id: `intent-ev-${e.id}`, title: `تقييم ${e.fullName}`, subtitle: "لا يوجد تقييم بعد — صفحة الموظف", href: `/employees/${e.id}` });
+    } else if (topic === "plan") {
+      const plan = await db.monthlyPlan.findFirst({ where: { employeeId: e.id }, orderBy: [{ year: "desc" }, { month: "desc" }], select: { id: true, year: true, month: true } });
+      items.push(plan ? { id: `intent-plan-${plan.id}`, title: `خطة ${e.fullName}`, subtitle: monthLabel(plan.year, plan.month), href: `/monthly-plans/${plan.id}` } : { id: `intent-plan-${e.id}`, title: `خطة ${e.fullName}`, subtitle: "لا توجد خطة بعد — خطة الفريق", href: "/monthly-plans" });
+    } else if (topic === "tasks") {
+      items.push({ id: `intent-tasks-${e.id}`, title: `مهام ${e.fullName}`, subtitle: "مهامه اليومية والمتأخرة", href: `/tasks?employee=${e.id}` });
+    } else {
+      items.push({ id: `intent-reports-${e.id}`, title: `تقارير ${e.fullName}`, subtitle: "تقاريره الأسبوعية", href: `/reports/weekly?employee=${e.id}` });
+    }
+  }
+  return items;
+}
+
 export async function globalSearchAction(query: string): Promise<SearchResultGroup[]> {
   const q = query.trim();
   if (q.length < 2) return [];
@@ -44,8 +82,9 @@ export async function globalSearchAction(query: string): Promise<SearchResultGro
   const groups: SearchResultGroup[] = [];
 
   // what the user wants to do («خطة جديدة», «اعتماد التقييم», «تصدير اكسل») comes first
-  const actions = matchIntentActions(q, user.permissions, !!user.employeeId);
-  if (actions.length > 0) groups.push({ key: "actions", label: "ماذا تريد أن تفعل؟", items: actions.map((a) => ({ id: `action-${a.id}`, title: a.label, subtitle: a.hint, href: a.href })) });
+  const actionItems: SearchResultItem[] = await section("employee-intent", [] as SearchResultItem[], () => employeeIntentItems(user, q));
+  actionItems.push(...matchIntentActions(q, user.permissions, !!user.employeeId).map((a) => ({ id: `action-${a.id}`, title: a.label, subtitle: a.hint, href: a.href })));
+  if (actionItems.length > 0) groups.push({ key: "actions", label: "ماذا تريد أن تفعل؟", items: actionItems.slice(0, TAKE) });
 
   if (user.employeeId || hasPermission(user, PERMISSIONS.EMPLOYEES_VIEW_ALL) || hasPermission(user, PERMISSIONS.TASKS_ASSIGN)) {
     const [dailyTasks, adHocTasks, goals] = await Promise.all([

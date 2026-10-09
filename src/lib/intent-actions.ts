@@ -62,3 +62,38 @@ export function matchIntentActions(query: string, permissions: ReadonlySet<strin
     .slice(0, limit)
     .map((x) => x.a);
 }
+
+// ---------------------------------------------------------------------------
+//  «تقييم حبيب», «خطة سارة», «مهام أحمد» — an action about one employee
+// ---------------------------------------------------------------------------
+
+export type EmployeeTopic = "evaluation" | "plan" | "tasks" | "reports";
+
+const TOPICS: { topic: EmployeeTopic; keywords: string[] }[] = [
+  { topic: "evaluation", keywords: ["تقييم", "تقييمه", "تقييمها", "اداء", "ادائه", "نتيجه", "درجه"] },
+  { topic: "plan", keywords: ["خطه", "خطته", "خطتها", "اهداف", "اهدافه"] },
+  { topic: "tasks", keywords: ["مهام", "مهامه", "مهامها", "مهمه", "متاخر", "متاخره"] },
+  { topic: "reports", keywords: ["تقرير", "تقريره", "تقريرها", "تقارير"] },
+];
+
+/** Which part of an employee's work the phrase is about, if any. */
+export function employeeTopic(query: string): EmployeeTopic | null {
+  const said = words(query);
+  for (const t of TOPICS) if (said.some((s) => t.keywords.some((k) => s === k || bare(s) === k))) return t.topic;
+  return null;
+}
+
+/** How many words of this employee's name the phrase says (3+ letters, exact) — 0 = not named. */
+export function nameScore(query: string, fullName: string): number {
+  const said = new Set(words(query).flatMap((w) => [w, bare(w)]));
+  return words(fullName).filter((n) => n.length >= 3 && said.has(n)).length;
+}
+
+export const namesEmployee = (query: string, fullName: string) => nameScore(query, fullName) > 0;
+
+/** The employees the phrase names: only the best-matching ones («مسؤول المحتوى» ≠ every «مسؤول»). */
+export function namedEmployees<E extends { fullName: string }>(query: string, employees: E[]): E[] {
+  const scored = employees.map((e) => ({ e, s: nameScore(query, e.fullName) })).filter((x) => x.s > 0);
+  const best = Math.max(0, ...scored.map((x) => x.s));
+  return scored.filter((x) => x.s === best).map((x) => x.e);
+}
