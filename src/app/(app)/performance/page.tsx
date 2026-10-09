@@ -11,9 +11,10 @@ import { GroupedBarChart, PercentBars, StageStatusChart, TrendChart } from "@/co
 import type { SearchParams } from "@/lib/params";
 import { int } from "@/lib/params";
 import { PERMISSIONS } from "@/lib/permissions";
-import { monthLabel } from "@/lib/dates";
+import { fromDateKey, monthLabel } from "@/lib/dates";
 import { formatNumber, formatPct } from "@/lib/num";
-import { requirePermission } from "@/server/auth/session";
+import { employeeWhere, requirePermission } from "@/server/auth/session";
+import { db } from "@/server/db";
 import { currentMonth, getPerformanceAnalytics } from "@/server/queries/performance";
 
 export const metadata: Metadata = { title: "تحليلات الأداء" };
@@ -49,6 +50,14 @@ export default async function PerformanceAnalyticsPage({ searchParams }: { searc
   const data = await getPerformanceAnalytics(user, year, month);
   const { stats } = data;
   const emp = data.employees;
+  // what the manager most likely wants to do now, read from the team's state — not from the charts
+  const scope = employeeWhere(user);
+  const todayDate = fromDateKey(now.today);
+  const [dueEvaluations, approvedEvaluations] = await Promise.all([
+    db.performanceEvaluation.count({ where: { ...scope, year, month, status: "DRAFT", periodEnd: { lte: todayDate } } }),
+    db.performanceEvaluation.count({ where: { ...scope, year, month, status: "APPROVED" } }),
+  ]);
+  const withoutPlan = Math.max(0, stats.employees - stats.withPlan);
   const maxDelayed = Math.max(5, ...emp.map((e) => e.delayed));
   const maxRevision = Math.max(20, ...emp.map((e) => e.revisionRate ?? 0));
 
@@ -76,6 +85,38 @@ export default async function PerformanceAnalyticsPage({ searchParams }: { searc
           </>
         }
       />
+
+      {(dueEvaluations > 0 || withoutPlan > 0 || approvedEvaluations > 0) && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">ما يحتاجه منك الآن</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-wrap gap-2">
+            {dueEvaluations > 0 && (
+              <Button asChild>
+                <Link href="/review-center?tab=evaluations">
+                  اعتمد {formatNumber(dueEvaluations)} {dueEvaluations === 1 ? "تقييمًا" : "تقييمات"} <ArrowLeft />
+                </Link>
+              </Button>
+            )}
+            {withoutPlan > 0 && (
+              <Button variant="outline" asChild>
+                <Link href={`/monthly-plans?year=${year}&month=${month}`}>
+                  أعدّ خطة لـ {formatNumber(withoutPlan)} {withoutPlan === 1 ? "موظف" : "موظفين"} <ArrowLeft />
+                </Link>
+              </Button>
+            )}
+            {approvedEvaluations > 0 && (
+              <ExportExcelButton
+                href={`/api/export/performance/all?year=${year}&month=${month}`}
+                label="صدّر للموارد البشرية"
+                fallbackName={`مؤشرات-أداء-الفريق-${year}-${month}.zip`}
+                size="default"
+              />
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {emp.length === 0 ? (
         <EmptyState icon={Users} title="لا يوجد موظفون في نطاقك" description="أضف الموظفين وحدد مسمياتهم الوظيفية لعرض التحليلات." />
