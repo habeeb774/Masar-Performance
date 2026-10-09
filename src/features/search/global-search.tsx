@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Search, Loader2, ClipboardList, Target, Users } from "lucide-react";
+import { Search, Loader2, ClipboardList, Sparkles, Target, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   CommandDialog,
@@ -15,6 +15,7 @@ import {
 import { globalSearchAction, type SearchResultGroup } from "@/actions/search";
 
 const GROUP_ICON: Record<SearchResultGroup["key"], React.ElementType> = {
+  actions: Sparkles,
   tasks: ClipboardList,
   goals: Target,
   employees: Users,
@@ -96,8 +97,8 @@ export function GlobalSearch() {
       <Button variant="ghost" size="icon" aria-label="بحث" className="sm:hidden" onClick={() => setOpen(true)}>
         <Search />
       </Button>
-      <CommandDialog open={open} onOpenChange={setOpen} title="البحث الشامل" description="ابحث في المهام والأهداف والموظفين">
-        <CommandInput placeholder="ابحث في المهام والأهداف والموظفين…" value={query} onValueChange={setQuery} />
+      <CommandDialog open={open} onOpenChange={setOpen} title="البحث الشامل" description="ابحث أو اكتب ما تريد فعله" shouldFilter={false}>
+        <CommandInput placeholder="ابحث أو اكتب ما تريد فعله… مثل: خطة جديدة، تصدير اكسل" value={query} onValueChange={setQuery} />
         <CommandList>
           {loading && (
             <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">

@@ -3,6 +3,7 @@
 import { db } from "@/server/db";
 import { actionUser, employeeWhere } from "@/server/auth/session";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
+import { matchIntentActions } from "@/lib/intent-actions";
 
 export interface SearchResultItem {
   id: string;
@@ -12,7 +13,7 @@ export interface SearchResultItem {
 }
 
 export interface SearchResultGroup {
-  key: "tasks" | "goals" | "employees";
+  key: "actions" | "tasks" | "goals" | "employees";
   label: string;
   items: SearchResultItem[];
 }
@@ -41,6 +42,10 @@ export async function globalSearchAction(query: string): Promise<SearchResultGro
   const user = await actionUser();
   const scope = employeeWhere(user);
   const groups: SearchResultGroup[] = [];
+
+  // what the user wants to do («خطة جديدة», «اعتماد التقييم», «تصدير اكسل») comes first
+  const actions = matchIntentActions(q, user.permissions, !!user.employeeId);
+  if (actions.length > 0) groups.push({ key: "actions", label: "ماذا تريد أن تفعل؟", items: actions.map((a) => ({ id: `action-${a.id}`, title: a.label, subtitle: a.hint, href: a.href })) });
 
   if (user.employeeId || hasPermission(user, PERMISSIONS.EMPLOYEES_VIEW_ALL) || hasPermission(user, PERMISSIONS.TASKS_ASSIGN)) {
     const [dailyTasks, adHocTasks, goals] = await Promise.all([
