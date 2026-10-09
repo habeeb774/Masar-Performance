@@ -6,6 +6,7 @@ import { EmptyState } from "@/components/shared/page";
 import { EnumBadge, StatusBadge } from "@/components/shared/status-badge";
 import { ProgressBar } from "@/components/shared/progress-bar";
 import { DashboardTodayTasks } from "@/features/tasks/dashboard-today-tasks";
+import { QuickUpdate } from "@/features/dashboard/quick-update";
 import { BatchCard } from "@/features/notion/batch-card";
 import { BatchWorkNow } from "@/features/notion/batch-work";
 import { ManualBatchInlineEditor } from "@/features/batches/manual-batch-editor";
@@ -103,6 +104,9 @@ export function EmployeeDashboard({
           </div>
         )}
       </Card>
+
+      {/* say what you did, the system finds the task and records it */}
+      {next && <QuickUpdate />}
 
       {batches?.current && (
         <BatchCard batch={batches.current}>
