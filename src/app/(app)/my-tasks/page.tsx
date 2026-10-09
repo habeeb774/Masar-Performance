@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { QuickUpdate } from "@/features/dashboard/quick-update";
 import { AlarmClock, CalendarCheck2, UserX } from "lucide-react";
 import type { SearchParams } from "@/lib/params";
 import { pageParams, str } from "@/lib/params";
@@ -62,6 +63,13 @@ export default async function MyTasksPage({ searchParams }: { searchParams: Sear
         description="ما عليك إنجازه اليوم والأيام القادمة."
         actions={<ManualTaskDialog today={data.today} goals={data.goals} />}
       />
+
+      {/* say what you did — the system finds the task and records it */}
+      {data.counts.today + data.counts.overdue > 0 && (
+        <div className="mb-4">
+          <QuickUpdate />
+        </div>
+      )}
 
       <UrlTabs
         pathname="/my-tasks"
