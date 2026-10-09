@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Award, ChevronDown, Printer, UserX } from "lucide-react";
+import { Award, ChevronDown, Printer, Target, UserX } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { EmptyState, PageHeader } from "@/components/shared/page";
@@ -65,6 +65,11 @@ export default async function MyPerformancePage({ searchParams }: { searchParams
   const selectedId = approved.some((e) => e.id === str(sp.id)) ? str(sp.id)! : approved[0].id;
   const evaluation = (await getEvaluation(selectedId))!;
   const data = toEvaluationData(evaluation);
+  // «how do I raise my score?» — the weighted duty that lost the most points
+  const focus = data.duties
+    .filter((d) => d.weight > 0 && d.score < 100)
+    .map((d) => ({ d, lost: ((100 - d.score) * d.weight) / 100 }))
+    .sort((a, b) => b.lost - a.lost)[0];
 
   return (
     <div className="space-y-4">
@@ -83,6 +88,14 @@ export default async function MyPerformancePage({ searchParams }: { searchParams
       <Card>
         <CardContent className="space-y-4">
           <EvaluationSummary data={data} />
+          {focus && (
+            <p className="flex items-start gap-2 rounded-lg bg-primary/5 p-3 text-sm">
+              <Target className="mt-0.5 size-4 shrink-0 text-primary" />
+              <span>
+                لرفع نتيجتك ركّز على <span className="font-semibold">«{focus.d.title.includes(":") ? focus.d.title.slice(focus.d.title.indexOf(":") + 1).trim().replace(/\.$/, "") : focus.d.title}»</span> — أنجزت فيه {fmt(focus.d.score)}%، وهو يُنقص نتيجتك {fmt(focus.lost)} نقطة.
+              </span>
+            </p>
+          )}
           {data.managerNotes && (
             <div className="rounded-lg bg-muted/40 p-3 text-sm">
               <p className="mb-1 text-xs font-semibold text-muted-foreground">ملاحظات المدير</p>

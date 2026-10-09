@@ -53,9 +53,11 @@ export default async function PerformanceAnalyticsPage({ searchParams }: { searc
   // what the manager most likely wants to do now, read from the team's state — not from the charts
   const scope = employeeWhere(user);
   const todayDate = fromDateKey(now.today);
-  const [dueEvaluations, approvedEvaluations] = await Promise.all([
+  const [dueEvaluations, approvedEvaluations, officialAvg] = await Promise.all([
     db.performanceEvaluation.count({ where: { ...scope, year, month, status: "DRAFT", periodEnd: { lte: todayDate } } }),
     db.performanceEvaluation.count({ where: { ...scope, year, month, status: "APPROVED" } }),
+    // the same official evaluation the manager approves — not the old KPI review
+    db.performanceEvaluation.aggregate({ where: { ...scope, year, month }, _avg: { finalScore: true }, _count: { _all: true } }),
   ]);
   const withoutPlan = Math.max(0, stats.employees - stats.withPlan);
   const maxDelayed = Math.max(5, ...emp.map((e) => e.delayed));
@@ -128,11 +130,11 @@ export default async function PerformanceAnalyticsPage({ searchParams }: { searc
             <StatCard label="متوسط الجودة" value={formatPct(stats.avgQuality)} icon={ShieldCheck} tone="success" />
             <StatCard
               label="متوسط النتيجة النهائية"
-              value={stats.avgFinal === null ? "—" : formatNumber(stats.avgFinal, 1)}
+              value={officialAvg._count._all === 0 ? "—" : formatNumber(Number(officialAvg._avg.finalScore ?? 0), 1)}
               icon={Sparkles}
               tone="primary"
-              hint={`${stats.reviews} تقييم محسوب`}
-              href={`/performance/reviews?year=${year}&month=${month}`}
+              hint={`${officialAvg._count._all} تقييم رسمي`}
+              href={`/performance/evaluations?year=${year}&month=${month}`}
             />
             <StatCard label="المهام المتأخرة" value={formatNumber(stats.delayed)} icon={AlarmClock} tone={stats.delayed ? "danger" : "neutral"} />
           </div>
