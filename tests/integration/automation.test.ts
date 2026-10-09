@@ -10,8 +10,9 @@ import * as plans from "@/server/services/plans";
 import * as manual from "@/server/services/manual";
 import { ensureDraftEvaluations, ensureMissingGoalTasks } from "@/server/services/jobs";
 import { recomputeForDataSource } from "@/server/services/progress";
-import { rebuildStages } from "@/server/notion/sync";
+import { syncDataSource } from "@/server/notion/sync";
 import { encryptSecret } from "@/server/crypto";
+import { DEFAULT_TEMPLATE } from "@/server/services/evaluation";
 import { updateTaskProgress } from "@/server/services/tasks";
 import { weightedProgress } from "@/lib/weighted-progress";
 import { toDateKey } from "@/lib/dates";
@@ -162,27 +163,73 @@ describe("self-healing: a goal of a running plan without any task gets its tasks
   });
 });
 
-describe("Notion: synced items update the goal and the draft evaluation automatically", () => {
+describe("self-healing: a running plan from before automation, with no weeks and no tasks", () => {
+  it("the daily job creates its weeks, weekly targets and daily tasks", async () => {
+    const plan = await plans.createMonthlyPlan(manager, { employeeId: emp, year: Y, month: 7, templateId: null, useTemplate: false, executionStartDate: `${Y}-07-01`, weeksCount: 4 });
+    await plans.addGoal(manager, plan.id, {
+      name: "تصميم بنرات جديدة للمتجر.", description: null, goalType: "NUMERIC", targetValue: 8, unit: "بنر", weight: 100, priority: "HIGH",
+      source: "MANUAL", category: "PRODUCTIVITY", notionDataSourceId: null, notionFilter: null, startDate: null, dueDate: null,
+    });
+    // a legacy plan: approved directly in the database, nothing was ever generated
+    await db.monthlyPlan.update({ where: { id: plan.id }, data: { status: "IN_PROGRESS" } });
+    expect(await db.weeklyPlan.count({ where: { monthlyPlanId: plan.id } })).toBe(0);
+    await ensureMissingGoalTasks();
+    const weeks = await db.weeklyPlan.findMany({ where: { monthlyPlanId: plan.id }, include: { goals: true } });
+    expect(weeks).toHaveLength(4);
+    expect(weeks.reduce((a, w) => a + w.goals.reduce((b, g) => b + num(g.targetValue), 0), 0)).toBe(8);
+    const tasks = await db.dailyTask.findMany({ where: { monthlyGoal: { planId: plan.id } } });
+    expect(tasks.length).toBeGreaterThan(0);
+    expect(tasks.reduce((a, t) => a + num(t.target), 0)).toBe(8);
+  });
+});
+
+describe("Notion: the real sync engine (Notion API stubbed at HTTP) updates goal and draft evaluation", () => {
   const NM = 5;
+  const DS_NOTION_ID = "bbbbbbbb-0000-0000-0000-00000000a070";
+  const realFetch = globalThis.fetch;
+  let pages: { id: string; title: string; store: string | null }[] = [];
   let dsId: string, notionPlanId: string, notionGoalId: string;
-  const at = new Date(`${Y}-05-05T09:00:00Z`);
-  const addItems = async (from: number, to: number) => {
-    for (let i = from; i < to; i++)
-      await db.notionSyncedItem.create({ data: { dataSourceId: dsId, notionPageId: `auto-${i}`, sourceDatabaseId: "db-auto", title: `منتج ${i}`, properties: { "الإضافة للمتجر": "تم الإضافة" }, createdTime: at, lastEditedTime: at } });
-    await rebuildStages(dsId); // what every sync does after writing the items
+  const page = (r: (typeof pages)[number]) => ({
+    object: "page", id: r.id, created_time: `${Y}-05-05T09:00:00.000Z`, last_edited_time: `${Y}-05-05T09:00:00.000Z`, archived: false, in_trash: false,
+    url: `https://www.notion.so/${r.id.replace(/-/g, "")}`, public_url: null, icon: null, cover: null,
+    parent: { type: "data_source_id", data_source_id: DS_NOTION_ID }, created_by: { object: "user", id: "u" }, last_edited_by: { object: "user", id: "u" },
+    properties: {
+      "اسم المنتج": { id: "title", type: "title", title: [{ type: "text", plain_text: r.title, text: { content: r.title, link: null }, annotations: {}, href: null }] },
+      "الإضافة للمتجر": { id: "s", type: "select", select: r.store ? { id: "y", name: r.store, color: "default" } : null },
+    },
+  });
+  const setPages = (done: number, total: number) => {
+    pages = Array.from({ length: total }, (_, i) => ({ id: `bbbbbbbb-0000-0000-0070-${String(i).padStart(12, "0")}`, title: `منتج ${i}`, store: i < done ? "تم الإضافة" : null }));
+  };
+  /** what «مزامنة الآن» does: the sync engine, then the recompute */
+  const syncNow = async () => {
+    const r = await syncDataSource(dsId, "FULL_RESYNC");
+    expect(r.status).not.toBe("FAILED");
+    await recomputeForDataSource(dsId);
   };
 
   beforeAll(async () => {
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
+      if (url.hostname !== "api.notion.com") return realFetch(input, init);
+      if (url.pathname === `/v1/data_sources/${DS_NOTION_ID}/query`)
+        return new Response(JSON.stringify({ object: "list", type: "page_or_data_source", page_or_data_source: {}, results: pages.map(page), next_cursor: null, has_more: false }), { status: 200, headers: { "content-type": "application/json" } });
+      return new Response(JSON.stringify({ object: "error", status: 404, code: "object_not_found", message: "not stubbed" }), { status: 404, headers: { "content-type": "application/json" } });
+    }) as typeof fetch;
     const conn = await db.notionConnection.create({ data: { name: "integration-automation", tokenEncrypted: encryptSecret("ntn_stubbed_token_not_real_0000000"), tokenHint: "0000", status: "CONNECTED" } });
-    const ds = await db.notionDataSource.create({ data: { connectionId: conn.id, name: "منتجات (أتمتة)", notionDatabaseId: "db-auto", notionDataSourceId: "ds-auto", syncEnabled: false } });
+    const ds = await db.notionDataSource.create({ data: { connectionId: conn.id, name: "منتجات (أتمتة)", notionDatabaseId: "db-auto", notionDataSourceId: DS_NOTION_ID, syncEnabled: false, defaultEmployeeId: emp } });
     dsId = ds.id;
+    await db.notionFieldMapping.create({ data: { dataSourceId: dsId, role: "TITLE", notionProperty: "اسم المنتج", notionPropertyType: "title", label: "اسم المنتج" } });
     await db.notionFieldMapping.create({
       data: { dataSourceId: dsId, role: "STATUS", notionProperty: "الإضافة للمتجر", notionPropertyType: "select", stageKey: "store", label: "الإضافة للمتجر", statusMappings: { create: [{ notionValue: "تم الإضافة", systemStatus: "COMPLETED" }] } },
     });
-    await addItems(0, 10);
+  });
+  afterAll(() => {
+    globalThis.fetch = realFetch;
   });
 
-  it("a Notion goal is computed from synced items once the plan is approved", async () => {
+  it("first sync: the Notion goal of an approved plan is computed from the pages, the draft evaluation follows", async () => {
+    setPages(10, 40);
     const plan = await plans.createMonthlyPlan(manager, { employeeId: emp, year: Y, month: NM, templateId: null, useTemplate: false, executionStartDate: `${Y}-05-01`, weeksCount: 4 });
     notionPlanId = plan.id;
     await plans.addGoal(manager, notionPlanId, {
@@ -194,19 +241,57 @@ describe("Notion: synced items update the goal and the draft evaluation automati
     notionGoalId = (await db.monthlyGoal.findFirstOrThrow({ where: { planId: notionPlanId } })).id;
     await plans.approvePlan(manager, notionPlanId, "معتمد");
     await db.monthlyPlan.update({ where: { id: notionPlanId }, data: { status: "IN_PROGRESS" } });
+    await syncNow();
+    expect(await db.notionSyncedItem.count({ where: { dataSourceId: dsId } })).toBe(40);
     expect(num((await db.monthlyGoal.findUniqueOrThrow({ where: { id: notionGoalId } })).achievedValue)).toBe(10);
     await ensureDraftEvaluations(`${Y}-05-10`);
     const e = await db.performanceEvaluation.findUniqueOrThrow({ where: { monthlyPlanId: notionPlanId }, include: { duties: { include: { indicators: true } } } });
     expect(num(e.duties.flatMap((d) => d.indicators).find((i) => i.sourceId === notionGoalId)!.achieved)).toBe(10);
   });
 
-  it("new synced items: the Notion recompute updates goal, progress and the draft evaluation", async () => {
-    await addItems(10, 30);
-    await recomputeForDataSource(dsId); // called by every Notion sync
+  it("next sync: more products added in Notion update goal, progress and the draft evaluation", async () => {
+    setPages(30, 40);
+    await syncNow();
     const goal = await db.monthlyGoal.findUniqueOrThrow({ where: { id: notionGoalId } });
     expect([num(goal.achievedValue), num(goal.progressPct)]).toEqual([30, 75]);
     const e = await db.performanceEvaluation.findUniqueOrThrow({ where: { monthlyPlanId: notionPlanId }, include: { duties: { include: { indicators: true } } } });
     const ind = e.duties.flatMap((d) => d.indicators).find((i) => i.sourceId === notionGoalId)!;
     expect([num(ind.achieved), num(ind.score)]).toEqual([30, 75]);
+  });
+});
+
+describe("one evaluation template for every automatic path", () => {
+  it("every draft is built from the official template; a drifted template is restored; approved evaluations never change", async () => {
+    const official = DEFAULT_TEMPLATE.duties.map((d) => d.weight);
+    expect(official).toEqual([20, 40, 20, 20]);
+    // every automatic draft so far (daily job, Notion plan, legacy plan) uses the official weights
+    const drafts = await db.performanceEvaluation.findMany({ where: { employeeId: emp, year: Y }, include: { duties: { orderBy: { sortOrder: "asc" } } } });
+    expect(drafts.length).toBeGreaterThanOrEqual(2);
+    for (const d of drafts) expect(d.duties.map((x) => num(x.weight))).toEqual(official);
+
+    // approve one, then let the stored template drift
+    const approved = drafts.find((d) => d.monthlyPlanId === planId)!;
+    await db.performanceEvaluation.update({ where: { id: approved.id }, data: { status: "APPROVED" } });
+    const template = await db.evaluationTemplate.findFirstOrThrow({ where: { name: DEFAULT_TEMPLATE.name }, include: { duties: { orderBy: { sortOrder: "asc" } } } });
+    await db.evaluationTemplateDuty.update({ where: { id: template.duties[1].id }, data: { weight: 25 } });
+    await db.evaluationTemplateDuty.update({ where: { id: template.duties[3].id }, data: { weight: 35 } });
+
+    // the next automatic draft restores the official template and uses it
+    const plan = await plans.createMonthlyPlan(manager, { employeeId: emp, year: Y, month: 9, templateId: null, useTemplate: false, executionStartDate: `${Y}-09-01`, weeksCount: 4 });
+    await plans.addGoal(manager, plan.id, {
+      name: "إضافة منتجات جديدة", description: null, goalType: "NUMERIC", targetValue: 10, unit: "منتج", weight: 100, priority: "HIGH",
+      source: "MANUAL", category: "PRODUCTIVITY", notionDataSourceId: null, notionFilter: null, startDate: null, dueDate: null,
+    });
+    await plans.approvePlan(manager, plan.id, "معتمد");
+    await db.monthlyPlan.update({ where: { id: plan.id }, data: { status: "IN_PROGRESS" } });
+    await ensureDraftEvaluations(`${Y}-09-10`);
+    const fresh = await db.performanceEvaluation.findUniqueOrThrow({ where: { monthlyPlanId: plan.id }, include: { duties: { orderBy: { sortOrder: "asc" } } } });
+    expect(fresh.duties.map((x) => num(x.weight))).toEqual(official);
+    const restored = await db.evaluationTemplate.findFirstOrThrow({ where: { name: DEFAULT_TEMPLATE.name }, include: { duties: { orderBy: { sortOrder: "asc" } } } });
+    expect(restored.duties.map((x) => num(x.weight))).toEqual(official);
+    // the approved evaluation kept its own copy
+    const kept = await db.performanceEvaluation.findUniqueOrThrow({ where: { id: approved.id }, include: { duties: { orderBy: { sortOrder: "asc" } } } });
+    expect(kept.duties.map((x) => num(x.weight))).toEqual(official);
+    expect(kept.status).toBe("APPROVED");
   });
 });

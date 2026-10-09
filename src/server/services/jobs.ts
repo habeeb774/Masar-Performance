@@ -214,15 +214,17 @@ export async function ensureDraftEvaluations(today: string) {
  */
 export async function ensureMissingGoalTasks() {
   const goals = await db.monthlyGoal.findMany({
-    where: { status: { not: "CANCELLED" }, targetValue: { gt: 0 }, plan: { status: { in: ["APPROVED", "IN_PROGRESS"] } }, dailyTasks: { none: {} }, weeklyGoals: { some: { targetValue: { gt: 0 } } } },
+    where: { status: { not: "CANCELLED" }, targetValue: { gt: 0 }, plan: { status: { in: ["APPROVED", "IN_PROGRESS"] } }, dailyTasks: { none: {} } },
     select: { id: true, planId: true },
   });
   const byPlan = new Map<string, string[]>();
   for (const g of goals) byPlan.set(g.planId, [...(byPlan.get(g.planId) ?? []), g.id]);
-  const { autoDistributePlan } = await import("./plans");
+  const { autoDistributePlan, ensureWeeklyPlans } = await import("./plans");
   const { recomputePlan } = await import("./progress");
   for (const [planId, ids] of byPlan) {
     try {
+      // a plan from before automatic distribution may have no weeks / weekly targets at all
+      await ensureWeeklyPlans(planId);
       await autoDistributePlan(planId, null, { onlyGoalIds: ids });
       await recomputePlan(planId);
     } catch (e) {
