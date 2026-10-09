@@ -95,6 +95,7 @@ export async function runDailyJobs() {
 
   summary.recurringTasks = await ensureThursdayRecurringTasks(today);
 
+  summary.goalsWithNewTasks = await ensureMissingGoalTasks();
   summary.evaluations = await ensureDraftEvaluations(today);
 
   const generated = await ensureDueReports({ employeeIds: "ALL", notify: true });
@@ -204,4 +205,29 @@ export async function ensureDraftEvaluations(today: string) {
     }
   }
   return created;
+}
+
+/**
+ * Self-heal: every goal of a running plan that has no daily task at all (e.g. a plan from before
+ * automatic distribution) gets its tasks generated. Goals that already have tasks are never
+ * re-split, so no target can be inflated.
+ */
+export async function ensureMissingGoalTasks() {
+  const goals = await db.monthlyGoal.findMany({
+    where: { status: { not: "CANCELLED" }, targetValue: { gt: 0 }, plan: { status: { in: ["APPROVED", "IN_PROGRESS"] } }, dailyTasks: { none: {} }, weeklyGoals: { some: { targetValue: { gt: 0 } } } },
+    select: { id: true, planId: true },
+  });
+  const byPlan = new Map<string, string[]>();
+  for (const g of goals) byPlan.set(g.planId, [...(byPlan.get(g.planId) ?? []), g.id]);
+  const { autoDistributePlan } = await import("./plans");
+  const { recomputePlan } = await import("./progress");
+  for (const [planId, ids] of byPlan) {
+    try {
+      await autoDistributePlan(planId, null, { onlyGoalIds: ids });
+      await recomputePlan(planId);
+    } catch (e) {
+      console.error("[jobs] task self-heal failed", planId, e);
+    }
+  }
+  return goals.length;
 }

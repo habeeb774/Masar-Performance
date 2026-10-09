@@ -8,7 +8,10 @@ import { db } from "@/server/db";
 import type { AuthUser } from "@/server/auth/session";
 import * as plans from "@/server/services/plans";
 import * as manual from "@/server/services/manual";
-import { ensureDraftEvaluations } from "@/server/services/jobs";
+import { ensureDraftEvaluations, ensureMissingGoalTasks } from "@/server/services/jobs";
+import { recomputeForDataSource } from "@/server/services/progress";
+import { rebuildStages } from "@/server/notion/sync";
+import { encryptSecret } from "@/server/crypto";
 import { updateTaskProgress } from "@/server/services/tasks";
 import { weightedProgress } from "@/lib/weighted-progress";
 import { toDateKey } from "@/lib/dates";
@@ -34,6 +37,7 @@ let manager: AuthUser, employee: AuthUser, emp: string, planId: string, goalId: 
 const cleanup = async () => {
   await db.performanceEvaluation.deleteMany({ where: { employeeId: emp, year: Y } });
   await db.monthlyPlan.deleteMany({ where: { employeeId: emp, year: Y } });
+  await db.notionConnection.deleteMany({ where: { name: "integration-automation" } });
 };
 
 beforeAll(async () => {
@@ -139,5 +143,70 @@ describe("every change recalculates progress and the draft evaluation", () => {
     expect(await planProgress()).toBe(weightedProgress(goals.filter((x) => x.id !== editId)));
     const ind = (await evaluationIndicators()).find((i) => i.sourceId === editId);
     expect(ind === undefined || num(ind.weight) === 0).toBe(true);
+  });
+});
+
+describe("self-healing: a goal of a running plan without any task gets its tasks", () => {
+  it("the daily job regenerates the missing tasks and leaves other goals alone", async () => {
+    const others = await db.dailyTask.count({ where: { monthlyGoal: { planId }, NOT: { monthlyGoalId: goalId } } });
+    await db.dailyTask.deleteMany({ where: { monthlyGoalId: goalId } });
+    expect(await ensureMissingGoalTasks()).toBeGreaterThanOrEqual(1);
+    const tasks = await db.dailyTask.findMany({ where: { monthlyGoalId: goalId } });
+    expect(tasks.length).toBeGreaterThan(0);
+    expect(tasks.every((t) => t.weeklyGoalId && toDateKey(t.date) >= `${Y}-03-01` && toDateKey(t.date) <= `${Y}-03-28`)).toBe(true);
+    expect(await db.dailyTask.count({ where: { monthlyGoal: { planId }, NOT: { monthlyGoalId: goalId } } })).toBe(others);
+    // a second run has nothing left to heal for this goal
+    const again = await db.dailyTask.count({ where: { monthlyGoalId: goalId } });
+    await ensureMissingGoalTasks();
+    expect(await db.dailyTask.count({ where: { monthlyGoalId: goalId } })).toBe(again);
+  });
+});
+
+describe("Notion: synced items update the goal and the draft evaluation automatically", () => {
+  const NM = 5;
+  let dsId: string, notionPlanId: string, notionGoalId: string;
+  const at = new Date(`${Y}-05-05T09:00:00Z`);
+  const addItems = async (from: number, to: number) => {
+    for (let i = from; i < to; i++)
+      await db.notionSyncedItem.create({ data: { dataSourceId: dsId, notionPageId: `auto-${i}`, sourceDatabaseId: "db-auto", title: `منتج ${i}`, properties: { "الإضافة للمتجر": "تم الإضافة" }, createdTime: at, lastEditedTime: at } });
+    await rebuildStages(dsId); // what every sync does after writing the items
+  };
+
+  beforeAll(async () => {
+    const conn = await db.notionConnection.create({ data: { name: "integration-automation", tokenEncrypted: encryptSecret("ntn_stubbed_token_not_real_0000000"), tokenHint: "0000", status: "CONNECTED" } });
+    const ds = await db.notionDataSource.create({ data: { connectionId: conn.id, name: "منتجات (أتمتة)", notionDatabaseId: "db-auto", notionDataSourceId: "ds-auto", syncEnabled: false } });
+    dsId = ds.id;
+    await db.notionFieldMapping.create({
+      data: { dataSourceId: dsId, role: "STATUS", notionProperty: "الإضافة للمتجر", notionPropertyType: "select", stageKey: "store", label: "الإضافة للمتجر", statusMappings: { create: [{ notionValue: "تم الإضافة", systemStatus: "COMPLETED" }] } },
+    });
+    await addItems(0, 10);
+  });
+
+  it("a Notion goal is computed from synced items once the plan is approved", async () => {
+    const plan = await plans.createMonthlyPlan(manager, { employeeId: emp, year: Y, month: NM, templateId: null, useTemplate: false, executionStartDate: `${Y}-05-01`, weeksCount: 4 });
+    notionPlanId = plan.id;
+    await plans.addGoal(manager, notionPlanId, {
+      name: "إضافة منتجات جديدة", description: null, goalType: "NOTION_SYNCED", targetValue: 40, unit: "منتج", weight: 100, priority: "HIGH",
+      source: "NOTION", category: "PRODUCTIVITY", notionDataSourceId: dsId,
+      notionFilter: { stageKey: "store", completedStatuses: ["COMPLETED"], completedRawValues: [], conditions: [], dateBasis: "NONE", matchEmployee: false },
+      startDate: null, dueDate: null,
+    });
+    notionGoalId = (await db.monthlyGoal.findFirstOrThrow({ where: { planId: notionPlanId } })).id;
+    await plans.approvePlan(manager, notionPlanId, "معتمد");
+    await db.monthlyPlan.update({ where: { id: notionPlanId }, data: { status: "IN_PROGRESS" } });
+    expect(num((await db.monthlyGoal.findUniqueOrThrow({ where: { id: notionGoalId } })).achievedValue)).toBe(10);
+    await ensureDraftEvaluations(`${Y}-05-10`);
+    const e = await db.performanceEvaluation.findUniqueOrThrow({ where: { monthlyPlanId: notionPlanId }, include: { duties: { include: { indicators: true } } } });
+    expect(num(e.duties.flatMap((d) => d.indicators).find((i) => i.sourceId === notionGoalId)!.achieved)).toBe(10);
+  });
+
+  it("new synced items: the Notion recompute updates goal, progress and the draft evaluation", async () => {
+    await addItems(10, 30);
+    await recomputeForDataSource(dsId); // called by every Notion sync
+    const goal = await db.monthlyGoal.findUniqueOrThrow({ where: { id: notionGoalId } });
+    expect([num(goal.achievedValue), num(goal.progressPct)]).toEqual([30, 75]);
+    const e = await db.performanceEvaluation.findUniqueOrThrow({ where: { monthlyPlanId: notionPlanId }, include: { duties: { include: { indicators: true } } } });
+    const ind = e.duties.flatMap((d) => d.indicators).find((i) => i.sourceId === notionGoalId)!;
+    expect([num(ind.achieved), num(ind.score)]).toEqual([30, 75]);
   });
 });

@@ -169,7 +169,7 @@ export async function addGoal(user: AuthUser, planId: string, input: GoalInput) 
     await ensureWeeklyPlans(planId);
     // a goal added to a running plan gets its daily tasks right away, like at approval —
     // only this goal, so the plan's other goals are never re-split
-    await autoDistributePlan(planId, user.id, { onlyGoalId: goal.id });
+    await autoDistributePlan(planId, user.id, { onlyGoalIds: [goal.id] });
     await recomputePlan(planId);
   }
   return goal;
@@ -356,7 +356,7 @@ export async function ensureWeeklyPlans(planId: string) {
  * tasks from today on, so nobody has to "save the distribution" by hand.
  * Weeks or goals that already have a saved distribution are left untouched.
  */
-export async function autoDistributePlan(planId: string, userId: string | null, opts: { onlyGoalId?: string } = {}) {
+export async function autoDistributePlan(planId: string, userId: string | null, opts: { onlyGoalIds?: string[] } = {}) {
   const company = await getCompany();
   const today = todayKey(company.timezone);
   const plan = await db.monthlyPlan.findUniqueOrThrow({ where: { id: planId }, include: { weeklyPlans: true } });
@@ -383,7 +383,7 @@ export async function autoDistributePlan(planId: string, userId: string | null, 
     for (const wg of week.goals) {
       const goal = wg.monthlyGoal;
       if (goal.status === "CANCELLED") continue;
-      if (opts.onlyGoalId && goal.id !== opts.onlyGoalId) continue;
+      if (opts.onlyGoalIds && !opts.onlyGoalIds.includes(goal.id)) continue;
       const target = num(wg.targetValue);
       if (target <= 0) continue;
       const goalStart = goal.startDate ? toDateKey(goal.startDate) : null;
